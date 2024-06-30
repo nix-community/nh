@@ -42,7 +42,7 @@ pub struct Main {
     /// Show debug logs
     pub verbose: bool,
 
-    #[arg(short, long, global = true, value_hint = clap::ValueHint::ExecutablePath)]
+    #[arg(short, long, global = true, env, value_hint = clap::ValueHint::ExecutablePath)]
     /// Choose what privilege elevation program should be used
     pub elevation_program: Option<OsString>,
 
