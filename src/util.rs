@@ -352,6 +352,7 @@ pub fn print_dix_diff(old_generation: &Path, new_generation: &Path) -> Result<()
 ///
 /// 1. `doas`
 /// 1. `sudo`
+/// 1. `run0`
 /// 1. `pkexec`
 ///
 /// The logic for choosing this order is that a person with doas installed is more likely
@@ -364,11 +365,14 @@ pub fn print_dix_diff(old_generation: &Path, new_generation: &Path) -> Result<()
 pub fn get_elevation_program() -> Result<OsString> {
     let args = <Main as clap::Parser>::parse();
     if let Some(path) = args.elevation_program.map(|path| which(path)) {
-        debug!(?path, "privilege elevation path specified via command line argument");
+        debug!(
+            ?path,
+            "privilege elevation path specified via command line argument"
+        );
         return Ok(path?.into_os_string());
     }
 
-    const STRATEGIES: [&str; 3] = ["doas", "sudo", "pkexec"];
+    const STRATEGIES: [&str; 4] = ["doas", "sudo", "run0", "pkexec"];
 
     for strategy in STRATEGIES {
         if let Ok(path) = which(strategy) {
