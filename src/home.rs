@@ -10,6 +10,7 @@ use crate::commands::Command;
 use crate::installable::Installable;
 use crate::interface::{self, HomeRebuildArgs, HomeReplArgs, HomeSubcommand};
 use crate::update::update;
+use crate::util::get_hostname;
 
 impl interface::HomeArgs {
     pub fn run(self) -> Result<()> {
@@ -170,11 +171,7 @@ where
 
             // check for <user> and <user@hostname>
             let username = std::env::var("USER").expect("Couldn't get username");
-            let hostname = hostname::get()
-                .expect("Couldn't get hostname")
-                .to_str()
-                .unwrap()
-                .to_string();
+            let hostname = get_hostname()?;
 
             let mut tried = vec![];
 

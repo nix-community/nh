@@ -74,3 +74,31 @@ impl MaybeTempPath for (PathBuf, TempDir) {
         self.0.as_ref()
     }
 }
+
+pub fn get_hostname() -> Result<String> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        use color_eyre::eyre::Context;
+        Ok(hostname::get()
+            .context("Failed to get hostname")?
+            .to_str()
+            .unwrap()
+            .to_string())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use color_eyre::eyre::bail;
+        use system_configuration::{
+            core_foundation::{base::TCFType, string::CFString},
+            sys::dynamic_store_copy_specific::SCDynamicStoreCopyLocalHostName,
+        };
+
+        let ptr = unsafe { SCDynamicStoreCopyLocalHostName(std::ptr::null()) };
+        if ptr.is_null() {
+            bail!("Failed to get hostname");
+        }
+        let name = unsafe { CFString::wrap_under_get_rule(ptr) };
+
+        Ok(name.to_string())
+    }
+}

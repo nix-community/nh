@@ -12,6 +12,7 @@ use crate::installable::Installable;
 use crate::interface::OsSubcommand::{self};
 use crate::interface::{self, OsGenerationsArgs, OsRebuildArgs, OsReplArgs};
 use crate::update::update;
+use crate::util::get_hostname;
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
 const CURRENT_PROFILE: &str = "/run/current-system";
@@ -63,14 +64,7 @@ impl OsRebuildArgs {
             update(&self.common.installable, self.update_args.update_input)?;
         }
 
-        let hostname = match &self.hostname {
-            Some(h) => h.to_owned(),
-            None => hostname::get()
-                .context("Failed to get hostname")?
-                .to_str()
-                .unwrap()
-                .to_owned(),
-        };
+        let hostname = self.hostname.ok_or(()).or_else(|()| get_hostname())?;
 
         let out_path: Box<dyn crate::util::MaybeTempPath> = match self.common.out_link {
             Some(ref p) => Box::new(p.clone()),
@@ -216,9 +210,7 @@ impl OsReplArgs {
             bail!("Nix doesn't support nix store installables.");
         }
 
-        let hostname = self
-            .hostname
-            .unwrap_or_else(|| hostname::get().unwrap().to_str().unwrap().to_string());
+        let hostname = self.hostname.ok_or(()).or_else(|()| get_hostname())?;
 
         if let Installable::Flake {
             ref mut attribute, ..

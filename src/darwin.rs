@@ -7,6 +7,7 @@ use crate::installable::Installable;
 use crate::interface::{DarwinArgs, DarwinRebuildArgs, DarwinReplArgs, DarwinSubcommand};
 use crate::nixos::toplevel_for;
 use crate::update::update;
+use crate::util::get_hostname;
 use crate::Result;
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
@@ -33,37 +34,6 @@ enum DarwinRebuildVariant {
     Build,
 }
 
-fn get_hostname(hostname: Option<String>) -> Result<String> {
-    match &hostname {
-        Some(h) => Ok(h.to_owned()),
-        None => {
-            #[cfg(not(target_os = "macos"))]
-            {
-                Ok(hostname::get()
-                    .context("Failed to get hostname")?
-                    .to_str()
-                    .unwrap()
-                    .to_string())
-            }
-            #[cfg(target_os = "macos")]
-            {
-                use system_configuration::{
-                    core_foundation::{base::TCFType, string::CFString},
-                    sys::dynamic_store_copy_specific::SCDynamicStoreCopyLocalHostName,
-                };
-
-                let ptr = unsafe { SCDynamicStoreCopyLocalHostName(std::ptr::null()) };
-                if ptr.is_null() {
-                    bail!("Failed to get hostname");
-                }
-                let name = unsafe { CFString::wrap_under_get_rule(ptr) };
-
-                Ok(name.to_string())
-            }
-        }
-    }
-}
-
 impl DarwinRebuildArgs {
     fn rebuild(self, variant: DarwinRebuildVariant) -> Result<()> {
         use DarwinRebuildVariant::*;
@@ -76,7 +46,7 @@ impl DarwinRebuildArgs {
             update(&self.common.installable, self.update_args.update_input)?;
         }
 
-        let hostname = get_hostname(self.hostname)?;
+        let hostname = self.hostname.ok_or(()).or_else(|()| get_hostname())?;
 
         let out_path: Box<dyn crate::util::MaybeTempPath> = match self.common.out_link {
             Some(ref p) => Box::new(p.clone()),
@@ -170,7 +140,7 @@ impl DarwinReplArgs {
             bail!("Nix doesn't support nix store installables.");
         }
 
-        let hostname = get_hostname(self.hostname)?;
+        let hostname = self.hostname.ok_or(()).or_else(|()| get_hostname())?;
 
         if let Installable::Flake {
             ref mut attribute, ..
