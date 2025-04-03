@@ -21,9 +21,9 @@ const NH_REV: Option<&str> = option_env!("NH_REV");
 
 fn main() -> Result<()> {
     let mut do_warn = false;
-    if let Ok(f) = std::env::var("FLAKE") {
-        do_warn = true;
-        if std::env::var("NH_FLAKE").is_err() {
+    if std::env::var("NH_FLAKE").is_err() {
+        if let Ok(f) = std::env::var("FLAKE") {
+            do_warn = true;
             std::env::set_var("NH_FLAKE", f);
         }
     }
