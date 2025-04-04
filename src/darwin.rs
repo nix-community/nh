@@ -108,18 +108,22 @@ impl DarwinRebuildArgs {
                 .dry(self.common.dry)
                 .run()?;
 
-            let switch_to_configuration = out_path.get_path().join("activate-user");
+            let darwin_rebuild = out_path.get_path().join("sw/bin/darwin-rebuild");
+            let activate_user = out_path.get_path().join("activate-user");
 
-            Command::new(switch_to_configuration)
-                .message("Activating configuration for user")
-                .dry(self.common.dry)
-                .run()?;
+            // Determine if we need to elevate privileges
+            let needs_elevation = !activate_user
+                .try_exists()
+                .context("Failed to check if activate-user file exists")?
+                || std::fs::read_to_string(&activate_user)
+                    .context("Failed to read activate-user file")?
+                    .contains("# nix-darwin: deprecated");
 
-            let switch_to_configuration = out_path.get_path().join("activate");
-
-            Command::new(switch_to_configuration)
-                .elevate(true)
+            // Create and run the activation command with or without elevation
+            Command::new(darwin_rebuild)
+                .arg("activate")
                 .message("Activating configuration")
+                .elevate(needs_elevation)
                 .dry(self.common.dry)
                 .run()?;
         }
