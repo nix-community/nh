@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
@@ -44,6 +45,20 @@ pub fn from_dir(generation_dir: &Path) -> Option<u64> {
 
 pub fn describe(generation_dir: &Path, current_profile: &Path) -> Option<GenerationInfo> {
     let generation_number = from_dir(generation_dir)?;
+
+    // Get metadata once and reuse for both date and existence checks
+    let metadata = fs::metadata(generation_dir).ok()?;
+    let build_date = metadata
+        .created()
+        .or_else(|_| metadata.modified())
+        .map(|system_time| {
+            let duration = system_time
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default();
+            DateTime::<Utc>::from(std::time::UNIX_EPOCH + duration).to_rfc3339()
+        })
+        .unwrap_or_else(|_| "Unknown".to_string());
+
     let nixos_version = fs::read_to_string(generation_dir.join("nixos-version"))
         .unwrap_or_else(|_| "Unknown".to_string());
 
@@ -54,22 +69,28 @@ pub fn describe(generation_dir: &Path, current_profile: &Path) -> Option<Generat
         .and_then(|path| path.parent().map(|p| p.to_path_buf()))
         .unwrap_or_else(|| PathBuf::from("Unknown"));
 
-    let kernel_version = fs::read_dir(kernel_dir.join("lib/modules"))
-        .map(|entries| {
-            let mut versions = vec![];
-            for entry in entries.filter_map(Result::ok) {
-                if let Some(name) = entry.file_name().to_str() {
-                    versions.push(name.to_string());
+    let kernel_modules_dir = kernel_dir.join("lib/modules");
+    let kernel_version = if kernel_modules_dir.exists() {
+        match fs::read_dir(&kernel_modules_dir) {
+            Ok(entries) => {
+                let mut versions = Vec::with_capacity(4);
+                for entry in entries.filter_map(Result::ok) {
+                    if let Some(name) = entry.file_name().to_str() {
+                        versions.push(name.to_string());
+                    }
                 }
+                versions.join(", ")
             }
-            versions.join(", ")
-        })
-        .unwrap_or_else(|_| "Unknown".to_string());
+            Err(_) => "Unknown".to_string(),
+        }
+    } else {
+        "Unknown".to_string()
+    };
 
     let configuration_revision = {
         let nixos_version_path = generation_dir.join("sw/bin/nixos-version");
         if nixos_version_path.exists() {
-            process::Command::new(nixos_version_path)
+            process::Command::new(&nixos_version_path)
                 .arg("--configuration-revision")
                 .output()
                 .ok()
@@ -82,45 +103,30 @@ pub fn describe(generation_dir: &Path, current_profile: &Path) -> Option<Generat
         }
     };
 
-    let build_date = fs::metadata(generation_dir)
-        .and_then(|metadata| metadata.created().or_else(|_| metadata.modified()))
-        .map(|system_time| {
-            let duration = system_time
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default();
-            DateTime::<Utc>::from(std::time::UNIX_EPOCH + duration).to_rfc3339()
-        })
-        .unwrap_or_else(|_| "Unknown".to_string());
-
     let specialisations = {
         let specialisation_path = generation_dir.join("specialisation");
         if specialisation_path.exists() {
             fs::read_dir(specialisation_path)
                 .map(|entries| {
-                    entries
-                        .filter_map(|entry| {
-                            entry
-                                .ok()
-                                .and_then(|e| e.file_name().to_str().map(String::from))
-                        })
-                        .collect::<Vec<String>>()
+                    let mut specs = Vec::with_capacity(5);
+                    for entry in entries.filter_map(Result::ok) {
+                        if let Some(name) = entry.file_name().to_str() {
+                            specs.push(name.to_string());
+                        }
+                    }
+                    specs
                 })
                 .unwrap_or_default()
         } else {
-            vec![]
+            Vec::new()
         }
     };
 
-    let current = generation_dir
+    let canonical_gen_dir = generation_dir.canonicalize().ok()?;
+    let current = current_profile
         .canonicalize()
         .ok()
-        .map(|canonical_gen_dir| {
-            current_profile
-                .canonicalize()
-                .ok()
-                .map(|canonical_current| canonical_gen_dir == canonical_current)
-                .unwrap_or(false)
-        })
+        .map(|canonical_current| canonical_gen_dir == canonical_current)
         .unwrap_or(false);
 
     Some(GenerationInfo {
@@ -135,27 +141,39 @@ pub fn describe(generation_dir: &Path, current_profile: &Path) -> Option<Generat
 }
 
 pub fn print_info(mut generations: Vec<GenerationInfo>) {
-    // Get path information for the *current generation* from /run/current-system
-    // and split it by whitespace to get the size (second part). This should be
-    // safe enough, in theory.
-    let path_info = process::Command::new("nix")
-        .arg("path-info")
-        .arg("-Sh")
-        .arg("/run/current-system")
-        .output();
+    let closure = {
+        // Get path information for the *current generation* from /run/current-system
+        // and split it by whitespace to get the size (second part). This should be
+        // safe enough, in theory.
+        let path_info = process::Command::new("nix")
+            .arg("path-info")
+            .arg("-Sh")
+            .arg("/run/current-system")
+            .output();
 
-    let closure = if let Ok(output) = path_info {
-        let size_info = String::from_utf8_lossy(&output.stdout);
-        let size = size_info.split_whitespace().nth(1).unwrap_or("Unknown");
-        size.to_string()
-    } else {
-        "Unknown".to_string()
+        if let Ok(output) = path_info {
+            let size_info = String::from_utf8_lossy(&output.stdout);
+            let size = size_info.split_whitespace().nth(1).unwrap_or("Unknown");
+            size.to_string()
+        } else {
+            "Unknown".to_string()
+        }
     };
+
+    // Parse all dates at once and cache them
+    let mut parsed_dates = HashMap::with_capacity(generations.len());
+    for gen in &generations {
+        let date = DateTime::parse_from_rfc3339(&gen.date)
+            .map(|dt| dt.with_timezone(&Local))
+            .unwrap_or_else(|_| Local.timestamp_opt(0, 0).unwrap());
+        parsed_dates.insert(
+            gen.date.clone(),
+            date.format("%Y-%m-%d %H:%M:%S").to_string(),
+        );
+    }
 
     // Sort generations by numeric value of the generation number
     generations.sort_by_key(|gen| gen.number.parse::<u64>().unwrap_or(0));
-
-    // Retrieve the current generation
     let current_generation = generations
         .iter()
         .max_by_key(|gen| gen.number.parse::<u64>().unwrap_or(0));
@@ -196,23 +214,21 @@ pub fn print_info(mut generations: Vec<GenerationInfo>) {
 
     // Print generations in descending order
     for generation in generations.iter().rev() {
-        let date_str = &generation.date;
-        let date = DateTime::parse_from_rfc3339(date_str)
-            .map(|dt| dt.with_timezone(&Local))
-            .unwrap_or_else(|err| {
-                eprintln!(
-                    "Failed to parse date `{}` with error: {}. Using default date.",
-                    date_str, err
-                );
-                Local.timestamp_opt(0, 0).unwrap() // default to Unix epoch
-            });
-        let formatted_date = date.format("%Y-%m-%d %H:%M:%S").to_string();
-        let specialisations = generation
-            .specialisations
-            .iter()
-            .map(|s| format!("*{}", s))
-            .collect::<Vec<String>>()
-            .join(" ");
+        let formatted_date = parsed_dates
+            .get(&generation.date)
+            .cloned()
+            .unwrap_or_else(|| "Unknown".to_string());
+
+        let specialisations = if generation.specialisations.is_empty() {
+            String::new()
+        } else {
+            generation
+                .specialisations
+                .iter()
+                .map(|s| format!("*{}", s))
+                .collect::<Vec<String>>()
+                .join(" ")
+        };
 
         println!(
             "{:<13} {:<20} {:<width_nixos$} {:<width_kernel$} {:<25} {}",
