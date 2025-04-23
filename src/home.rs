@@ -52,7 +52,26 @@ impl HomeRebuildArgs {
 
         debug!(?out_path);
 
-        let toplevel = toplevel_for(self.common.installable.clone(), true, &self.extra_args)?;
+        // Use NH_HOME_FLAKE if available, otherwise use the provided installable
+        let installable = if let Ok(home_flake) = env::var("NH_HOME_FLAKE") {
+            debug!("Using NH_HOME_FLAKE: {}", home_flake);
+
+            let mut elems = home_flake.splitn(2, '#');
+            let reference = elems.next().unwrap().to_owned();
+            let attribute = elems
+                .next()
+                .map(|s| crate::installable::parse_attribute(s))
+                .unwrap_or_default();
+
+            Installable::Flake {
+                reference,
+                attribute,
+            }
+        } else {
+            self.common.installable.clone()
+        };
+
+        let toplevel = toplevel_for(installable, true, &self.extra_args)?;
 
         commands::Build::new(toplevel)
             .extra_arg("--out-link")
@@ -162,13 +181,6 @@ where
             ref reference,
             ref mut attribute,
         } => 'flake: {
-            // Check if we're using NH_HOME_FLAKE to give it precedence
-            if env::var("NH_HOME_FLAKE").is_ok()
-                && env::var("NH_HOME_FLAKE").unwrap() == reference.to_string()
-            {
-                debug!("Using NH_HOME_FLAKE: {}", reference);
-            }
-
             // If user explicitly selects some other attribute, don't push homeConfigurations
             if !attribute.is_empty() {
                 break 'flake;
@@ -179,6 +191,8 @@ where
             // check for <user> and <user@hostname>
             let username = std::env::var("USER").expect("Couldn't get username");
             let hostname = get_hostname()?;
+
+            let flake_reference = reference.clone();
 
             let mut tried = vec![];
 
@@ -191,7 +205,7 @@ where
                     .arg(func)
                     .args(
                         (Installable::Flake {
-                            reference: reference.clone(),
+                            reference: flake_reference.clone(),
                             attribute: attribute.clone(),
                         })
                         .to_args(),
@@ -223,7 +237,7 @@ where
                 .into_iter()
                 .map(|a| {
                     let f = Installable::Flake {
-                        reference: reference.clone(),
+                        reference: flake_reference.clone(),
                         attribute: a,
                     };
                     f.to_args().join(" ")
@@ -255,7 +269,26 @@ where
 
 impl HomeReplArgs {
     fn run(self) -> Result<()> {
-        let toplevel = toplevel_for(self.installable, false, &self.extra_args)?;
+        // Use NH_HOME_FLAKE if available, otherwise use the provided installable
+        let installable = if let Ok(home_flake) = env::var("NH_HOME_FLAKE") {
+            debug!("Using NH_HOME_FLAKE: {}", home_flake);
+
+            let mut elems = home_flake.splitn(2, '#');
+            let reference = elems.next().unwrap().to_owned();
+            let attribute = elems
+                .next()
+                .map(|s| crate::installable::parse_attribute(s))
+                .unwrap_or_default();
+
+            Installable::Flake {
+                reference,
+                attribute,
+            }
+        } else {
+            self.installable
+        };
+
+        let toplevel = toplevel_for(installable, false, &self.extra_args)?;
 
         Command::new("nix")
             .arg("repl")

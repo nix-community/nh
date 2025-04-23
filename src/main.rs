@@ -25,15 +25,15 @@ fn main() -> Result<()> {
         // Set NH_FLAKE if it's not already set
         if std::env::var("NH_FLAKE").is_err() {
             std::env::set_var("NH_FLAKE", f);
-        }
 
-        // Only warn if FLAKE is set and none of the NH_* variables are set
-        if std::env::var("NH_FLAKE").is_err()
-            && std::env::var("NH_OS_FLAKE").is_err()
-            && std::env::var("NH_HOME_FLAKE").is_err()
-            && std::env::var("NH_DARWIN_FLAKE").is_err()
-        {
-            do_warn = true;
+            // Only warn if FLAKE is set and we're using it to set NH_FLAKE
+            // AND none of the command-specific env vars are set
+            if std::env::var("NH_OS_FLAKE").is_err()
+                && std::env::var("NH_HOME_FLAKE").is_err()
+                && std::env::var("NH_DARWIN_FLAKE").is_err()
+            {
+                do_warn = true;
+            }
         }
     }
 

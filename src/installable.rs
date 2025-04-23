@@ -70,49 +70,68 @@ impl FromArgMatches for Installable {
             });
         }
 
-        // env var fallbacks with proper command-specific precedence
+        // env var fallbacks
+
+        // Check for command-specific flake env vars first
         if let Ok(subcommand) = env::var("NH_CURRENT_COMMAND") {
-            // Command-specific variables take precedence
-            match subcommand.as_str() {
-                "os" => {
-                    if let Ok(f) = env::var("NH_OS_FLAKE") {
-                        let mut elems = f.splitn(2, '#');
-                        return Ok(Self::Flake {
-                            reference: elems.next().unwrap().to_owned(),
-                            attribute: parse_attribute(
-                                elems.next().map(|s| s.to_string()).unwrap_or_default(),
-                            ),
-                        });
-                    }
+            if subcommand == "os" {
+                if let Ok(f) = env::var("NH_OS_FLAKE") {
+                    let mut elems = f.splitn(2, '#');
+                    return Ok(Self::Flake {
+                        reference: elems.next().unwrap().to_owned(),
+                        attribute: parse_attribute(
+                            elems.next().map(|s| s.to_string()).unwrap_or_default(),
+                        ),
+                    });
                 }
-                "home" => {
-                    if let Ok(f) = env::var("NH_HOME_FLAKE") {
-                        let mut elems = f.splitn(2, '#');
-                        return Ok(Self::Flake {
-                            reference: elems.next().unwrap().to_owned(),
-                            attribute: parse_attribute(
-                                elems.next().map(|s| s.to_string()).unwrap_or_default(),
-                            ),
-                        });
-                    }
+            } else if subcommand == "home" {
+                if let Ok(f) = env::var("NH_HOME_FLAKE") {
+                    let mut elems = f.splitn(2, '#');
+                    return Ok(Self::Flake {
+                        reference: elems.next().unwrap().to_owned(),
+                        attribute: parse_attribute(
+                            elems.next().map(|s| s.to_string()).unwrap_or_default(),
+                        ),
+                    });
                 }
-                "darwin" => {
-                    if let Ok(f) = env::var("NH_DARWIN_FLAKE") {
-                        let mut elems = f.splitn(2, '#');
-                        return Ok(Self::Flake {
-                            reference: elems.next().unwrap().to_owned(),
-                            attribute: parse_attribute(
-                                elems.next().map(|s| s.to_string()).unwrap_or_default(),
-                            ),
-                        });
-                    }
+            } else if subcommand == "darwin" {
+                if let Ok(f) = env::var("NH_DARWIN_FLAKE") {
+                    let mut elems = f.splitn(2, '#');
+                    return Ok(Self::Flake {
+                        reference: elems.next().unwrap().to_owned(),
+                        attribute: parse_attribute(
+                            elems.next().map(|s| s.to_string()).unwrap_or_default(),
+                        ),
+                    });
                 }
-                _ => {}
             }
         }
 
-        // General fallback to NH_FLAKE
         if let Ok(f) = env::var("NH_FLAKE") {
+            let mut elems = f.splitn(2, '#');
+            return Ok(Self::Flake {
+                reference: elems.next().unwrap().to_owned(),
+                attribute: parse_attribute(elems.next().map(|s| s.to_string()).unwrap_or_default()),
+            });
+        }
+
+        if let Ok(f) = env::var("NH_OS_FLAKE") {
+            let mut elems = f.splitn(2, '#');
+            return Ok(Self::Flake {
+                reference: elems.next().unwrap().to_owned(),
+                attribute: parse_attribute(elems.next().map(|s| s.to_string()).unwrap_or_default()),
+            });
+        }
+
+        if let Ok(f) = env::var("NH_HOME_FLAKE") {
+            let mut elems = f.splitn(2, '#');
+            return Ok(Self::Flake {
+                reference: elems.next().unwrap().to_owned(),
+                attribute: parse_attribute(elems.next().map(|s| s.to_string()).unwrap_or_default()),
+            });
+        }
+
+        if let Ok(f) = env::var("NH_DARWIN_FLAKE") {
             let mut elems = f.splitn(2, '#');
             return Ok(Self::Flake {
                 reference: elems.next().unwrap().to_owned(),
@@ -171,7 +190,7 @@ Nix accepts various kinds of installables:
 {}, {} <FILE> [ATTRPATH]
     Path to file with an optional attribute path.
     [env: NH_FILE={}]
-    [env: NH_ATTR={}]
+    [env: NH_ATTRP={}]
 
 {}, {} <EXPR> [ATTRPATH]
     Nix expression with an optional attribute path.
@@ -200,7 +219,7 @@ Nix accepts various kinds of installables:
 
 // TODO: should handle quoted attributes, like foo."bar.baz" -> ["foo", "bar.baz"]
 // maybe use chumsky?
-fn parse_attribute<S>(s: S) -> Vec<String>
+pub fn parse_attribute<S>(s: S) -> Vec<String>
 where
     S: AsRef<str>,
 {

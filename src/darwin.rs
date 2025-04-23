@@ -60,21 +60,30 @@ impl DarwinRebuildArgs {
 
         debug!(?out_path);
 
-        let mut installable = self.common.installable.clone();
+        // Use NH_DARWIN_FLAKE if available, otherwise use the provided installable
+        let installable = if let Ok(darwin_flake) = env::var("NH_DARWIN_FLAKE") {
+            debug!("Using NH_DARWIN_FLAKE: {}", darwin_flake);
 
-        if let Installable::Flake {
-            ref reference,
-            ref mut attribute,
-            ..
-        } = installable
-        {
-            // Check if using NH_DARWIN_FLAKE
-            if let Ok(darwin_flake) = env::var("NH_DARWIN_FLAKE") {
-                if darwin_flake == *reference {
-                    debug!("Using NH_DARWIN_FLAKE: {}", reference);
-                }
+            let mut elems = darwin_flake.splitn(2, '#');
+            let reference = elems.next().unwrap().to_owned();
+            let attribute = elems
+                .next()
+                .map(|s| crate::installable::parse_attribute(s))
+                .unwrap_or_default();
+
+            Installable::Flake {
+                reference,
+                attribute,
             }
+        } else {
+            self.common.installable.clone()
+        };
 
+        let mut processed_installable = installable;
+        if let Installable::Flake {
+            ref mut attribute, ..
+        } = processed_installable
+        {
             // If user explicitly selects some other attribute, don't push darwinConfigurations
             if attribute.is_empty() {
                 attribute.push(String::from("darwinConfigurations"));
@@ -82,7 +91,7 @@ impl DarwinRebuildArgs {
             }
         }
 
-        let toplevel = toplevel_for(hostname, installable);
+        let toplevel = toplevel_for(hostname, processed_installable);
 
         commands::Build::new(toplevel)
             .extra_arg("--out-link")
@@ -146,7 +155,24 @@ impl DarwinRebuildArgs {
 
 impl DarwinReplArgs {
     fn run(self) -> Result<()> {
-        let mut target_installable = self.installable;
+        // Use NH_DARWIN_FLAKE if available, otherwise use the provided installable
+        let mut target_installable = if let Ok(darwin_flake) = env::var("NH_DARWIN_FLAKE") {
+            debug!("Using NH_DARWIN_FLAKE: {}", darwin_flake);
+
+            let mut elems = darwin_flake.splitn(2, '#');
+            let reference = elems.next().unwrap().to_owned();
+            let attribute = elems
+                .next()
+                .map(|s| crate::installable::parse_attribute(s))
+                .unwrap_or_default();
+
+            Installable::Flake {
+                reference,
+                attribute,
+            }
+        } else {
+            self.installable
+        };
 
         if matches!(target_installable, Installable::Store { .. }) {
             bail!("Nix doesn't support nix store installables.");
@@ -155,18 +181,9 @@ impl DarwinReplArgs {
         let hostname = self.hostname.ok_or(()).or_else(|()| get_hostname())?;
 
         if let Installable::Flake {
-            ref reference,
-            ref mut attribute,
-            ..
+            ref mut attribute, ..
         } = target_installable
         {
-            // Check if using NH_DARWIN_FLAKE
-            if let Ok(darwin_flake) = env::var("NH_DARWIN_FLAKE") {
-                if darwin_flake == *reference {
-                    debug!("Using NH_DARWIN_FLAKE: {}", reference);
-                }
-            }
-
             if attribute.is_empty() {
                 attribute.push(String::from("darwinConfigurations"));
                 attribute.push(hostname);

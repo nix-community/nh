@@ -77,7 +77,26 @@ impl OsRebuildArgs {
 
         debug!(?out_path);
 
-        let toplevel = toplevel_for(hostname, self.common.installable.clone());
+        // Use NH_OS_FLAKE if available, otherwise use the provided installable
+        let installable = if let Ok(os_flake) = env::var("NH_OS_FLAKE") {
+            debug!("Using NH_OS_FLAKE: {}", os_flake);
+
+            let mut elems = os_flake.splitn(2, '#');
+            let reference = elems.next().unwrap().to_owned();
+            let attribute = elems
+                .next()
+                .map(|s| crate::installable::parse_attribute(s))
+                .unwrap_or_default();
+
+            Installable::Flake {
+                reference,
+                attribute,
+            }
+        } else {
+            self.common.installable.clone()
+        };
+
+        let toplevel = toplevel_for(hostname, installable);
 
         commands::Build::new(toplevel)
             .extra_arg("--out-link")
@@ -169,7 +188,7 @@ impl OsRebuildArgs {
 }
 
 pub fn toplevel_for<S: AsRef<str>>(hostname: S, installable: Installable) -> Installable {
-    let mut res = installable.clone();
+    let mut res = installable;
     let hostname = hostname.as_ref().to_owned();
 
     let toplevel = ["config", "system", "build", "toplevel"]
@@ -178,17 +197,8 @@ pub fn toplevel_for<S: AsRef<str>>(hostname: S, installable: Installable) -> Ins
 
     match res {
         Installable::Flake {
-            ref reference,
-            ref mut attribute,
-            ..
+            ref mut attribute, ..
         } => {
-            // Check if using NH_OS_FLAKE
-            if let Ok(os_flake) = env::var("NH_OS_FLAKE") {
-                if os_flake == *reference {
-                    debug!("Using NH_OS_FLAKE: {}", reference);
-                }
-            }
-
             // If user explicitly selects some other attribute, don't push nixosConfigurations
             if attribute.is_empty() {
                 attribute.push(String::from("nixosConfigurations"));
@@ -214,7 +224,24 @@ pub fn toplevel_for<S: AsRef<str>>(hostname: S, installable: Installable) -> Ins
 
 impl OsReplArgs {
     fn run(self) -> Result<()> {
-        let mut target_installable = self.installable;
+        // Use NH_OS_FLAKE if available, otherwise use the provided installable
+        let mut target_installable = if let Ok(os_flake) = env::var("NH_OS_FLAKE") {
+            debug!("Using NH_OS_FLAKE: {}", os_flake);
+
+            let mut elems = os_flake.splitn(2, '#');
+            let reference = elems.next().unwrap().to_owned();
+            let attribute = elems
+                .next()
+                .map(|s| crate::installable::parse_attribute(s))
+                .unwrap_or_default();
+
+            Installable::Flake {
+                reference,
+                attribute,
+            }
+        } else {
+            self.installable
+        };
 
         if matches!(target_installable, Installable::Store { .. }) {
             bail!("Nix doesn't support nix store installables.");
