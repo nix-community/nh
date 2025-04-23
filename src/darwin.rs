@@ -1,3 +1,5 @@
+use std::env;
+
 use color_eyre::eyre::{bail, Context};
 use tracing::{debug, info, warn};
 
@@ -59,10 +61,20 @@ impl DarwinRebuildArgs {
         debug!(?out_path);
 
         let mut installable = self.common.installable.clone();
+
         if let Installable::Flake {
-            ref mut attribute, ..
+            ref reference,
+            ref mut attribute,
+            ..
         } = installable
         {
+            // Check if using NH_DARWIN_FLAKE
+            if let Ok(darwin_flake) = env::var("NH_DARWIN_FLAKE") {
+                if darwin_flake == *reference {
+                    debug!("Using NH_DARWIN_FLAKE: {}", reference);
+                }
+            }
+
             // If user explicitly selects some other attribute, don't push darwinConfigurations
             if attribute.is_empty() {
                 attribute.push(String::from("darwinConfigurations"));
@@ -143,9 +155,18 @@ impl DarwinReplArgs {
         let hostname = self.hostname.ok_or(()).or_else(|()| get_hostname())?;
 
         if let Installable::Flake {
-            ref mut attribute, ..
+            ref reference,
+            ref mut attribute,
+            ..
         } = target_installable
         {
+            // Check if using NH_DARWIN_FLAKE
+            if let Ok(darwin_flake) = env::var("NH_DARWIN_FLAKE") {
+                if darwin_flake == *reference {
+                    debug!("Using NH_DARWIN_FLAKE: {}", reference);
+                }
+            }
+
             if attribute.is_empty() {
                 attribute.push(String::from("darwinConfigurations"));
                 attribute.push(hostname);

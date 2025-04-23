@@ -55,12 +55,21 @@ pub enum NHCommand {
 impl NHCommand {
     pub fn run(self) -> Result<()> {
         match self {
-            NHCommand::Os(args) => args.run(),
+            NHCommand::Os(args) => {
+                std::env::set_var("NH_CURRENT_COMMAND", "os");
+                args.run()
+            }
             NHCommand::Search(args) => args.run(),
             NHCommand::Clean(proxy) => proxy.command.run(),
             NHCommand::Completions(args) => args.run(),
-            NHCommand::Home(args) => args.run(),
-            NHCommand::Darwin(args) => args.run(),
+            NHCommand::Home(args) => {
+                std::env::set_var("NH_CURRENT_COMMAND", "home");
+                args.run()
+            }
+            NHCommand::Darwin(args) => {
+                std::env::set_var("NH_CURRENT_COMMAND", "darwin");
+                args.run()
+            }
         }
     }
 }

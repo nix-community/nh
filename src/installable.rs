@@ -70,8 +70,48 @@ impl FromArgMatches for Installable {
             });
         }
 
-        // env var fallacks
+        // env var fallbacks with proper command-specific precedence
+        if let Ok(subcommand) = env::var("NH_CURRENT_COMMAND") {
+            // Command-specific variables take precedence
+            match subcommand.as_str() {
+                "os" => {
+                    if let Ok(f) = env::var("NH_OS_FLAKE") {
+                        let mut elems = f.splitn(2, '#');
+                        return Ok(Self::Flake {
+                            reference: elems.next().unwrap().to_owned(),
+                            attribute: parse_attribute(
+                                elems.next().map(|s| s.to_string()).unwrap_or_default(),
+                            ),
+                        });
+                    }
+                }
+                "home" => {
+                    if let Ok(f) = env::var("NH_HOME_FLAKE") {
+                        let mut elems = f.splitn(2, '#');
+                        return Ok(Self::Flake {
+                            reference: elems.next().unwrap().to_owned(),
+                            attribute: parse_attribute(
+                                elems.next().map(|s| s.to_string()).unwrap_or_default(),
+                            ),
+                        });
+                    }
+                }
+                "darwin" => {
+                    if let Ok(f) = env::var("NH_DARWIN_FLAKE") {
+                        let mut elems = f.splitn(2, '#');
+                        return Ok(Self::Flake {
+                            reference: elems.next().unwrap().to_owned(),
+                            attribute: parse_attribute(
+                                elems.next().map(|s| s.to_string()).unwrap_or_default(),
+                            ),
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
 
+        // General fallback to NH_FLAKE
         if let Ok(f) = env::var("NH_FLAKE") {
             let mut elems = f.splitn(2, '#');
             return Ok(Self::Flake {
@@ -83,7 +123,7 @@ impl FromArgMatches for Installable {
         if let Ok(f) = env::var("NH_FILE") {
             return Ok(Self::File {
                 path: PathBuf::from(f),
-                attribute: parse_attribute(env::var("NH_ATTR").unwrap_or_default()),
+                attribute: parse_attribute(env::var("NH_ATTRP").unwrap_or_default()),
             });
         }
 
@@ -124,6 +164,9 @@ Nix accepts various kinds of installables:
 [FLAKEREF[#ATTRPATH]]
     Flake reference with an optional attribute path.
     [env: NH_FLAKE={}]
+    [env: NH_OS_FLAKE={}]
+    [env: NH_HOME_FLAKE={}]
+    [env: NH_DARWIN_FLAKE={}]
 
 {}, {} <FILE> [ATTRPATH]
     Path to file with an optional attribute path.
@@ -137,10 +180,13 @@ Nix accepts various kinds of installables:
     Path or symlink to a /nix/store path
 "#,
                     env::var("NH_FLAKE").unwrap_or_default(),
+                    env::var("NH_OS_FLAKE").unwrap_or_default(),
+                    env::var("NH_HOME_FLAKE").unwrap_or_default(),
+                    env::var("NH_DARWIN_FLAKE").unwrap_or_default(),
                     "-f".yellow(),
                     "--file".yellow(),
                     env::var("NH_FILE").unwrap_or_default(),
-                    env::var("NH_ATTRP").unwrap_or_default(),
+                    env::var("NH_ATTR").unwrap_or_default(),
                     "-e".yellow(),
                     "--expr".yellow(),
                 )),

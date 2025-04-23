@@ -1,3 +1,4 @@
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -177,8 +178,17 @@ pub fn toplevel_for<S: AsRef<str>>(hostname: S, installable: Installable) -> Ins
 
     match res {
         Installable::Flake {
-            ref mut attribute, ..
+            ref reference,
+            ref mut attribute,
+            ..
         } => {
+            // Check if using NH_OS_FLAKE
+            if let Ok(os_flake) = env::var("NH_OS_FLAKE") {
+                if os_flake == *reference {
+                    debug!("Using NH_OS_FLAKE: {}", reference);
+                }
+            }
+
             // If user explicitly selects some other attribute, don't push nixosConfigurations
             if attribute.is_empty() {
                 attribute.push(String::from("nixosConfigurations"));

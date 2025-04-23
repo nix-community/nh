@@ -162,7 +162,14 @@ where
             ref reference,
             ref mut attribute,
         } => 'flake: {
-            // If user explicitely selects some other attribute, don't push homeConfigurations
+            // Check if we're using NH_HOME_FLAKE to give it precedence
+            if env::var("NH_HOME_FLAKE").is_ok()
+                && env::var("NH_HOME_FLAKE").unwrap() == reference.to_string()
+            {
+                debug!("Using NH_HOME_FLAKE: {}", reference);
+            }
+
+            // If user explicitly selects some other attribute, don't push homeConfigurations
             if !attribute.is_empty() {
                 break 'flake;
             }
