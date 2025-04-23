@@ -68,7 +68,7 @@ impl DarwinRebuildArgs {
             let reference = elems.next().unwrap().to_owned();
             let attribute = elems
                 .next()
-                .map(|s| crate::installable::parse_attribute(s))
+                .map(crate::installable::parse_attribute)
                 .unwrap_or_default();
 
             Installable::Flake {
@@ -163,7 +163,7 @@ impl DarwinReplArgs {
             let reference = elems.next().unwrap().to_owned();
             let attribute = elems
                 .next()
-                .map(|s| crate::installable::parse_attribute(s))
+                .map(crate::installable::parse_attribute)
                 .unwrap_or_default();
 
             Installable::Flake {
