@@ -193,6 +193,26 @@ pub struct SearchArgs {
     /// Show supported platforms for each package
     pub platforms: bool,
 
+    #[arg(long, short = 'u', env = "NH_SEARCH_USE_CACHE", value_parser = clap::builder::BoolishValueParser::new(), default_value = "true")]
+    /// Use cached results if available
+    pub use_cache: bool,
+
+    #[arg(long, short = 'd', env = "NH_SEARCH_CACHE_DURATION")]
+    /// Duration to keep cached results in seconds (default: 3600)
+    pub cache_duration: Option<u64>,
+
+    #[arg(long, short = 'f', env = "NH_SEARCH_USE_FALLBACK", value_parser = clap::builder::BoolishValueParser::new(), default_value = "true")]
+    /// Try fallback methods if primary search fails
+    pub use_fallback: bool,
+
+    #[arg(long, env = "NH_SEARCH_FALLBACK_FILE")]
+    /// Path to a local JSON file containing package information
+    pub fallback_file: Option<PathBuf>,
+
+    #[arg(long, env = "NH_SEARCH_FALLBACK_ENDPOINTS", value_delimiter = ',')]
+    /// Comma-separated list of alternative endpoints to query ({channel} and {query} are replaced)
+    pub fallback_endpoints: Vec<String>,
+
     /// Name of the package to search
     pub query: Vec<String>,
 }
