@@ -9,6 +9,7 @@ mod interface;
 mod json;
 mod logging;
 mod nixos;
+mod plugins;
 mod search;
 mod update;
 mod util;
@@ -48,7 +49,93 @@ fn main() -> Result<()> {
         );
     }
 
-    args.command.run()
+    // Initialize the plugin system
+    let plugin_manager = match plugins::init() {
+        Ok(pm) => Some(pm),
+        Err(e) => {
+            tracing::warn!("Failed to initialize plugin system: {}", e);
+            None
+        }
+    };
+
+    // Register the NH API if plugin system is initialized
+    if let Some(pm) = &plugin_manager {
+        if let Err(e) = plugins::register_api(pm.lua()) {
+            tracing::warn!("Failed to register plugin API: {}", e);
+        }
+    }
+
+    // Create a context for the command if plugin system is initialized
+    if let Some(pm) = &plugin_manager {
+        // Get command string
+        let command_str = format!("{:?}", args.command);
+
+        // Create data table for plugin context
+        let table = match pm.lua().create_table() {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!("Failed to create Lua table: {}", e);
+                return args.command.run();
+            }
+        };
+
+        // Create plugin context
+        let mut context = plugins::PluginContext {
+            lua: pm.lua(),
+            command: Some(command_str.clone()),
+            args: std::env::args().skip(1).collect(),
+            data: table,
+        };
+
+        // First try specific command hook
+        let specific_event = plugins::PluginEvent::PreCommand(command_str.clone());
+        match pm.trigger_hook(&specific_event, &mut context) {
+            plugins::PluginResult::Error(err) => {
+                tracing::error!("Plugin specific pre-command error: {}", err);
+                return Err(color_eyre::eyre::eyre!("Plugin error: {}", err));
+            }
+            plugins::PluginResult::Skip => {
+                tracing::info!("Command execution skipped by plugin (specific hook)");
+                return Ok(());
+            }
+            _ => {}
+        }
+
+        // Then try generic command hook
+        let generic_event = plugins::PluginEvent::PreCommand(String::new());
+        match pm.trigger_hook(&generic_event, &mut context) {
+            plugins::PluginResult::Error(err) => {
+                tracing::error!("Plugin generic pre-command error: {}", err);
+                return Err(color_eyre::eyre::eyre!("Plugin error: {}", err));
+            }
+            plugins::PluginResult::Skip => {
+                tracing::info!("Command execution skipped by plugin (generic hook)");
+                return Ok(());
+            }
+            _ => {}
+        }
+
+        // Run the command
+        let result = args.command.run();
+
+        // Trigger both specific and generic post-command hooks
+        pm.trigger_hook(
+            &plugins::PluginEvent::PostCommand(command_str),
+            &mut context,
+        );
+        pm.trigger_hook(
+            &plugins::PluginEvent::PostCommand(String::new()),
+            &mut context,
+        );
+
+        // Trigger before_exit hooks
+        pm.trigger_hook(&plugins::PluginEvent::BeforeExit, &mut context);
+
+        result
+    } else {
+        // Run without plugins
+        args.command.run()
+    }
 }
 
 fn self_elevate() -> ! {

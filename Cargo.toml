@@ -22,9 +22,11 @@ color-eyre = { version = "0.6.2", default-features = false, features = [
     "track-caller",
 ] }
 dialoguer = { version = "0.11.0", default-features = false }
+dirs = "6.0.0"
 elasticsearch-dsl = "0.4.19"
 hostname = "0.4"
 humantime = "2.1.0"
+mlua = { version = "0.10.3", features = ["vendored", "lua54"] }
 nix = { version = "0.29.0", default-features = false, features = [
     "fs",
     "user",
@@ -44,6 +46,7 @@ tempfile = "3.5.0"
 textwrap = { version = "0.16.0", features = ["terminal_size"] }
 thiserror = "2.0"
 timeago = { version = "0.4.1", default-features = false }
+toml = "0.8.22"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = [
     "env-filter",
@@ -51,6 +54,7 @@ tracing-subscriber = { version = "0.3.18", features = [
     "std"
 ] }
 uzers = { version = "0.12.0", default-features = false }
+walkdir = "2.5.0"
 
 [target.'cfg(target_os="macos")'.dependencies]
 system-configuration = "0.6.1"
