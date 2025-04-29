@@ -50,6 +50,8 @@ pub enum NHCommand {
     Clean(CleanProxy),
     #[command(hide = true)]
     Completions(CompletionArgs),
+    /// Manage plugins
+    Plugin(PluginArgs),
 }
 
 impl NHCommand {
@@ -68,6 +70,10 @@ impl NHCommand {
             }
             Self::Darwin(args) => {
                 std::env::set_var("NH_CURRENT_COMMAND", "darwin");
+                args.run()
+            }
+            Self::Plugin(args) => {
+                std::env::set_var("NH_CURRENT_COMMAND", "plugin");
                 args.run()
             }
         }
@@ -393,4 +399,223 @@ pub struct UpdateArgs {
     #[arg(short = 'U', long = "update-input")]
     /// Update a single flake input
     pub update_input: Option<String>,
+}
+
+#[derive(Debug, Args)]
+/// Plugin management functionality
+pub struct PluginArgs {
+    #[command(subcommand)]
+    pub subcommand: PluginSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum PluginSubcommand {
+    /// List all plugins
+    List {
+        /// Show detailed information
+        #[arg(short, long)]
+        detailed: bool,
+    },
+    /// Show details for a specific plugin
+    Show {
+        /// Name of the plugin
+        name: String,
+    },
+    /// Enable a plugin
+    Enable {
+        /// Name of the plugin
+        name: String,
+    },
+    /// Disable a plugin
+    Disable {
+        /// Name of the plugin
+        name: String,
+    },
+    /// Reload plugins
+    Reload {
+        /// Name of the plugin to reload (if not specified, reload all)
+        name: Option<String>,
+    },
+    /// Execute a plugin function
+    Run {
+        /// Name of the plugin
+        plugin: String,
+        /// Name of the function to run
+        function: String,
+        /// Arguments to pass to the function
+        args: Vec<String>,
+    },
+}
+
+impl PluginArgs {
+    pub fn run(self) -> Result<()> {
+        let pm = crate::plugins::init()?;
+        match self.subcommand {
+            PluginSubcommand::List { detailed } => list_plugins(&pm, detailed),
+            PluginSubcommand::Show { name } => show_plugin(&pm, &name),
+            PluginSubcommand::Enable { name } => enable_plugin(&pm, &name),
+            PluginSubcommand::Disable { name } => disable_plugin(&pm, &name),
+            PluginSubcommand::Reload { name } => reload_plugins(&pm, name),
+            PluginSubcommand::Run {
+                plugin,
+                function,
+                args,
+            } => run_plugin_function(&pm, &plugin, &function, args),
+        }
+    }
+}
+
+/// List all plugins
+fn list_plugins(pm: &crate::plugins::PluginManager, detailed: bool) -> Result<()> {
+    let plugins = pm.get_plugins();
+
+    if plugins.is_empty() {
+        println!("No plugins are currently loaded");
+        return Ok(());
+    }
+
+    if detailed {
+        for plugin in plugins {
+            println!("{}", plugin.format_info());
+            println!("---");
+        }
+    } else {
+        let mut table = Vec::new();
+        table.push(vec![
+            "NAME".to_string(),
+            "VERSION".to_string(),
+            "AUTHOR".to_string(),
+            "STATUS".to_string(),
+        ]);
+
+        for plugin in plugins {
+            let status = if plugin.enabled {
+                "Enabled"
+            } else {
+                "Disabled"
+            };
+            table.push(vec![
+                plugin.name.clone(),
+                plugin.version.clone(),
+                plugin.author.clone(),
+                status.to_string(),
+            ]);
+        }
+
+        crate::util::pretty_print_table(&table);
+    }
+
+    Ok(())
+}
+
+/// Show details for a specific plugin
+fn show_plugin(pm: &crate::plugins::PluginManager, name: &str) -> Result<()> {
+    if let Some(plugin) = pm.get_plugin(name) {
+        println!("{}", plugin.format_info());
+
+        // Check if plugin is compatible with current NH version
+        if plugin.is_compatible_with(crate::NH_VERSION) {
+            println!("✅ Plugin is compatible with NH {}", crate::NH_VERSION);
+        } else {
+            println!(
+                "❌ Plugin might not be compatible with NH {}",
+                crate::NH_VERSION
+            );
+        }
+
+        Ok(())
+    } else {
+        Err(color_eyre::eyre::eyre!("Plugin not found: {}", name))
+    }
+}
+
+/// Enable a plugin
+fn enable_plugin(pm: &crate::plugins::PluginManager, name: &str) -> Result<()> {
+    pm.enable_plugin(name)?;
+    println!("Plugin {} has been enabled", name);
+    Ok(())
+}
+
+/// Disable a plugin
+fn disable_plugin(pm: &crate::plugins::PluginManager, name: &str) -> Result<()> {
+    pm.disable_plugin(name)?;
+    println!("Plugin {} has been disabled", name);
+    Ok(())
+}
+
+/// Reload plugins
+fn reload_plugins(pm: &crate::plugins::PluginManager, name: Option<String>) -> Result<()> {
+    if let Some(plugin_name) = name {
+        pm.reload_plugin(&plugin_name)?;
+        println!("Plugin {} has been reloaded", plugin_name);
+    } else {
+        pm.reload_all_plugins()?;
+        println!("All plugins have been reloaded");
+    }
+    Ok(())
+}
+
+/// Run a function from a plugin
+fn run_plugin_function(
+    pm: &crate::plugins::PluginManager,
+    plugin_name: &str,
+    function_name: &str,
+    args: Vec<String>,
+) -> Result<()> {
+    // Get plugin instance from manager
+    let plugin_meta = pm
+        .get_plugin(plugin_name)
+        .ok_or_else(|| color_eyre::eyre::eyre!("Plugin not found: {}", plugin_name))?;
+
+    // Create Lua values from the arguments
+    let lua = pm.lua();
+    let lua_args = args
+        .iter()
+        .map(|arg| mlua::Value::String(lua.create_string(arg).unwrap()))
+        .collect::<Vec<_>>();
+
+    // Get the plugin table and check if the function exists
+    let plugin_table = lua
+        .globals()
+        .get::<mlua::Table>(&*plugin_meta.name)
+        .map_err(|e| color_eyre::eyre::eyre!("Error accessing plugin table: {}", e))?;
+
+    if plugin_table
+        .contains_key(function_name)
+        .map_err(|e| color_eyre::eyre::eyre!("Error checking function existence: {}", e))?
+    {
+        let function = plugin_table
+            .get::<mlua::Function>(function_name)
+            .map_err(|e| color_eyre::eyre::eyre!("Error getting function: {}", e))?;
+
+        // Call the function with proper arguments
+        let args_multi = mlua::MultiValue::from_vec(lua_args);
+        let result = function
+            .call(args_multi)
+            .map_err(|e| color_eyre::eyre::eyre!("Error executing plugin function: {}", e))?;
+
+        // Print the result
+        match result {
+            mlua::Value::Nil => println!("Function executed successfully (no result)"),
+            mlua::Value::Boolean(b) => println!("Result: {}", b),
+            mlua::Value::Integer(i) => println!("Result: {}", i),
+            mlua::Value::Number(n) => println!("Result: {}", n),
+            mlua::Value::String(s) => println!(
+                "Result: {}",
+                s.to_str()
+                    .map_err(|e| color_eyre::eyre::eyre!("Error converting string: {}", e))?
+            ),
+            mlua::Value::Table(_) => println!("Result: [table]"),
+            mlua::Value::Function(_) => println!("Result: [function]"),
+            _ => println!("Result: [other]"),
+        }
+
+        Ok(())
+    } else {
+        Err(color_eyre::eyre::eyre!(
+            "Function '{}' not found in plugin '{}'",
+            function_name,
+            plugin_name
+        ))
+    }
 }

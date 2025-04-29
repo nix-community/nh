@@ -10,7 +10,7 @@ use tracing::{debug, info};
 
 use crate::installable::Installable;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Command {
     dry: bool,
     message: Option<String>,

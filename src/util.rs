@@ -102,3 +102,67 @@ pub fn get_hostname() -> Result<String> {
         Ok(name.to_string())
     }
 }
+
+/// Pretty prints a table to the console.
+///
+/// This function takes a vector of rows (where each row is a vector of strings),
+/// calculates appropriate column widths, and prints a formatted table.
+///
+/// # Arguments
+///
+/// * `table` - A slice of vectors, where each vector is a row of string data.
+///
+/// # Example
+///
+/// ```
+/// let mut table = vec![];
+/// table.push(vec!["NAME".to_string(), "VERSION".to_string()]);
+/// table.push(vec!["example".to_string(), "1.0.0".to_string()]);
+/// pretty_print_table(&table);
+/// ```
+pub fn pretty_print_table(table: &[Vec<String>]) {
+    if table.is_empty() {
+        return;
+    }
+
+    // Calculate column widths
+    let mut column_widths = vec![0; table[0].len()];
+    for row in table {
+        for (i, cell) in row.iter().enumerate() {
+            if i < column_widths.len() && cell.len() > column_widths[i] {
+                column_widths[i] = cell.len();
+            }
+        }
+    }
+
+    // Print header
+    for (i, cell) in table[0].iter().enumerate() {
+        if i > 0 {
+            print!(" | ");
+        }
+        print!("{:<width$}", cell, width = column_widths[i]);
+    }
+    println!();
+
+    // Print separator
+    for (i, width) in column_widths.iter().enumerate() {
+        if i > 0 {
+            print!("-+-");
+        }
+        for _ in 0..*width {
+            print!("-");
+        }
+    }
+    println!();
+
+    // Print data rows
+    for row in table.iter().skip(1) {
+        for (i, cell) in row.iter().enumerate() {
+            if i > 0 {
+                print!(" | ");
+            }
+            print!("{:<width$}", cell, width = column_widths[i]);
+        }
+        println!();
+    }
+}
