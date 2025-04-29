@@ -6,7 +6,7 @@ use color_eyre::eyre::{eyre, Context};
 use mlua::{Function, Lua, Table};
 use tracing::{debug, error, info};
 
-use crate::plugins::{Hook, HookManager, PluginEvent, PluginMetadata};
+use crate::plugins::{CommandCategory, Hook, HookManager, PluginEvent, PluginMetadata};
 use crate::Result;
 
 /// Represents a loaded plugin
@@ -114,7 +114,7 @@ impl Plugin {
             version,
             description,
             author,
-            path: path.to_path_buf().clone(),
+            path: path.to_path_buf(),
             enabled: true,
         })
     }
@@ -147,22 +147,32 @@ impl Plugin {
                 Ok((event_name, hook_value)) => {
                     debug!("Processing hook '{}' for {}", event_name, plugin_name);
 
-                    // Check if the hook is a function
-                    let hook_fn = match hook_value {
+                    // Parse hook priority and parameters
+                    let (priority, function) = match hook_value {
                         mlua::Value::Function(f) => {
                             debug!("Found function hook for event: {}", event_name);
-                            f
+                            (100, f) // Default priority
                         }
-                        mlua::Value::Table(hook_table) => match hook_table.get::<Function>("fn") {
-                            Ok(f) => {
-                                debug!("Found function in table hook for event: {}", event_name);
-                                f
-                            }
-                            Err(e) => {
-                                error!("Hook table missing 'fn' key for {}: {}", event_name, e);
-                                continue;
-                            }
-                        },
+                        mlua::Value::Table(hook_table) => {
+                            let func = match hook_table.get::<Function>("fn") {
+                                Ok(f) => {
+                                    debug!(
+                                        "Found function in table hook for event: {}",
+                                        event_name
+                                    );
+                                    f
+                                }
+                                Err(e) => {
+                                    error!("Hook table missing 'fn' key for {}: {}", event_name, e);
+                                    continue;
+                                }
+                            };
+
+                            // Get priority if specified
+                            let priority = hook_table.get::<i32>("priority").unwrap_or(100);
+
+                            (priority, func)
+                        }
                         _ => {
                             error!("Hook '{}' is not a function or table", event_name);
                             continue;
@@ -171,7 +181,7 @@ impl Plugin {
 
                     // Store the function in the plugin table with a unique name
                     let fn_name = format!("__hook_{event_name}");
-                    if let Err(e) = plugin_table.set(fn_name.clone(), hook_fn) {
+                    if let Err(e) = plugin_table.set(fn_name.clone(), function) {
                         error!("Failed to store hook function: {}", e);
                         continue;
                     }
@@ -185,7 +195,7 @@ impl Plugin {
                                 Hook {
                                     plugin_name: plugin_name.to_string(),
                                     function_name: fn_name,
-                                    priority: 100, // default priority
+                                    priority,
                                 },
                             );
                         }
@@ -281,23 +291,86 @@ fn parse_event_name(name: &str) -> Result<PluginEvent> {
             debug!("Matched before_exit event");
             Ok(PluginEvent::BeforeExit)
         }
+        "config_changed" => {
+            debug!("Matched config_changed event");
+            Ok(PluginEvent::ConfigChanged)
+        }
         "pre_command" => {
             debug!("Matched generic pre_command event");
-            Ok(PluginEvent::PreCommand(String::new()))
+            Ok(PluginEvent::PreCommand {
+                command: String::new(),
+                category: CommandCategory::User,
+            })
+        }
+        "pre_command_user" => {
+            debug!("Matched generic pre_command_user event");
+            Ok(PluginEvent::PreCommand {
+                command: String::new(),
+                category: CommandCategory::User,
+            })
+        }
+        "pre_command_system" => {
+            debug!("Matched generic pre_command_system event");
+            Ok(PluginEvent::PreCommand {
+                command: String::new(),
+                category: CommandCategory::System,
+            })
+        }
+        "pre_command_any" => {
+            debug!("Matched generic pre_command_any event");
+            Ok(PluginEvent::PreCommand {
+                command: String::new(),
+                category: CommandCategory::Any,
+            })
         }
         "post_command" => {
             debug!("Matched generic post_command event");
-            Ok(PluginEvent::PostCommand(String::new()))
+            Ok(PluginEvent::PostCommand {
+                command: String::new(),
+                category: CommandCategory::User,
+            })
+        }
+        "post_command_user" => {
+            debug!("Matched generic post_command_user event");
+            Ok(PluginEvent::PostCommand {
+                command: String::new(),
+                category: CommandCategory::User,
+            })
+        }
+        "post_command_system" => {
+            debug!("Matched generic post_command_system event");
+            Ok(PluginEvent::PostCommand {
+                command: String::new(),
+                category: CommandCategory::System,
+            })
+        }
+        "post_command_any" => {
+            debug!("Matched generic post_command_any event");
+            Ok(PluginEvent::PostCommand {
+                command: String::new(),
+                category: CommandCategory::Any,
+            })
         }
         s if s.starts_with("pre_command_") => {
             let command = s.strip_prefix("pre_command_").unwrap();
             debug!("Matched specific pre_command event for: {}", command);
-            Ok(PluginEvent::PreCommand(command.to_string()))
+            Ok(PluginEvent::PreCommand {
+                command: command.to_string(),
+                category: CommandCategory::User,
+            })
         }
         s if s.starts_with("post_command_") => {
             let command = s.strip_prefix("post_command_").unwrap();
             debug!("Matched specific post_command event for: {}", command);
-            Ok(PluginEvent::PostCommand(command.to_string()))
+            Ok(PluginEvent::PostCommand {
+                command: command.to_string(),
+                category: CommandCategory::User,
+            })
+        }
+        s if s.starts_with("system_") => {
+            let event = s.strip_prefix("system_").unwrap();
+            debug!("Matched system event: {}", event);
+            Ok(PluginEvent::System(event.to_string()))
         }
         _ => {
             debug!("Matched custom event: {}", name);

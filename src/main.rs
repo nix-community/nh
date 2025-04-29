@@ -70,25 +70,23 @@ fn main() -> Result<()> {
         // Get command string
         let command_str = format!("{:?}", args.command);
 
-        // Create data table for plugin context
-        let table = match pm.lua().create_table() {
-            Ok(t) => t,
-            Err(e) => {
-                tracing::warn!("Failed to create Lua table: {}", e);
-                return args.command.run();
-            }
-        };
+        // Determine command category
+        let category = determine_command_category(&args.command);
 
-        // Create plugin context
-        let mut context = plugins::PluginContext {
-            lua: pm.lua(),
-            command: Some(command_str.clone()),
-            args: std::env::args().skip(1).collect(),
-            data: table,
-        };
+        // Create plugin context with proper category
+        let mut context = plugins::PluginContext::with_category(
+            pm.lua(),
+            Some(command_str.clone()),
+            std::env::args().skip(1).collect(),
+            category,
+        );
 
         // First try specific command hook
-        let specific_event = plugins::PluginEvent::PreCommand(command_str.clone());
+        let specific_event = plugins::PluginEvent::PreCommand {
+            command: command_str.clone(),
+            category,
+        };
+
         match pm.trigger_hook(&specific_event, &mut context) {
             plugins::PluginResult::Error(err) => {
                 tracing::error!("Plugin specific pre-command error: {}", err);
@@ -102,7 +100,11 @@ fn main() -> Result<()> {
         }
 
         // Then try generic command hook
-        let generic_event = plugins::PluginEvent::PreCommand(String::new());
+        let generic_event = plugins::PluginEvent::PreCommand {
+            command: String::new(),
+            category,
+        };
+
         match pm.trigger_hook(&generic_event, &mut context) {
             plugins::PluginResult::Error(err) => {
                 tracing::error!("Plugin generic pre-command error: {}", err);
@@ -120,11 +122,18 @@ fn main() -> Result<()> {
 
         // Trigger both specific and generic post-command hooks
         pm.trigger_hook(
-            &plugins::PluginEvent::PostCommand(command_str),
+            &plugins::PluginEvent::PostCommand {
+                command: command_str,
+                category,
+            },
             &mut context,
         );
+
         pm.trigger_hook(
-            &plugins::PluginEvent::PostCommand(String::new()),
+            &plugins::PluginEvent::PostCommand {
+                command: String::new(),
+                category,
+            },
             &mut context,
         );
 
@@ -135,6 +144,18 @@ fn main() -> Result<()> {
     } else {
         // Run without plugins
         args.command.run()
+    }
+}
+
+/// Determine the category of a command based on its type
+const fn determine_command_category(command: &crate::interface::NHCommand) -> plugins::CommandCategory {
+    match command {
+        crate::interface::NHCommand::Plugin(_) => plugins::CommandCategory::Plugin,
+        // System commands are generally administrative and should have limited plugin interaction
+        crate::interface::NHCommand::Clean(_) => plugins::CommandCategory::System,
+        crate::interface::NHCommand::Completions(_) => plugins::CommandCategory::System,
+        // User commands are the normal operations that plugins should intercept
+        _ => plugins::CommandCategory::User,
     }
 }
 

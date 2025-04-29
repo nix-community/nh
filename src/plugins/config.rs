@@ -4,10 +4,10 @@ use std::path::{Path, PathBuf};
 
 use color_eyre::eyre::{eyre, Result};
 use serde::{Deserialize, Serialize};
-use tracing::debug;
+use tracing::{debug, info};
 
 /// Plugin configuration
-#[derive(Debug, Deserialize, Serialize, Default)]
+#[derive(Debug, Deserialize, Serialize, Default, Clone)]
 pub struct PluginConfig {
     /// List of plugin directories to search for plugins
     #[serde(default)]
@@ -60,6 +60,50 @@ impl PluginConfig {
         let config: Self =
             toml::from_str(&content).map_err(|e| eyre!("Failed to parse config file: {}", e))?;
         Ok(config)
+    }
+
+    /// Save plugin configuration to disk
+    pub fn save(&self) -> Result<()> {
+        let config_paths = Self::get_config_paths();
+
+        // Try to save to the first config path that's writable
+        if let Some(config_dir) = dirs::config_dir() {
+            let config_file = config_dir.join("nh").join("plugins.toml");
+
+            // Ensure parent directory exists
+            if let Some(parent) = config_file.parent() {
+                fs::create_dir_all(parent)?;
+            }
+
+            // Serialize config to TOML
+            let toml_string =
+                toml::to_string(self).map_err(|e| eyre!("Failed to serialize config: {}", e))?;
+
+            // Write to file
+            fs::write(&config_file, toml_string)?;
+            info!("Saved plugin configuration to {:?}", config_file);
+            return Ok(());
+        }
+
+        // Fallback to home directory
+        if let Some(home_dir) = dirs::home_dir() {
+            let config_file = home_dir.join(".config/nh/plugins.toml");
+
+            // Ensure parent directory exists
+            if let Some(parent) = config_file.parent() {
+                fs::create_dir_all(parent)?;
+            }
+
+            // Serialize and write
+            let toml_string =
+                toml::to_string(self).map_err(|e| eyre!("Failed to serialize config: {}", e))?;
+
+            fs::write(&config_file, toml_string)?;
+            info!("Saved plugin configuration to {:?}", config_file);
+            return Ok(());
+        }
+
+        Err(eyre!("No valid configuration path found to save config"))
     }
 
     /// Get potential config file paths

@@ -52,21 +52,77 @@ impl fmt::Display for PluginMetadata {
     }
 }
 
+/// Command category to control which commands trigger hooks
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CommandCategory {
+    /// Regular user command
+    User,
+    /// System/administrative command that should not trigger regular hooks
+    System,
+    /// Plugin management command that should not trigger hooks at all
+    Plugin,
+    /// Any command category
+    Any,
+}
+
 /// Plugin event types that can be listened to
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PluginEvent {
     /// Before a command is executed
-    PreCommand(String),
+    PreCommand {
+        /// Command name
+        command: String,
+        /// Command category
+        category: CommandCategory,
+    },
     /// After a command is executed
-    PostCommand(String),
+    PostCommand {
+        /// Command name
+        command: String,
+        /// Command category
+        category: CommandCategory,
+    },
     /// Before NH exits
     BeforeExit,
     /// On plugin load
     OnLoad,
     /// On plugin unload
     OnUnload,
+    /// When configuration is loaded or changed
+    ConfigChanged,
+    /// Generic system event
+    System(String),
     /// Custom event
     Custom(String),
+}
+
+impl PluginEvent {
+    /// Check if this event should trigger for a given command and category
+    pub fn should_trigger_for(&self, command: &str, category: &CommandCategory) -> bool {
+        match self {
+            // Never trigger hooks for plugin management commands
+            _ if *category == CommandCategory::Plugin => false,
+
+            // For pre/post command events, check if command and category match
+            Self::PreCommand {
+                command: cmd,
+                category: cat,
+            } => {
+                (cmd.is_empty() || cmd == command)
+                    && (*cat == CommandCategory::Any || cat == category)
+            }
+            Self::PostCommand {
+                command: cmd,
+                category: cat,
+            } => {
+                (cmd.is_empty() || cmd == command)
+                    && (*cat == CommandCategory::Any || cat == category)
+            }
+
+            // Other events don't depend on command or category
+            _ => true,
+        }
+    }
 }
 
 /// Result of plugin execution
@@ -90,6 +146,8 @@ pub struct PluginContext<'lua> {
     pub args: Vec<String>,
     /// Extra context data
     pub data: Table,
+    /// Command category
+    pub category: CommandCategory,
 }
 
 impl<'lua> PluginContext<'lua> {
@@ -98,11 +156,36 @@ impl<'lua> PluginContext<'lua> {
         let data = lua
             .create_table()
             .expect("Failed to create context data table");
+
+        // By default, treat commands as user commands
+        let category = CommandCategory::User;
+
         Self {
             lua,
             command,
             args,
             data,
+            category,
+        }
+    }
+
+    /// Create a new plugin context with specified category
+    pub fn with_category(
+        lua: &'lua Lua,
+        command: Option<String>,
+        args: Vec<String>,
+        category: CommandCategory,
+    ) -> Self {
+        let data = lua
+            .create_table()
+            .expect("Failed to create context data table");
+
+        Self {
+            lua,
+            command,
+            args,
+            data,
+            category,
         }
     }
 
@@ -136,6 +219,15 @@ impl<'lua> PluginContext<'lua> {
 
         // Set data
         ctx_table.set("data", self.data.clone())?;
+
+        // Set category
+        let category_str = match self.category {
+            CommandCategory::User => "user",
+            CommandCategory::System => "system",
+            CommandCategory::Plugin => "plugin",
+            CommandCategory::Any => "any",
+        };
+        ctx_table.set("category", category_str)?;
 
         Ok(ctx_table)
     }

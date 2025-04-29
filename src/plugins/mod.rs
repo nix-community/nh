@@ -15,7 +15,7 @@ pub use config::PluginConfig;
 pub use hooks::{Hook, HookManager};
 pub use manager::PluginManager;
 pub use plugin::Plugin;
-pub use types::{PluginContext, PluginEvent, PluginMetadata, PluginResult};
+pub use types::{CommandCategory, PluginContext, PluginEvent, PluginMetadata, PluginResult};
 
 use crate::Result;
 

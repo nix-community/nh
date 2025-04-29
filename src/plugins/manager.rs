@@ -224,15 +224,19 @@ impl PluginManager {
 
     /// Enable a plugin
     pub fn enable_plugin(&self, name: &str) -> Result<()> {
-        // Update disabled_plugins directly
-        let disable_index = self.config.disabled_plugins.iter().position(|p| p == name);
+        // Update config
+        let mut updated_config = self.config.clone();
+        let disable_index = updated_config
+            .disabled_plugins
+            .iter()
+            .position(|p| p == name);
         if let Some(index) = disable_index {
-            // NOTE: This will only update the in-memory representation
-            // We would need to save the config to disk for persistence
-            let mut disabled_plugins = self.config.disabled_plugins.clone();
-            disabled_plugins.remove(index);
+            updated_config.disabled_plugins.remove(index);
 
-            // TODO: Save config changes to disk
+            // Save changes to disk
+            if let Err(e) = updated_config.save() {
+                warn!("Failed to save plugin configuration: {}", e);
+            }
         }
 
         // If the plugin is not loaded, load it
@@ -262,12 +266,15 @@ impl PluginManager {
 
     /// Disable a plugin
     pub fn disable_plugin(&self, name: &str) -> Result<()> {
-        // Update disabled_plugins directly
-        if !self.config.disabled_plugins.contains(&name.to_string()) {
-            let mut disabled_plugins = self.config.disabled_plugins.clone();
-            disabled_plugins.push(name.to_string());
+        // Update config
+        let mut updated_config = self.config.clone();
+        if !updated_config.disabled_plugins.contains(&name.to_string()) {
+            updated_config.disabled_plugins.push(name.to_string());
 
-            // TODO: Save config changes to disk
+            // Save changes to disk
+            if let Err(e) = updated_config.save() {
+                warn!("Failed to save plugin configuration: {}", e);
+            }
         }
 
         // Remove the plugin if it's loaded
