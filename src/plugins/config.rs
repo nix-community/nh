@@ -64,8 +64,6 @@ impl PluginConfig {
 
     /// Save plugin configuration to disk
     pub fn save(&self) -> Result<()> {
-        let config_paths = Self::get_config_paths();
-
         // Try to save to the first config path that's writable
         if let Some(config_dir) = dirs::config_dir() {
             let config_file = config_dir.join("nh").join("plugins.toml");

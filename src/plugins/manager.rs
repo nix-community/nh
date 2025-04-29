@@ -2,7 +2,8 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::rc::Rc;
+use std::sync::Mutex;
 
 use color_eyre::eyre::{bail, eyre};
 use mlua::Lua;
@@ -18,7 +19,7 @@ use crate::Result;
 #[derive(Debug)]
 pub struct PluginManager {
     /// Lua state
-    lua: Arc<Lua>,
+    lua: Rc<Lua>,
     /// Loaded plugins
     plugins: Mutex<HashMap<String, Plugin>>,
     /// Plugin hooks
@@ -37,7 +38,7 @@ impl PluginManager {
         let config = PluginConfig::load()?;
 
         Ok(Self {
-            lua: Arc::new(lua),
+            lua: Rc::new(lua),
             plugins: Mutex::new(HashMap::new()),
             hooks,
             config,
@@ -163,7 +164,7 @@ impl PluginManager {
         let plugin = Plugin::new(
             name.to_string(),
             path.to_path_buf(),
-            Arc::clone(&self.lua),
+            Rc::clone(&self.lua),
             &self.hooks,
         )?;
 
@@ -194,6 +195,12 @@ impl PluginManager {
     pub fn get_plugin(&self, name: &str) -> Option<PluginMetadata> {
         let plugins = self.plugins.lock().unwrap();
         plugins.get(name).map(|p| p.get_metadata().clone())
+    }
+
+    /// Get a direct reference to a plugin by name
+    pub fn get_plugin_instance(&self, name: &str) -> Option<Plugin> {
+        let plugins = self.plugins.lock().unwrap();
+        plugins.get(name).cloned()
     }
 
     /// Reload a specific plugin

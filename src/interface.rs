@@ -563,59 +563,44 @@ fn run_plugin_function(
     args: Vec<String>,
 ) -> Result<()> {
     // Get plugin instance from manager
-    let plugin_meta = pm
-        .get_plugin(plugin_name)
+    let plugin = pm
+        .get_plugin_instance(plugin_name)
         .ok_or_else(|| color_eyre::eyre::eyre!("Plugin not found: {}", plugin_name))?;
 
+    // Check if the function exists
+    if !plugin.has_function(function_name) {
+        return Err(color_eyre::eyre::eyre!(
+            "Function '{}' not found in plugin '{}'",
+            function_name,
+            plugin_name
+        ));
+    }
+
     // Create Lua values from the arguments
-    let lua = pm.lua();
+    let lua = plugin.get_lua();
     let lua_args = args
         .iter()
         .map(|arg| mlua::Value::String(lua.create_string(arg).unwrap()))
         .collect::<Vec<_>>();
 
-    // Get the plugin table and check if the function exists
-    let plugin_table = lua
-        .globals()
-        .get::<mlua::Table>(&*plugin_meta.name)
-        .map_err(|e| color_eyre::eyre::eyre!("Error accessing plugin table: {}", e))?;
+    // Execute the function with the args
+    let result = plugin.execute_function(function_name, lua_args)?;
 
-    if plugin_table
-        .contains_key(function_name)
-        .map_err(|e| color_eyre::eyre::eyre!("Error checking function existence: {}", e))?
-    {
-        let function = plugin_table
-            .get::<mlua::Function>(function_name)
-            .map_err(|e| color_eyre::eyre::eyre!("Error getting function: {}", e))?;
-
-        // Call the function with proper arguments
-        let args_multi = mlua::MultiValue::from_vec(lua_args);
-        let result = function
-            .call(args_multi)
-            .map_err(|e| color_eyre::eyre::eyre!("Error executing plugin function: {}", e))?;
-
-        // Print the result
-        match result {
-            mlua::Value::Nil => println!("Function executed successfully (no result)"),
-            mlua::Value::Boolean(b) => println!("Result: {}", b),
-            mlua::Value::Integer(i) => println!("Result: {}", i),
-            mlua::Value::Number(n) => println!("Result: {}", n),
-            mlua::Value::String(s) => println!(
-                "Result: {}",
-                s.to_str()
-                    .map_err(|e| color_eyre::eyre::eyre!("Error converting string: {}", e))?
-            ),
-            mlua::Value::Table(_) => println!("Result: [table]"),
-            mlua::Value::Function(_) => println!("Result: [function]"),
-            _ => println!("Result: [other]"),
-        }
-
-        Ok(())
-    } else {
-        Err(color_eyre::eyre::eyre!(
-            "Function '{}' not found in plugin '{}'",
-            function_name,
-            plugin_name
-        ))
+    // Print the result
+    match result {
+        mlua::Value::Nil => println!("Function executed successfully (no result)"),
+        mlua::Value::Boolean(b) => println!("Result: {}", b),
+        mlua::Value::Integer(i) => println!("Result: {}", i),
+        mlua::Value::Number(n) => println!("Result: {}", n),
+        mlua::Value::String(s) => println!(
+            "Result: {}",
+            s.to_str()
+                .map_err(|e| color_eyre::eyre::eyre!("Error converting string: {}", e))?
+        ),
+        mlua::Value::Table(_) => println!("Result: [table]"),
+        mlua::Value::Function(_) => println!("Result: [function]"),
+        _ => println!("Result: [other]"),
     }
+
+    Ok(())
 }

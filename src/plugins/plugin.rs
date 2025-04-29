@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::rc::Rc;
 
 use color_eyre::eyre::{eyre, Context};
 use mlua::{Function, Lua, Table};
@@ -15,7 +15,7 @@ pub struct Plugin {
     /// Plugin metadata
     pub metadata: PluginMetadata,
     /// Lua state reference
-    lua: Arc<Lua>,
+    lua: Rc<Lua>,
 }
 
 impl Plugin {
@@ -23,7 +23,7 @@ impl Plugin {
     pub fn new(
         name: String,
         path: PathBuf,
-        lua: Arc<Lua>,
+        lua: Rc<Lua>,
         hook_manager: &HookManager,
     ) -> Result<Self> {
         let code = fs::read_to_string(&path)
@@ -220,7 +220,7 @@ impl Plugin {
     }
 
     /// Get the Lua state reference
-    pub const fn get_lua(&self) -> &Arc<Lua> {
+    pub const fn get_lua(&self) -> &Rc<Lua> {
         &self.lua
     }
 
@@ -232,7 +232,7 @@ impl Plugin {
         info!("Reloading plugin: {}", name);
 
         // Create a new instance with the same name and path
-        let new_plugin = Self::new(name, path, Arc::clone(&self.lua), hook_manager)?;
+        let new_plugin = Self::new(name, path, Rc::clone(&self.lua), hook_manager)?;
 
         // Update this instance with the new plugin's data
         self.metadata = new_plugin.metadata;

@@ -1,7 +1,7 @@
 use std::fmt;
 use std::path::PathBuf;
 
-use mlua::{Lua, Table, Value};
+use mlua::{Lua, Table};
 
 /// Plugin metadata
 #[derive(Debug, Clone)]
@@ -137,9 +137,7 @@ pub enum PluginResult {
 }
 
 /// Plugin execution context
-pub struct PluginContext<'lua> {
-    /// Lua state
-    pub lua: &'lua Lua,
+pub struct PluginContext {
     /// Command being executed
     pub command: Option<String>,
     /// Arguments for the command
@@ -150,28 +148,10 @@ pub struct PluginContext<'lua> {
     pub category: CommandCategory,
 }
 
-impl<'lua> PluginContext<'lua> {
-    /// Create a new plugin context
-    pub fn new(lua: &'lua Lua, command: Option<String>, args: Vec<String>) -> Self {
-        let data = lua
-            .create_table()
-            .expect("Failed to create context data table");
-
-        // By default, treat commands as user commands
-        let category = CommandCategory::User;
-
-        Self {
-            lua,
-            command,
-            args,
-            data,
-            category,
-        }
-    }
-
+impl PluginContext {
     /// Create a new plugin context with specified category
     pub fn with_category(
-        lua: &'lua Lua,
+        lua: &Lua,
         command: Option<String>,
         args: Vec<String>,
         category: CommandCategory,
@@ -181,59 +161,10 @@ impl<'lua> PluginContext<'lua> {
             .expect("Failed to create context data table");
 
         Self {
-            lua,
             command,
             args,
             data,
             category,
         }
-    }
-
-    /// Add a value to the context data
-    pub fn add_data(&self, key: &str, value: Value) -> mlua::Result<()> {
-        self.data.set(key, value)
-    }
-
-    /// Get a value from the context data
-    pub fn get_data<T: mlua::FromLua>(&self, key: &str) -> mlua::Result<T> {
-        self.data.get(key)
-    }
-
-    /// Convert the context to a Lua table
-    pub fn to_lua_table(&self) -> mlua::Result<Table> {
-        let ctx_table = self.lua.create_table()?;
-
-        // Set command if available
-        if let Some(cmd) = &self.command {
-            ctx_table.set("command", cmd.clone())?;
-        } else {
-            ctx_table.set("command", mlua::Nil)?;
-        }
-
-        // Set arguments
-        let args_table = self.lua.create_table()?;
-        for (i, arg) in self.args.iter().enumerate() {
-            args_table.set(i + 1, arg.clone())?;
-        }
-        ctx_table.set("args", args_table)?;
-
-        // Set data
-        ctx_table.set("data", self.data.clone())?;
-
-        // Set category
-        let category_str = match self.category {
-            CommandCategory::User => "user",
-            CommandCategory::System => "system",
-            CommandCategory::Plugin => "plugin",
-            CommandCategory::Any => "any",
-        };
-        ctx_table.set("category", category_str)?;
-
-        Ok(ctx_table)
-    }
-
-    /// Execute Lua code in this context
-    pub fn execute_lua(&self, code: &str) -> mlua::Result<Value> {
-        self.lua.load(code).eval()
     }
 }
