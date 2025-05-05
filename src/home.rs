@@ -1,21 +1,39 @@
-use std::env;
-use std::ffi::OsString;
-use std::path::PathBuf;
+use std::{
+    env,
+    ffi::OsString,
+    path::PathBuf,
+};
 
-use color_eyre::eyre::bail;
-use color_eyre::Result;
-use tracing::{debug, info, warn};
+use color_eyre::{
+    eyre::bail,
+    Result,
+};
+use tracing::{
+    debug,
+    info,
+    warn,
+};
 
-use crate::commands;
-use crate::commands::Command;
-use crate::installable::Installable;
-use crate::interface::{self, HomeRebuildArgs, HomeReplArgs, HomeSubcommand};
-use crate::update::update;
-use crate::util::get_hostname;
+use crate::{
+    commands,
+    commands::Command,
+    installable::Installable,
+    interface::{
+        self,
+        HomeRebuildArgs,
+        HomeReplArgs,
+        HomeSubcommand,
+    },
+    update::update,
+    util::get_hostname,
+};
 
 impl interface::HomeArgs {
     pub fn run(self) -> Result<()> {
-        use HomeRebuildVariant::*;
+        use HomeRebuildVariant::{
+            Build,
+            Switch,
+        };
         match self.subcommand {
             HomeSubcommand::Switch(args) => args.rebuild(Switch),
             HomeSubcommand::Build(args) => {
@@ -23,7 +41,7 @@ impl interface::HomeArgs {
                     warn!("`--ask` and `--dry` have no effect for `nh home build`");
                 }
                 args.rebuild(Build)
-            }
+            },
             HomeSubcommand::Repl(args) => args.run(),
         }
     }
@@ -37,7 +55,7 @@ enum HomeRebuildVariant {
 
 impl HomeRebuildArgs {
     fn rebuild(self, variant: HomeRebuildVariant) -> Result<()> {
-        use HomeRebuildVariant::*;
+        use HomeRebuildVariant::Build;
 
         if self.update_args.update {
             update(&self.common.installable, self.update_args.update_input)?;
@@ -45,10 +63,12 @@ impl HomeRebuildArgs {
 
         let out_path: Box<dyn crate::util::MaybeTempPath> = match self.common.out_link {
             Some(ref p) => Box::new(p.clone()),
-            None => Box::new({
-                let dir = tempfile::Builder::new().prefix("nh-home").tempdir()?;
-                (dir.as_ref().join("result"), dir)
-            }),
+            None => {
+                Box::new({
+                    let dir = tempfile::Builder::new().prefix("nh-home").tempdir()?;
+                    (dir.as_ref().join("result"), dir)
+                })
+            },
         };
 
         debug!(?out_path);
@@ -64,20 +84,12 @@ impl HomeRebuildArgs {
                 .map(crate::installable::parse_attribute)
                 .unwrap_or_default();
 
-            Installable::Flake {
-                reference,
-                attribute,
-            }
+            Installable::Flake { reference, attribute }
         } else {
             self.common.installable.clone()
         };
 
-        let toplevel = toplevel_for(
-            installable,
-            true,
-            &self.extra_args,
-            self.configuration.clone(),
-        )?;
+        let toplevel = toplevel_for(installable, true, &self.extra_args, self.configuration.clone())?;
 
         commands::Build::new(toplevel)
             .extra_arg("--out-link")
@@ -170,10 +182,10 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<std::ffi::OsStr>,
 {
-    let mut res = installable.clone();
+    let mut res = installable;
     let extra_args: Vec<OsString> = {
         let mut vec = Vec::new();
-        for elem in extra_args.into_iter() {
+        for elem in extra_args {
             vec.push(elem.as_ref().to_owned());
         }
         vec
@@ -191,10 +203,7 @@ where
             // If user explicitly selects some other attribute in the installable itself
             // then don't push homeConfigurations
             if !attribute.is_empty() {
-                debug!(
-                    "Using explicit attribute path from installable: {:?}",
-                    attribute
-                );
+                debug!("Using explicit attribute path from installable: {:?}", attribute);
                 return Ok(res);
             }
 
@@ -206,7 +215,7 @@ where
             // Check if an explicit configuration name was provided via the flag
             if let Some(config_name) = configuration_name {
                 // Verify the provided configuration exists
-                let func = format!(r#" x: x ? "{}" "#, config_name);
+                let func = format!(r#" x: x ? "{config_name}" "#);
                 let check_res = commands::Command::new("nix")
                     .arg("eval")
                     .args(&extra_args)
@@ -228,29 +237,26 @@ where
                         )
                     })?;
 
-                match check_res.map(|s| s.trim().to_owned()).as_deref() {
-                    Some("true") => {
-                        debug!("Using explicit configuration from flag: {}", config_name);
-                        attribute.push(config_name.clone());
-                        if push_drv {
-                            attribute.extend(toplevel.clone());
+                if check_res.map(|s| s.trim().to_owned()).as_deref() == Some("true") {
+                    debug!("Using explicit configuration from flag: {}", config_name);
+                    attribute.push(config_name);
+                    if push_drv {
+                        attribute.extend(toplevel.clone());
+                    }
+                    found_config = true;
+                } else {
+                    // Explicit config provided but not found
+                    let tried_attr_path = {
+                        let mut attr_path = attribute.clone();
+                        attr_path.push(config_name);
+                        Installable::Flake {
+                            reference: flake_reference,
+                            attribute: attr_path,
                         }
-                        found_config = true;
-                    }
-                    _ => {
-                        // Explicit config provided but not found
-                        let tried_attr_path = {
-                            let mut attr_path = attribute.clone();
-                            attr_path.push(config_name.clone());
-                            Installable::Flake {
-                                reference: flake_reference.clone(),
-                                attribute: attr_path,
-                            }
-                            .to_args()
-                            .join(" ")
-                        };
-                        bail!("Explicitly specified home-manager configuration not found: {tried_attr_path}");
-                    }
+                        .to_args()
+                        .join(" ")
+                    };
+                    bail!("Explicitly specified home-manager configuration not found: {tried_attr_path}");
                 }
             }
 
@@ -260,8 +266,8 @@ where
                 let hostname = get_hostname()?;
                 let mut tried = vec![];
 
-                for attr_name in [format!("{username}@{hostname}"), username.to_string()] {
-                    let func = format!(r#" x: x ? "{}" "#, attr_name);
+                for attr_name in [format!("{username}@{hostname}"), username] {
+                    let func = format!(r#" x: x ? "{attr_name}" "#);
                     let check_res = commands::Command::new("nix")
                         .arg("eval")
                         .args(&extra_args)
@@ -293,16 +299,16 @@ where
                     match check_res.map(|s| s.trim().to_owned()).as_deref() {
                         Some("true") => {
                             debug!("Using automatically detected configuration: {}", attr_name);
-                            attribute.push(attr_name.clone());
+                            attribute.push(attr_name);
                             if push_drv {
                                 attribute.extend(toplevel.clone());
                             }
                             found_config = true;
                             break;
-                        }
+                        },
                         _ => {
                             continue;
-                        }
+                        },
                     }
                 }
 
@@ -323,22 +329,22 @@ where
                     bail!("Couldn't find home-manager configuration automatically, tried: {tried_str}");
                 }
             }
-        }
+        },
         Installable::File {
             ref mut attribute, ..
         } => {
             if push_drv {
                 attribute.extend(toplevel);
             }
-        }
+        },
         Installable::Expression {
             ref mut attribute, ..
         } => {
             if push_drv {
                 attribute.extend(toplevel);
             }
-        }
-        Installable::Store { .. } => {}
+        },
+        Installable::Store { .. } => {},
     }
 
     Ok(res)
@@ -357,25 +363,14 @@ impl HomeReplArgs {
                 .map(crate::installable::parse_attribute)
                 .unwrap_or_default();
 
-            Installable::Flake {
-                reference,
-                attribute,
-            }
+            Installable::Flake { reference, attribute }
         } else {
             self.installable
         };
 
-        let toplevel = toplevel_for(
-            installable,
-            false,
-            &self.extra_args,
-            self.configuration.clone(),
-        )?;
+        let toplevel = toplevel_for(installable, false, &self.extra_args, self.configuration.clone())?;
 
-        Command::new("nix")
-            .arg("repl")
-            .args(toplevel.to_args())
-            .run()?;
+        Command::new("nix").arg("repl").args(toplevel.to_args()).run()?;
 
         Ok(())
     }

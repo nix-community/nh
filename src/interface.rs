@@ -1,11 +1,18 @@
 use std::path::PathBuf;
 
 use anstyle::Style;
-use clap::ValueEnum;
-use clap::{builder::Styles, Args, Parser, Subcommand};
+use clap::{
+    builder::Styles,
+    Args,
+    Parser,
+    Subcommand,
+    ValueEnum,
+};
 
-use crate::installable::Installable;
-use crate::Result;
+use crate::{
+    installable::Installable,
+    Result,
+};
 
 const fn make_style() -> Styles {
     Styles::plain().header(Style::new().bold()).literal(
@@ -58,18 +65,18 @@ impl NHCommand {
             Self::Os(args) => {
                 std::env::set_var("NH_CURRENT_COMMAND", "os");
                 args.run()
-            }
+            },
             Self::Search(args) => args.run(),
             Self::Clean(proxy) => proxy.command.run(),
             Self::Completions(args) => args.run(),
             Self::Home(args) => {
                 std::env::set_var("NH_CURRENT_COMMAND", "home");
                 args.run()
-            }
+            },
             Self::Darwin(args) => {
                 std::env::set_var("NH_CURRENT_COMMAND", "darwin");
                 args.run()
-            }
+            },
         }
     }
 }
@@ -113,7 +120,8 @@ pub struct OsRebuildArgs {
     #[command(flatten)]
     pub update_args: UpdateArgs,
 
-    /// When using a flake installable, select this hostname from nixosConfigurations
+    /// When using a flake installable, select this hostname from
+    /// nixosConfigurations
     #[arg(long, short = 'H', global = true)]
     pub hostname: Option<String>,
 
@@ -161,7 +169,8 @@ pub struct OsReplArgs {
     #[command(flatten)]
     pub installable: Installable,
 
-    /// When using a flake installable, select this hostname from nixosConfigurations
+    /// When using a flake installable, select this hostname from
+    /// nixosConfigurations
     #[arg(long, short = 'H', global = true)]
     pub hostname: Option<String>,
 }
@@ -180,12 +189,7 @@ pub struct SearchArgs {
     /// Number of search results to display
     pub limit: u64,
 
-    #[arg(
-        long,
-        short,
-        env = "NH_SEARCH_CHANNEL",
-        default_value = "nixos-unstable"
-    )]
+    #[arg(long, short, env = "NH_SEARCH_CHANNEL", default_value = "nixos-unstable")]
     /// Name of the channel to query (e.g nixos-23.11, nixos-unstable, etc)
     pub channel: String,
 
@@ -365,7 +369,8 @@ pub struct DarwinRebuildArgs {
     #[command(flatten)]
     pub update_args: UpdateArgs,
 
-    /// When using a flake installable, select this hostname from darwinConfigurations
+    /// When using a flake installable, select this hostname from
+    /// darwinConfigurations
     #[arg(long, short = 'H', global = true)]
     pub hostname: Option<String>,
 
@@ -379,7 +384,8 @@ pub struct DarwinReplArgs {
     #[command(flatten)]
     pub installable: Installable,
 
-    /// When using a flake installable, select this hostname from darwinConfigurations
+    /// When using a flake installable, select this hostname from
+    /// darwinConfigurations
     #[arg(long, short = 'H', global = true)]
     pub hostname: Option<String>,
 }

@@ -1,41 +1,56 @@
-use std::ffi::{OsStr, OsString};
+use std::ffi::{
+    OsStr,
+    OsString,
+};
 
 use color_eyre::{
-    eyre::{bail, Context},
+    eyre::{
+        bail,
+        Context,
+    },
     Result,
 };
-use subprocess::{Exec, ExitStatus, Redirection};
+use subprocess::{
+    Exec,
+    ExitStatus,
+    Redirection,
+};
 use thiserror::Error;
-use tracing::{debug, info};
+use tracing::{
+    debug,
+    info,
+};
 
 use crate::installable::Installable;
 
 #[derive(Debug)]
 pub struct Command {
-    dry: bool,
+    dry:     bool,
     message: Option<String>,
     command: OsString,
-    args: Vec<OsString>,
+    args:    Vec<OsString>,
     elevate: bool,
 }
 
 impl Command {
     pub fn new<S: AsRef<OsStr>>(command: S) -> Self {
         Self {
-            dry: false,
+            dry:     false,
             message: None,
             command: command.as_ref().to_os_string(),
-            args: vec![],
+            args:    vec![],
             elevate: false,
         }
     }
 
-    pub fn elevate(mut self, elevate: bool) -> Self {
+    #[must_use]
+    pub const fn elevate(mut self, elevate: bool) -> Self {
         self.elevate = elevate;
         self
     }
 
-    pub fn dry(mut self, dry: bool) -> Self {
+    #[must_use]
+    pub const fn dry(mut self, dry: bool) -> Self {
         self.dry = dry;
         self
     }
@@ -137,14 +152,15 @@ impl Command {
 
 #[derive(Debug)]
 pub struct Build {
-    message: Option<String>,
+    message:     Option<String>,
     installable: Installable,
-    extra_args: Vec<OsString>,
-    nom: bool,
+    extra_args:  Vec<OsString>,
+    nom:         bool,
 }
 
 impl Build {
-    pub fn new(installable: Installable) -> Self {
+    #[must_use]
+    pub const fn new(installable: Installable) -> Self {
         Self {
             message: None,
             installable,
@@ -163,7 +179,8 @@ impl Build {
         self
     }
 
-    pub fn nom(mut self, yes: bool) -> Self {
+    #[must_use]
+    pub const fn nom(mut self, yes: bool) -> Self {
         self.nom = yes;
         self
     }

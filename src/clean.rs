@@ -1,30 +1,55 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{
+        BTreeMap,
+        HashMap,
+    },
     fmt,
-    path::{Path, PathBuf},
+    path::{
+        Path,
+        PathBuf,
+    },
     time::SystemTime,
 };
 
-use color_eyre::eyre::{bail, eyre, Context, ContextCompat};
-use nix::errno::Errno;
+use color_eyre::eyre::{
+    bail,
+    eyre,
+    Context,
+    ContextCompat,
+};
 use nix::{
+    errno::Errno,
     fcntl::AtFlags,
-    unistd::{faccessat, AccessFlags},
+    unistd::{
+        faccessat,
+        AccessFlags,
+    },
 };
 use regex::Regex;
-use tracing::{debug, info, instrument, span, warn, Level};
+use tracing::{
+    debug,
+    info,
+    instrument,
+    span,
+    warn,
+    Level,
+};
 use uzers::os::unix::UserExt;
 
-use crate::{commands::Command, *};
+use crate::{
+    commands::Command,
+    interface,
+    Result,
+};
 
 // Nix impl:
 // https://github.com/NixOS/nix/blob/master/src/nix-collect-garbage/nix-collect-garbage.cc
 
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 struct Generation {
-    number: u32,
+    number:        u32,
     last_modified: SystemTime,
-    path: PathBuf,
+    path:          PathBuf,
 }
 
 type ToBeRemoved = bool;
@@ -42,12 +67,12 @@ impl interface::CleanMode {
         // What profiles to clean depending on the call mode
         let uid = nix::unistd::Uid::effective();
         let args = match self {
-            interface::CleanMode::Profile(args) => {
+            Self::Profile(args) => {
                 profiles.push(args.profile.clone());
                 is_profile_clean = true;
                 &args.common
-            }
-            interface::CleanMode::All(args) => {
+            },
+            Self::All(args) => {
                 if !uid.is_root() {
                     crate::self_elevate();
                 }
@@ -57,22 +82,20 @@ impl interface::CleanMode {
                     profiles.extend(profiles_in_dir(path));
                 }
 
-                // Most unix systems start regular users at uid 1000+, but macos is special at 501+
-                // https://en.wikipedia.org/wiki/User_identifier
+                // Most unix systems start regular users at uid 1000+, but macos is special at
+                // 501+ https://en.wikipedia.org/wiki/User_identifier
                 let uid_min = if cfg!(target_os = "macos") { 501 } else { 1000 };
                 let uid_max = uid_min + 100;
                 debug!("Scanning XDG profiles for users 0, ${uid_min}-${uid_max}");
                 for user in unsafe { uzers::all_users() } {
                     if user.uid() >= uid_min && user.uid() < uid_max || user.uid() == 0 {
                         debug!(?user, "Adding XDG profiles for user");
-                        profiles.extend(profiles_in_dir(
-                            user.home_dir().join(".local/state/nix/profiles"),
-                        ));
+                        profiles.extend(profiles_in_dir(user.home_dir().join(".local/state/nix/profiles")));
                     }
                 }
                 args
-            }
-            interface::CleanMode::User(args) => {
+            },
+            Self::User(args) => {
                 if uid.is_root() {
                     bail!("nh clean user: don't run me as root!");
                 }
@@ -84,16 +107,13 @@ impl interface::CleanMode {
                     PathBuf::from("/nix/var/nix/profiles/per-user").join(user.name),
                 ));
                 args
-            }
+            },
         };
 
         // Use mutation to raise errors as they come
         let mut profiles_tagged = ProfilesTagged::new();
         for p in profiles {
-            profiles_tagged.insert(
-                p.clone(),
-                cleanable_generations(&p, args.keep, args.keep_since)?,
-            );
+            profiles_tagged.insert(p.clone(), cleanable_generations(&p, args.keep, args.keep_since)?);
         }
 
         // Query gcroots
@@ -114,10 +134,7 @@ impl interface::CleanMode {
                 let _entered = span.enter();
                 debug!(?src);
 
-                if !regexes
-                    .iter()
-                    .any(|next| next.is_match(&dst.to_string_lossy()))
-                {
+                if !regexes.iter().any(|next| next.is_match(&dst.to_string_lossy())) {
                     debug!("dst doesn't match any gcroot regex, skipping");
                     continue;
                 };
@@ -129,12 +146,14 @@ impl interface::CleanMode {
                     AccessFlags::F_OK | AccessFlags::W_OK,
                     AtFlags::AT_SYMLINK_NOFOLLOW,
                 ) {
-                    Ok(_) => true,
-                    Err(errno) => match errno {
-                        Errno::EACCES | Errno::ENOENT => false,
-                        _ => {
-                            bail!(eyre!("Checking access for gcroot {:?}, unknown error", dst)
-                                .wrap_err(errno))
+                    Ok(()) => true,
+                    Err(errno) => {
+                        match errno {
+                            Errno::EACCES | Errno::ENOENT => false,
+                            _ => {
+                                bail!(eyre!("Checking access for gcroot {:?}, unknown error", dst)
+                                    .wrap_err(errno))
+                            },
                         }
                     },
                 } {
@@ -147,13 +166,13 @@ impl interface::CleanMode {
                     match dur {
                         Err(err) => {
                             warn!(?err, ?now, "Failed to compare time!");
-                        }
+                        },
                         Ok(val) if val <= args.keep_since.into() => {
                             gcroots_tagged.insert(dst, false);
-                        }
+                        },
                         Ok(_) => {
                             gcroots_tagged.insert(dst, true);
-                        }
+                        },
                     }
                 } else {
                     debug!("dst doesn't exist or is not writable, skipping");
@@ -175,9 +194,7 @@ impl interface::CleanMode {
         if !gcroots_tagged.is_empty() {
             println!(
                 "{}",
-                "gcroots (matching the following regex patterns)"
-                    .blue()
-                    .bold()
+                "gcroots (matching the following regex patterns)".blue().bold()
             );
             for re in regexes {
                 println!("- {}  {}", "RE".purple(), re);
@@ -191,7 +208,7 @@ impl interface::CleanMode {
             }
             println!();
         }
-        for (profile, generations_tagged) in profiles_tagged.iter() {
+        for (profile, generations_tagged) in &profiles_tagged {
             println!("{}", profile.to_string_lossy().blue().bold());
             for (gen, tbr) in generations_tagged.iter().rev() {
                 if *tbr {
@@ -218,7 +235,7 @@ impl interface::CleanMode {
                 }
             }
 
-            for (_, generations_tagged) in profiles_tagged.iter() {
+            for generations_tagged in profiles_tagged.values() {
                 for (gen, tbr) in generations_tagged.iter().rev() {
                     if *tbr {
                         remove_path_nofail(&gen.path);
@@ -252,10 +269,7 @@ fn profiles_in_dir<P: AsRef<Path> + fmt::Debug>(dir: P) -> Vec<PathBuf> {
                         let path = e.path();
 
                         if let Ok(dst) = path.read_link() {
-                            let name = dst
-                                .file_name()
-                                .expect("Failed to get filename")
-                                .to_string_lossy();
+                            let name = dst.file_name().expect("Failed to get filename").to_string_lossy();
 
                             let generation_regex = Regex::new(r"^(.*)-(\d+)-link$").unwrap();
 
@@ -263,16 +277,16 @@ fn profiles_in_dir<P: AsRef<Path> + fmt::Debug>(dir: P) -> Vec<PathBuf> {
                                 res.push(path);
                             }
                         }
-                    }
+                    },
                     Err(error) => {
                         warn!(?dir, ?error, "Failed to read folder element");
-                    }
+                    },
                 }
             }
-        }
+        },
         Err(error) => {
             warn!(?dir, ?error, "Failed to read profiles directory");
-        }
+        },
     }
 
     res
@@ -324,15 +338,15 @@ fn cleanable_generations(
     }
 
     let now = SystemTime::now();
-    for (gen, tbr) in result.iter_mut() {
+    for (gen, tbr) in &mut result {
         match now.duration_since(gen.last_modified) {
             Err(err) => {
                 warn!(?err, ?now, ?gen, "Failed to compare time!");
-            }
+            },
             Ok(val) if val <= keep_since.into() => {
                 *tbr = false;
-            }
-            Ok(_) => {}
+            },
+            Ok(_) => {},
         }
     }
 

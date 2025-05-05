@@ -1,23 +1,40 @@
 use std::env;
 
-use color_eyre::eyre::{bail, Context};
-use tracing::{debug, info, warn};
+use color_eyre::eyre::{
+    bail,
+    Context,
+};
+use tracing::{
+    debug,
+    info,
+    warn,
+};
 
-use crate::commands;
-use crate::commands::Command;
-use crate::installable::Installable;
-use crate::interface::{DarwinArgs, DarwinRebuildArgs, DarwinReplArgs, DarwinSubcommand};
-use crate::nixos::toplevel_for;
-use crate::update::update;
-use crate::util::get_hostname;
-use crate::Result;
+use crate::{
+    commands,
+    commands::Command,
+    installable::Installable,
+    interface::{
+        DarwinArgs,
+        DarwinRebuildArgs,
+        DarwinReplArgs,
+        DarwinSubcommand,
+    },
+    nixos::toplevel_for,
+    update::update,
+    util::get_hostname,
+    Result,
+};
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
 const CURRENT_PROFILE: &str = "/run/current-system";
 
 impl DarwinArgs {
     pub fn run(self) -> Result<()> {
-        use DarwinRebuildVariant::*;
+        use DarwinRebuildVariant::{
+            Build,
+            Switch,
+        };
         match self.subcommand {
             DarwinSubcommand::Switch(args) => args.rebuild(Switch),
             DarwinSubcommand::Build(args) => {
@@ -25,7 +42,7 @@ impl DarwinArgs {
                     warn!("`--ask` and `--dry` have no effect for `nh darwin build`");
                 }
                 args.rebuild(Build)
-            }
+            },
             DarwinSubcommand::Repl(args) => args.run(),
         }
     }
@@ -38,7 +55,10 @@ enum DarwinRebuildVariant {
 
 impl DarwinRebuildArgs {
     fn rebuild(self, variant: DarwinRebuildVariant) -> Result<()> {
-        use DarwinRebuildVariant::*;
+        use DarwinRebuildVariant::{
+            Build,
+            Switch,
+        };
 
         if nix::unistd::Uid::effective().is_root() {
             bail!("Don't run nh os as root. I will call sudo internally as needed");
@@ -52,10 +72,12 @@ impl DarwinRebuildArgs {
 
         let out_path: Box<dyn crate::util::MaybeTempPath> = match self.common.out_link {
             Some(ref p) => Box::new(p.clone()),
-            None => Box::new({
-                let dir = tempfile::Builder::new().prefix("nh-os").tempdir()?;
-                (dir.as_ref().join("result"), dir)
-            }),
+            None => {
+                Box::new({
+                    let dir = tempfile::Builder::new().prefix("nh-os").tempdir()?;
+                    (dir.as_ref().join("result"), dir)
+                })
+            },
         };
 
         debug!(?out_path);
@@ -71,10 +93,7 @@ impl DarwinRebuildArgs {
                 .map(crate::installable::parse_attribute)
                 .unwrap_or_default();
 
-            Installable::Flake {
-                reference,
-                attribute,
-            }
+            Installable::Flake { reference, attribute }
         } else {
             self.common.installable.clone()
         };
@@ -84,7 +103,8 @@ impl DarwinRebuildArgs {
             ref mut attribute, ..
         } = processed_installable
         {
-            // If user explicitly selects some other attribute, don't push darwinConfigurations
+            // If user explicitly selects some other attribute, don't push
+            // darwinConfigurations
             if attribute.is_empty() {
                 attribute.push(String::from("darwinConfigurations"));
                 attribute.push(hostname.clone());
@@ -121,7 +141,7 @@ impl DarwinRebuildArgs {
             }
         }
 
-        if let Switch = variant {
+        if matches!(variant, Switch) {
             Command::new("nix")
                 .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
                 .arg(out_path.get_path())
@@ -166,10 +186,7 @@ impl DarwinReplArgs {
                 .map(crate::installable::parse_attribute)
                 .unwrap_or_default();
 
-            Installable::Flake {
-                reference,
-                attribute,
-            }
+            Installable::Flake { reference, attribute }
         } else {
             self.installable
         };

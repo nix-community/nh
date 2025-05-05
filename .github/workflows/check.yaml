@@ -1,0 +1,22 @@
+name: "Check Flake"
+
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - "update-*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: cachix/install-nix-action@master
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/checkout@v4
+
+      - run: nix flake check
+        name: Test Flake Outputs

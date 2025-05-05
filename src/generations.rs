@@ -1,9 +1,19 @@
-use std::collections::HashMap;
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::process;
+use std::{
+    collections::HashMap,
+    fs,
+    path::{
+        Path,
+        PathBuf,
+    },
+    process,
+};
 
-use chrono::{DateTime, Local, TimeZone, Utc};
+use chrono::{
+    DateTime,
+    Local,
+    TimeZone,
+    Utc,
+};
 use tracing::debug;
 
 #[derive(Debug)]
@@ -14,7 +24,7 @@ pub struct GenerationInfo {
     /// Date on switch a generation was built
     pub date: String,
 
-    /// NixOS version derived from `nixos-version`
+    /// `NixOS` version derived from `nixos-version`
     pub nixos_version: String,
 
     /// Version of the bootable kernel for a given generation
@@ -31,6 +41,7 @@ pub struct GenerationInfo {
     pub current: bool,
 }
 
+#[must_use]
 pub fn from_dir(generation_dir: &Path) -> Option<u64> {
     generation_dir
         .file_name()
@@ -59,14 +70,14 @@ pub fn describe(generation_dir: &Path, current_profile: &Path) -> Option<Generat
         })
         .unwrap_or_else(|_| "Unknown".to_string());
 
-    let nixos_version = fs::read_to_string(generation_dir.join("nixos-version"))
-        .unwrap_or_else(|_| "Unknown".to_string());
+    let nixos_version =
+        fs::read_to_string(generation_dir.join("nixos-version")).unwrap_or_else(|_| "Unknown".to_string());
 
     let kernel_dir = generation_dir
         .join("kernel")
         .canonicalize()
         .ok()
-        .and_then(|path| path.parent().map(|p| p.to_path_buf()))
+        .and_then(|path| path.parent().map(std::path::Path::to_path_buf))
         .unwrap_or_else(|| PathBuf::from("Unknown"));
 
     let kernel_modules_dir = kernel_dir.join("lib/modules");
@@ -80,7 +91,7 @@ pub fn describe(generation_dir: &Path, current_profile: &Path) -> Option<Generat
                     }
                 }
                 versions.join(", ")
-            }
+            },
             Err(_) => "Unknown".to_string(),
         }
     } else {
@@ -126,8 +137,7 @@ pub fn describe(generation_dir: &Path, current_profile: &Path) -> Option<Generat
     let current = current_profile
         .canonicalize()
         .ok()
-        .map(|canonical_current| canonical_gen_dir == canonical_current)
-        .unwrap_or(false);
+        .is_some_and(|canonical_current| canonical_gen_dir == canonical_current);
 
     Some(GenerationInfo {
         number: generation_number.to_string(),
@@ -163,13 +173,11 @@ pub fn print_info(mut generations: Vec<GenerationInfo>) {
     // Parse all dates at once and cache them
     let mut parsed_dates = HashMap::with_capacity(generations.len());
     for gen in &generations {
-        let date = DateTime::parse_from_rfc3339(&gen.date)
-            .map(|dt| dt.with_timezone(&Local))
-            .unwrap_or_else(|_| Local.timestamp_opt(0, 0).unwrap());
-        parsed_dates.insert(
-            gen.date.clone(),
-            date.format("%Y-%m-%d %H:%M:%S").to_string(),
+        let date = DateTime::parse_from_rfc3339(&gen.date).map_or_else(
+            |_| Local.timestamp_opt(0, 0).unwrap(),
+            |dt| dt.with_timezone(&Local),
         );
+        parsed_dates.insert(gen.date.clone(), date.format("%Y-%m-%d %H:%M:%S").to_string());
     }
 
     // Sort generations by numeric value of the generation number
@@ -185,7 +193,7 @@ pub fn print_info(mut generations: Vec<GenerationInfo>) {
         println!("Error getting current generation!");
     }
 
-    println!("Closure Size: {}", closure);
+    println!("Closure Size: {closure}");
     println!();
 
     // Determine column widths for pretty printing
@@ -225,7 +233,7 @@ pub fn print_info(mut generations: Vec<GenerationInfo>) {
             generation
                 .specialisations
                 .iter()
-                .map(|s| format!("*{}", s))
+                .map(|s| format!("*{s}"))
                 .collect::<Vec<String>>()
                 .join(" ")
         };

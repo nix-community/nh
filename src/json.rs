@@ -19,7 +19,7 @@ impl Display for Error {
             if i != 0 {
                 write!(f, ".")?;
             }
-            write!(f, "{}", elem)?;
+            write!(f, "{elem}")?;
         }
 
         Ok(())
@@ -29,9 +29,10 @@ impl Display for Error {
 impl std::error::Error for Error {}
 
 impl<'v> Value<'v> {
-    pub fn new(value: &'v serde_json::Value) -> Self {
+    #[must_use]
+    pub const fn new(value: &'v serde_json::Value) -> Self {
         Self {
-            inner: value,
+            inner:     value,
             get_stack: vec![],
         }
     }
@@ -41,10 +42,12 @@ impl<'v> Value<'v> {
         get_stack.push(index.to_owned());
 
         match self.inner.get(index) {
-            Some(value) => Ok(Self {
-                inner: value,
-                get_stack,
-            }),
+            Some(value) => {
+                Ok(Self {
+                    inner: value,
+                    get_stack,
+                })
+            },
             None => Err(Error { get_stack }),
         }
     }
@@ -73,11 +76,5 @@ fn test_value() {
         .unwrap()
         .get("other_bad")
         .is_err());
-    assert!(i
-        .get("foo")
-        .unwrap()
-        .get("some")
-        .unwrap()
-        .get("other")
-        .is_ok());
+    assert!(i.get("foo").unwrap().get("some").unwrap().get("other").is_ok());
 }

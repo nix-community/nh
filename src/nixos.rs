@@ -1,19 +1,41 @@
-use std::env;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::{
+    env,
+    fs,
+    path::{
+        Path,
+        PathBuf,
+    },
+};
 
-use color_eyre::eyre::{bail, Context};
-use color_eyre::eyre::{eyre, Result};
-use tracing::{debug, info, warn};
+use color_eyre::eyre::{
+    bail,
+    eyre,
+    Context,
+    Result,
+};
+use tracing::{
+    debug,
+    info,
+    warn,
+};
 
-use crate::commands;
-use crate::commands::Command;
-use crate::generations;
-use crate::installable::Installable;
-use crate::interface::OsSubcommand::{self};
-use crate::interface::{self, OsGenerationsArgs, OsRebuildArgs, OsReplArgs};
-use crate::update::update;
-use crate::util::get_hostname;
+use crate::{
+    commands,
+    commands::Command,
+    generations,
+    installable::Installable,
+    interface::{
+        self,
+        OsGenerationsArgs,
+        OsRebuildArgs,
+        OsReplArgs,
+        OsSubcommand::{
+            self,
+        },
+    },
+    update::update,
+    util::get_hostname,
+};
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
 const CURRENT_PROFILE: &str = "/run/current-system";
@@ -22,7 +44,12 @@ const SPEC_LOCATION: &str = "/etc/specialisation";
 
 impl interface::OsArgs {
     pub fn run(self) -> Result<()> {
-        use OsRebuildVariant::*;
+        use OsRebuildVariant::{
+            Boot,
+            Build,
+            Switch,
+            Test,
+        };
         match self.subcommand {
             OsSubcommand::Boot(args) => args.rebuild(Boot),
             OsSubcommand::Test(args) => args.rebuild(Test),
@@ -32,7 +59,7 @@ impl interface::OsArgs {
                     warn!("`--ask` and `--dry` have no effect for `nh os build`");
                 }
                 args.rebuild(Build)
-            }
+            },
             OsSubcommand::Repl(args) => args.run(),
             OsSubcommand::Info(args) => args.info(),
         }
@@ -49,7 +76,12 @@ enum OsRebuildVariant {
 
 impl OsRebuildArgs {
     fn rebuild(self, variant: OsRebuildVariant) -> Result<()> {
-        use OsRebuildVariant::*;
+        use OsRebuildVariant::{
+            Boot,
+            Build,
+            Switch,
+            Test,
+        };
 
         let elevate = if self.bypass_root_check {
             warn!("Bypassing root check, now running nix as root");
@@ -69,10 +101,12 @@ impl OsRebuildArgs {
 
         let out_path: Box<dyn crate::util::MaybeTempPath> = match self.common.out_link {
             Some(ref p) => Box::new(p.clone()),
-            None => Box::new({
-                let dir = tempfile::Builder::new().prefix("nh-os").tempdir()?;
-                (dir.as_ref().join("result"), dir)
-            }),
+            None => {
+                Box::new({
+                    let dir = tempfile::Builder::new().prefix("nh-os").tempdir()?;
+                    (dir.as_ref().join("result"), dir)
+                })
+            },
         };
 
         debug!(?out_path);
@@ -88,10 +122,7 @@ impl OsRebuildArgs {
                 .map(crate::installable::parse_attribute)
                 .unwrap_or_default();
 
-            Installable::Flake {
-                reference,
-                attribute,
-            }
+            Installable::Flake { reference, attribute }
         } else {
             self.common.installable.clone()
         };
@@ -111,7 +142,7 @@ impl OsRebuildArgs {
         let target_specialisation = if self.no_specialisation {
             None
         } else {
-            current_specialisation.or_else(|| self.specialisation.to_owned())
+            current_specialisation.or_else(|| self.specialisation.clone())
         };
 
         debug!("target_specialisation: {target_specialisation:?}");
@@ -148,8 +179,7 @@ impl OsRebuildArgs {
 
         if let Test | Switch = variant {
             // !! Use the target profile aka spec-namespaced
-            let switch_to_configuration =
-                target_profile.join("bin").join("switch-to-configuration");
+            let switch_to_configuration = target_profile.join("bin").join("switch-to-configuration");
             let switch_to_configuration = switch_to_configuration.to_str().unwrap();
 
             Command::new(switch_to_configuration)
@@ -167,10 +197,7 @@ impl OsRebuildArgs {
                 .run()?;
 
             // !! Use the base profile aka no spec-namespace
-            let switch_to_configuration = out_path
-                .get_path()
-                .join("bin")
-                .join("switch-to-configuration");
+            let switch_to_configuration = out_path.get_path().join("bin").join("switch-to-configuration");
 
             Command::new(switch_to_configuration)
                 .arg("boot")
@@ -199,24 +226,25 @@ pub fn toplevel_for<S: AsRef<str>>(hostname: S, installable: Installable) -> Ins
         Installable::Flake {
             ref mut attribute, ..
         } => {
-            // If user explicitly selects some other attribute, don't push nixosConfigurations
+            // If user explicitly selects some other attribute, don't push
+            // nixosConfigurations
             if attribute.is_empty() {
                 attribute.push(String::from("nixosConfigurations"));
                 attribute.push(hostname);
             }
             attribute.extend(toplevel);
-        }
+        },
         Installable::File {
             ref mut attribute, ..
         } => {
             attribute.extend(toplevel);
-        }
+        },
         Installable::Expression {
             ref mut attribute, ..
         } => {
             attribute.extend(toplevel);
-        }
-        Installable::Store { .. } => {}
+        },
+        Installable::Store { .. } => {},
     }
 
     res
@@ -235,10 +263,7 @@ impl OsReplArgs {
                 .map(crate::installable::parse_attribute)
                 .unwrap_or_default();
 
-            Installable::Flake {
-                reference,
-                attribute,
-            }
+            Installable::Flake { reference, attribute }
         } else {
             self.installable
         };

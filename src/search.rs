@@ -1,14 +1,35 @@
-use std::process::Stdio;
-use std::time::Instant;
+use std::{
+    process::Stdio,
+    time::Instant,
+};
 
-use color_eyre::eyre::{bail, Context};
-use elasticsearch_dsl::{Operator, Query, Search, SearchResponse, TextQueryType};
+use color_eyre::eyre::{
+    bail,
+    Context,
+};
+use elasticsearch_dsl::{
+    Operator,
+    Query,
+    Search,
+    SearchResponse,
+    TextQueryType,
+};
 use interface::SearchArgs;
 use regex::Regex;
-use serde::{Deserialize, Serialize};
-use tracing::{debug, trace, warn};
+use serde::{
+    Deserialize,
+    Serialize,
+};
+use tracing::{
+    debug,
+    trace,
+    warn,
+};
 
-use crate::{interface, Result};
+use crate::{
+    interface,
+    Result,
+};
 
 // List of deprecated NixOS versions
 // Add new versions as they become deprecated.
@@ -18,23 +39,23 @@ const DEPRECATED_VERSIONS: &[&str] = &["nixos-24.05"];
 #[allow(non_snake_case, dead_code)]
 struct SearchResult {
     // r#type: String,
-    package_attr_name: String,
-    package_attr_set: String,
-    package_pname: String,
-    package_pversion: String,
-    package_platforms: Vec<String>,
-    package_outputs: Vec<String>,
-    package_default_output: Option<String>,
-    package_programs: Vec<String>,
+    package_attr_name:       String,
+    package_attr_set:        String,
+    package_pname:           String,
+    package_pversion:        String,
+    package_platforms:       Vec<String>,
+    package_outputs:         Vec<String>,
+    package_default_output:  Option<String>,
+    package_programs:        Vec<String>,
     // package_license: Vec<License>,
-    package_license_set: Vec<String>,
+    package_license_set:     Vec<String>,
     // package_maintainers: Vec<HashMap<String, String>>,
-    package_description: Option<String>,
+    package_description:     Option<String>,
     package_longDescription: Option<String>,
-    package_hydra: (),
-    package_system: String,
-    package_homepage: Vec<String>,
-    package_position: Option<String>,
+    package_hydra:           (),
+    package_system:          String,
+    package_homepage:        Vec<String>,
+    package_position:        Option<String>,
 }
 
 macro_rules! print_hyperlink {
@@ -47,10 +68,10 @@ macro_rules! print_hyperlink {
 
 #[derive(Debug, Serialize)]
 struct JSONOutput {
-    query: String,
-    channel: String,
+    query:      String,
+    channel:    String,
     elapsed_ms: u128,
-    results: Vec<SearchResult>,
+    results:    Vec<SearchResult>,
 }
 
 impl SearchArgs {
@@ -106,10 +127,7 @@ impl SearchArgs {
         );
 
         if !self.json {
-            println!(
-                "Querying search.nixos.org, with channel {}...",
-                self.channel
-            );
+            println!("Querying search.nixos.org, with channel {}...", self.channel);
         }
         let then = Instant::now();
 
@@ -131,9 +149,7 @@ impl SearchArgs {
 
         debug!(?req);
 
-        let response = client
-            .execute(req)
-            .context("querying the elasticsearch API")?;
+        let response = client.execute(req).context("querying the elasticsearch API")?;
         let elapsed = then.elapsed();
         debug!(?elapsed);
         trace!(?response);
@@ -156,10 +172,10 @@ impl SearchArgs {
         if self.json {
             // Output as JSON
             let json_output = JSONOutput {
-                query: query_s,
-                channel: self.channel.clone(),
+                query:      query_s,
+                channel:    self.channel.clone(),
                 elapsed_ms: elapsed.as_millis(),
-                results: documents,
+                results:    documents,
             };
 
             println!("{}", serde_json::to_string_pretty(&json_output)?);
@@ -220,10 +236,7 @@ impl SearchArgs {
                         .next()
                         .expect("Removing line number from position");
 
-                    print_hyperlink!(
-                        position,
-                        format!("file://{nixpkgs_path}/{position_trimmed}")
-                    );
+                    print_hyperlink!(position, format!("file://{nixpkgs_path}/{position_trimmed}"));
                 } else {
                     println!("{position}");
                 }

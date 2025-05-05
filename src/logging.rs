@@ -1,18 +1,27 @@
 use owo_colors::OwoColorize;
-use tracing::Event;
-use tracing::Level;
-use tracing::Subscriber;
-use tracing_subscriber::filter::filter_fn;
-use tracing_subscriber::filter::FilterExt;
-use tracing_subscriber::fmt;
-use tracing_subscriber::fmt::FormatEvent;
-use tracing_subscriber::fmt::FormatFields;
-use tracing_subscriber::prelude::*;
-use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::EnvFilter;
+use tracing::{
+    Event,
+    Level,
+    Subscriber,
+};
+use tracing_subscriber::{
+    filter::{
+        filter_fn,
+        FilterExt,
+    },
+    fmt,
+    fmt::{
+        FormatEvent,
+        FormatFields,
+    },
+    prelude::*,
+    registry::LookupSpan,
+    EnvFilter,
+};
 
-use crate::*;
+use crate::Result;
 
+#[allow(dead_code)]
 struct InfoFormatter;
 
 impl<S, N> FormatEvent<S, N> for InfoFormatter
@@ -43,7 +52,7 @@ where
 
         if *level != Level::INFO {
             if let (Some(file), Some(line)) = (metadata.file(), metadata.line()) {
-                write!(writer, " (nh/{}:{})", file, line)?;
+                write!(writer, " (nh/{file}:{line})")?;
             }
         }
 
@@ -52,7 +61,7 @@ where
     }
 }
 
-pub(crate) fn setup_logging(verbose: bool) -> Result<()> {
+pub fn setup_logging(verbose: bool) -> Result<()> {
     color_eyre::config::HookBuilder::default()
         .display_location_section(true)
         .panic_section("Please report the bug at https://github.com/nix-community/nh/issues")
@@ -72,7 +81,7 @@ pub(crate) fn setup_logging(verbose: bool) -> Result<()> {
         .without_time()
         .with_target(false)
         .with_level(false)
-        .event_format(InfoFormatter)
+        .event_format(InfoFormatter {})
         .with_filter(filter_fn(|meta| {
             let level = *meta.level();
             (level == Level::INFO) || (level == Level::WARN)

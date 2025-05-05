@@ -57,6 +57,7 @@ rustPlatform.buildRustPackage {
 
   env = {
     NH_REV = rev;
+    NH_NO_CHECKS = "1";
   };
 
   meta = {
