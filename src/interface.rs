@@ -185,7 +185,7 @@ pub struct OsRollbackArgs {
     pub bypass_root_check: bool,
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, Args, Clone)]
 pub struct CommonRebuildArgs {
     /// Only print actions, without performing them
     #[arg(long, short = 'n')]
@@ -435,7 +435,7 @@ pub struct DarwinReplArgs {
     pub hostname: Option<String>,
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, Args, Clone)]
 pub struct UpdateArgs {
     #[arg(short = 'u', long = "update")]
     /// Update all flake inputs

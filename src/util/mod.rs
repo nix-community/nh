@@ -8,6 +8,8 @@ use tempfile::TempDir;
 
 use crate::commands::Command;
 
+pub mod platform;
+
 /// Retrieves the installed Nix version as a string.
 ///
 /// This function executes the `nix --version` command, parses the output to

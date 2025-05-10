@@ -26,6 +26,16 @@ pub enum Installable {
     },
 }
 
+// Implement Default for Installable
+impl Default for Installable {
+    fn default() -> Self {
+        Self::Flake {
+            reference: String::from("."),
+            attribute: Vec::new(),
+        }
+    }
+}
+
 impl FromArgMatches for Installable {
     fn from_arg_matches(matches: &clap::ArgMatches) -> Result<Self, clap::Error> {
         let mut matches = matches.clone();

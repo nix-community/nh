@@ -1,4 +1,3 @@
-use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -6,17 +5,15 @@ use color_eyre::eyre::{bail, Context};
 use color_eyre::eyre::{eyre, Result};
 use tracing::{debug, info, warn};
 
-use crate::commands;
 use crate::commands::Command;
 use crate::generations;
 use crate::installable::Installable;
 use crate::interface::OsSubcommand::{self};
-use crate::interface::{
-    self, OsBuildVmArgs, OsGenerationsArgs, OsRebuildArgs, OsReplArgs, OsRollbackArgs,
-};
+use crate::interface::{self, OsGenerationsArgs, OsRebuildArgs, OsReplArgs, OsRollbackArgs};
 use crate::update::update;
 use crate::util::ensure_ssh_key_login;
 use crate::util::get_hostname;
+use crate::util::platform;
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
 const CURRENT_PROFILE: &str = "/run/current-system";
@@ -26,18 +23,44 @@ const SPEC_LOCATION: &str = "/etc/specialisation";
 impl interface::OsArgs {
     pub fn run(self) -> Result<()> {
         use OsRebuildVariant::{Boot, Build, Switch, Test};
+        // Always resolve installable from env var at the top
+        let resolved_installable = platform::resolve_env_installable(
+            "NH_OS_FLAKE",
+            match &self.subcommand {
+                OsSubcommand::Boot(args) => args.common.installable.clone(),
+                OsSubcommand::Test(args) => args.common.installable.clone(),
+                OsSubcommand::Switch(args) => args.common.installable.clone(),
+                OsSubcommand::Build(args) => args.common.installable.clone(),
+                OsSubcommand::BuildVm(args) => args.common.common.installable.clone(),
+                OsSubcommand::Repl(args) => args.installable.clone(),
+                _ => Installable::default(), // fallback for Info/Rollback, not used
+            },
+        );
         match self.subcommand {
-            OsSubcommand::Boot(args) => args.rebuild(Boot, None),
-            OsSubcommand::Test(args) => args.rebuild(Test, None),
-            OsSubcommand::Switch(args) => args.rebuild(Switch, None),
+            OsSubcommand::Boot(args) => {
+                args.rebuild_with_installable(Boot, None, resolved_installable)
+            }
+            OsSubcommand::Test(args) => {
+                args.rebuild_with_installable(Test, None, resolved_installable)
+            }
+            OsSubcommand::Switch(args) => {
+                args.rebuild_with_installable(Switch, None, resolved_installable)
+            }
             OsSubcommand::Build(args) => {
                 if args.common.ask || args.common.dry {
                     warn!("`--ask` and `--dry` have no effect for `nh os build`");
                 }
-                args.rebuild(Build, None)
+                args.rebuild_with_installable(Build, None, resolved_installable)
             }
-            OsSubcommand::BuildVm(args) => args.build_vm(),
-            OsSubcommand::Repl(args) => args.run(),
+            OsSubcommand::BuildVm(args) => {
+                let final_attr = get_final_attr(true, args.with_bootloader);
+                args.common.rebuild_with_installable(
+                    OsRebuildVariant::BuildVm,
+                    Some(final_attr),
+                    resolved_installable,
+                )
+            }
+            OsSubcommand::Repl(args) => args.run_with_installable(resolved_installable),
             OsSubcommand::Info(args) => args.info(),
             OsSubcommand::Rollback(args) => args.rollback(),
         }
@@ -53,33 +76,21 @@ enum OsRebuildVariant {
     BuildVm,
 }
 
-impl OsBuildVmArgs {
-    fn build_vm(self) -> Result<()> {
-        let final_attr = get_final_attr(true, self.with_bootloader);
-        self.common
-            .rebuild(OsRebuildVariant::BuildVm, Some(final_attr))
-    }
-}
-
 impl OsRebuildArgs {
-    // final_attr is the attribute of config.system.build.X to evaluate.
-    fn rebuild(self, variant: OsRebuildVariant, final_attr: Option<String>) -> Result<()> {
+    // Accept the resolved installable as a parameter
+    fn rebuild_with_installable(
+        self,
+        variant: OsRebuildVariant,
+        final_attr: Option<String>,
+        installable: Installable,
+    ) -> Result<()> {
         use OsRebuildVariant::{Boot, Build, BuildVm, Switch, Test};
-
         if self.build_host.is_some() || self.target_host.is_some() {
-            // if it fails its okay
             let _ = ensure_ssh_key_login();
         }
 
-        let elevate = if self.bypass_root_check {
-            warn!("Bypassing root check, now running nix as root");
-            false
-        } else {
-            if nix::unistd::Uid::effective().is_root() {
-                bail!("Don't run nh os as root. I will call sudo internally as needed");
-            }
-            true
-        };
+        // Check for root privileges and elevate if needed
+        let elevate = platform::check_not_root(self.bypass_root_check)?;
 
         if self.update_args.update {
             update(&self.common.installable, self.update_args.update_input)?;
@@ -104,88 +115,74 @@ impl OsRebuildArgs {
             },
         };
 
-        let out_path: Box<dyn crate::util::MaybeTempPath> = match self.common.out_link {
-            Some(ref p) => Box::new(p.clone()),
-            None => Box::new({
-                let dir = tempfile::Builder::new().prefix("nh-os").tempdir()?;
-                (dir.as_ref().join("result"), dir)
-            }),
-        };
-
+        // Create temporary output path for the build result
+        let out_path = platform::create_output_path(self.common.out_link, "nh-os")?;
         debug!(?out_path);
 
-        // Use NH_OS_FLAKE if available, otherwise use the provided installable
-        let installable = if let Ok(os_flake) = env::var("NH_OS_FLAKE") {
-            debug!("Using NH_OS_FLAKE: {}", os_flake);
-
-            let mut elems = os_flake.splitn(2, '#');
-            let reference = elems.next().unwrap().to_owned();
-            let attribute = elems
-                .next()
-                .map(crate::installable::parse_attribute)
-                .unwrap_or_default();
-
-            Installable::Flake {
-                reference,
-                attribute,
-            }
-        } else {
-            self.common.installable.clone()
-        };
-
-        let toplevel = toplevel_for(
-            &target_hostname,
+        // Configure installable with the right attributes for NixOS
+        let toplevel = platform::extend_installable_for_platform(
             installable,
-            final_attr.unwrap_or(String::from("toplevel")).as_str(),
-        );
+            "nixosConfigurations",
+            &[
+                "config",
+                "system",
+                "build",
+                final_attr.as_deref().unwrap_or("toplevel"),
+            ],
+            Some(target_hostname.clone()),
+            true,
+            &self
+                .extra_args
+                .iter()
+                .map(std::convert::Into::into)
+                .collect::<Vec<_>>(),
+        )?;
 
         let message = match variant {
             BuildVm => "Building NixOS VM image",
             _ => "Building NixOS configuration",
         };
 
-        commands::Build::new(toplevel)
-            .extra_arg("--out-link")
-            .extra_arg(out_path.get_path())
-            .extra_args(&self.extra_args)
-            .builder(self.build_host.clone())
-            .message(message)
-            .nom(!self.common.no_nom)
-            .run()?;
+        // Build the NixOS configuration
+        platform::build_configuration(
+            toplevel,
+            out_path.as_ref(),
+            &self.extra_args,
+            self.build_host.clone(),
+            message,
+            self.common.no_nom,
+        )?;
 
-        let current_specialisation = std::fs::read_to_string(SPEC_LOCATION).ok();
+        // Process any system specialisations
+        let target_specialisation = platform::process_specialisation(
+            self.no_specialisation,
+            self.specialisation.clone(),
+            SPEC_LOCATION,
+        )?;
 
-        let target_specialisation = if self.no_specialisation {
-            None
-        } else {
-            current_specialisation.or_else(|| self.specialisation.clone())
-        };
-
-        debug!("target_specialisation: {target_specialisation:?}");
-
-        let target_profile = match &target_specialisation {
-            None => out_path.get_path().to_owned(),
-            Some(spec) => out_path.get_path().join("specialisation").join(spec),
-        };
+        // Get the target system profile path
+        let target_profile =
+            platform::get_target_profile(out_path.as_ref(), &target_specialisation);
 
         debug!("exists: {}", target_profile.exists());
-
         target_profile.try_exists().context("Doesn't exist")?;
 
         if self.build_host.is_none()
             && self.target_host.is_none()
             && system_hostname.map_or(true, |h| h == target_hostname)
         {
-            Command::new("nvd")
-                .arg("diff")
-                .arg(CURRENT_PROFILE)
-                .arg(&target_profile)
-                .message("Comparing changes")
-                .run()?;
+            // Show diff between current and new configuration
+            platform::compare_configurations(
+                CURRENT_PROFILE,
+                &target_profile,
+                false,
+                "Comparing changes",
+            )?;
         } else {
             debug!("Not running nvd as the target hostname is different from the system hostname.");
         }
 
+        // Handle dry run mode or check if confirmation is needed
         if self.common.dry || matches!(variant, Build | BuildVm) {
             if self.common.ask {
                 warn!("--ask has no effect as dry run was requested");
@@ -193,13 +190,8 @@ impl OsRebuildArgs {
             return Ok(());
         }
 
-        if self.common.ask {
-            info!("Apply the config?");
-            let confirmation = dialoguer::Confirm::new().default(false).interact()?;
-
-            if !confirmation {
-                bail!("User rejected the new config");
-            }
+        if !platform::confirm_action(self.common.ask, self.common.dry)? {
+            return Ok(());
         }
 
         if let Some(target_host) = &self.target_host {
@@ -215,12 +207,10 @@ impl OsRebuildArgs {
         };
 
         if let Test | Switch = variant {
-            // !! Use the target profile aka spec-namespaced
             let switch_to_configuration =
                 target_profile.join("bin").join("switch-to-configuration");
             let switch_to_configuration = switch_to_configuration.canonicalize().unwrap();
             let switch_to_configuration = switch_to_configuration.to_str().unwrap();
-
             Command::new(switch_to_configuration)
                 .arg("test")
                 .ssh(self.target_host.clone())
@@ -236,15 +226,12 @@ impl OsRebuildArgs {
                 .arg(out_path.get_path().canonicalize().unwrap())
                 .ssh(self.target_host.clone())
                 .run()?;
-
-            // !! Use the base profile aka no spec-namespace
             let switch_to_configuration = out_path
                 .get_path()
                 .join("bin")
                 .join("switch-to-configuration");
             let switch_to_configuration = switch_to_configuration.canonicalize().unwrap();
             let switch_to_configuration = switch_to_configuration.to_str().unwrap();
-
             Command::new(switch_to_configuration)
                 .arg("boot")
                 .ssh(self.target_host)
@@ -252,26 +239,15 @@ impl OsRebuildArgs {
                 .message("Adding configuration to bootloader")
                 .run()?;
         }
-
-        // Make sure out_path is not accidentally dropped
-        // https://docs.rs/tempfile/3.12.0/tempfile/index.html#early-drop-pitfall
         drop(out_path);
-
         Ok(())
     }
 }
 
 impl OsRollbackArgs {
     fn rollback(&self) -> Result<()> {
-        let elevate = if self.bypass_root_check {
-            warn!("Bypassing root check, now running nix as root");
-            false
-        } else {
-            if nix::unistd::Uid::effective().is_root() {
-                bail!("Don't run nh os as root. I will call sudo internally as needed");
-            }
-            true
-        };
+        // Check if we need root permissions
+        let elevate = platform::check_not_root(self.bypass_root_check)?;
 
         // Find previous generation or specific generation
         let target_generation = if let Some(gen_number) = self.to {
@@ -288,24 +264,20 @@ impl OsRollbackArgs {
             .unwrap_or(Path::new("/nix/var/nix/profiles"));
         let generation_link = profile_dir.join(format!("system-{}-link", target_generation.number));
 
-        // Handle specialisations
-        let current_specialisation = fs::read_to_string(SPEC_LOCATION).ok();
+        // Handle any system specialisations
+        let target_specialisation = platform::process_specialisation(
+            self.no_specialisation,
+            self.specialisation.clone(),
+            SPEC_LOCATION,
+        )?;
 
-        let target_specialisation = if self.no_specialisation {
-            None
-        } else {
-            self.specialisation.clone().or(current_specialisation)
-        };
-
-        debug!("target_specialisation: {target_specialisation:?}");
-
-        // Compare changes between current and target generation
-        Command::new("nvd")
-            .arg("diff")
-            .arg(CURRENT_PROFILE)
-            .arg(&generation_link)
-            .message("Comparing changes")
-            .run()?;
+        // Show diff between current and target configuration
+        platform::compare_configurations(
+            CURRENT_PROFILE,
+            &generation_link,
+            false,
+            "Comparing changes",
+        )?;
 
         if self.dry {
             info!(
@@ -315,13 +287,9 @@ impl OsRollbackArgs {
             return Ok(());
         }
 
-        if self.ask {
-            info!("Roll back to generation {}?", target_generation.number);
-            let confirmation = dialoguer::Confirm::new().default(false).interact()?;
-
-            if !confirmation {
-                bail!("User rejected the rollback");
-            }
+        // Ask for confirmation if needed
+        if !platform::confirm_action(self.ask, self.dry)? {
+            return Ok(());
         }
 
         // Get current generation number for potential rollback
@@ -346,25 +314,10 @@ impl OsRollbackArgs {
             .run()?;
 
         // Set up rollback protection flag
-        let mut rollback_profile = false;
+        let mut _rollback_profile = false;
 
-        // Determine the correct profile to use with specialisations
-        let final_profile = match &target_specialisation {
-            None => generation_link,
-            Some(spec) => {
-                let spec_path = generation_link.join("specialisation").join(spec);
-                if !spec_path.exists() {
-                    warn!(
-                        "Specialisation '{}' does not exist in generation {}",
-                        spec, target_generation.number
-                    );
-                    warn!("Using base configuration without specialisations");
-                    generation_link
-                } else {
-                    spec_path
-                }
-            }
-        };
+        // Get the final profile path with specialisation if any
+        let final_profile = platform::get_target_profile(&generation_link, &target_specialisation);
 
         // Activate the configuration
         info!("Activating...");
@@ -383,10 +336,10 @@ impl OsRollbackArgs {
                 );
             }
             Err(e) => {
-                rollback_profile = true;
+                _rollback_profile = true;
 
                 // If activation fails, rollback the profile
-                if rollback_profile && current_gen_number > 0 {
+                if _rollback_profile && current_gen_number > 0 {
                     let current_gen_link =
                         profile_dir.join(format!("system-{current_gen_number}-link"));
 
@@ -521,88 +474,16 @@ pub fn get_final_attr(build_vm: bool, with_bootloader: bool) -> String {
     String::from(attr)
 }
 
-pub fn toplevel_for<S: AsRef<str>>(
-    hostname: S,
-    installable: Installable,
-    final_attr: &str,
-) -> Installable {
-    let mut res = installable;
-    let hostname = hostname.as_ref().to_owned();
-
-    let toplevel = ["config", "system", "build", final_attr]
-        .into_iter()
-        .map(String::from);
-
-    match res {
-        Installable::Flake {
-            ref mut attribute, ..
-        } => {
-            // If user explicitly selects some other attribute, don't push nixosConfigurations
-            if attribute.is_empty() {
-                attribute.push(String::from("nixosConfigurations"));
-                attribute.push(hostname);
-            }
-            attribute.extend(toplevel);
-        }
-        Installable::File {
-            ref mut attribute, ..
-        } => {
-            attribute.extend(toplevel);
-        }
-        Installable::Expression {
-            ref mut attribute, ..
-        } => {
-            attribute.extend(toplevel);
-        }
-        Installable::Store { .. } => {}
-    }
-
-    res
-}
-
 impl OsReplArgs {
-    fn run(self) -> Result<()> {
-        // Use NH_OS_FLAKE if available, otherwise use the provided installable
-        let mut target_installable = if let Ok(os_flake) = env::var("NH_OS_FLAKE") {
-            debug!("Using NH_OS_FLAKE: {}", os_flake);
-
-            let mut elems = os_flake.splitn(2, '#');
-            let reference = elems.next().unwrap().to_owned();
-            let attribute = elems
-                .next()
-                .map(crate::installable::parse_attribute)
-                .unwrap_or_default();
-
-            Installable::Flake {
-                reference,
-                attribute,
-            }
-        } else {
-            self.installable
-        };
-
-        if matches!(target_installable, Installable::Store { .. }) {
-            bail!("Nix doesn't support nix store installables.");
-        }
-
-        let hostname = self.hostname.ok_or(()).or_else(|()| get_hostname())?;
-
-        if let Installable::Flake {
-            ref mut attribute, ..
-        } = target_installable
-        {
-            if attribute.is_empty() {
-                attribute.push(String::from("nixosConfigurations"));
-                attribute.push(hostname);
-            }
-        }
-
-        Command::new("nix")
-            .arg("repl")
-            .args(target_installable.to_args())
-            .run()?;
-
-        Ok(())
+    fn run_with_installable(self, installable: Installable) -> Result<()> {
+        // Launch the nix REPL with the NixOS configuration
+        platform::run_repl(
+            installable,
+            "nixosConfigurations",
+            &["config", "system", "build", "toplevel"],
+            self.hostname,
+            &[],
+        )
     }
 }
 
