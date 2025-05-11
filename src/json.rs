@@ -28,6 +28,7 @@ impl Display for Error {
 
 impl std::error::Error for Error {}
 
+#[allow(dead_code)]
 impl<'v> Value<'v> {
     pub const fn new(value: &'v serde_json::Value) -> Self {
         Self {
