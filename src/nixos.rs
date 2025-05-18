@@ -153,12 +153,11 @@ impl OsRebuildArgs {
             .nom(!self.common.no_nom)
             .run()?;
 
-        let current_specialisation = std::fs::read_to_string(SPEC_LOCATION).ok();
-
         let target_specialisation = if self.no_specialisation {
             None
         } else {
-            current_specialisation.or_else(|| self.specialisation.clone())
+            self.specialisation
+                .or(std::fs::read_to_string(SPEC_LOCATION).ok())
         };
 
         debug!("target_specialisation: {target_specialisation:?}");
