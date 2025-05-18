@@ -99,15 +99,13 @@ impl HomeRebuildArgs {
 
         debug!(?prev_generation);
 
-        let spec_location =
-            PathBuf::from(std::env::var("HOME")?).join(".local/share/home-manager/specialisation");
-
-        let current_specialisation = std::fs::read_to_string(spec_location.to_str().unwrap()).ok();
-
         let target_specialisation = if self.no_specialisation {
             None
         } else {
-            current_specialisation.or(self.specialisation)
+            let spec_location = PathBuf::from(std::env::var("HOME")?)
+                .join(".local/share/home-manager/specialisation");
+            self.specialisation
+                .or(std::fs::read_to_string(spec_location).ok())
         };
 
         debug!("target_specialisation: {target_specialisation:?}");
