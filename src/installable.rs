@@ -4,7 +4,6 @@ use std::{env, fs};
 use clap::error::ErrorKind;
 use clap::{Arg, ArgAction, Args, FromArgMatches};
 use color_eyre::owo_colors::OwoColorize;
-
 // Reference: https://nix.dev/manual/nix/2.18/command-ref/new-cli/nix
 
 #[derive(Debug, Clone)]
@@ -24,6 +23,15 @@ pub enum Installable {
         expression: String,
         attribute: Vec<String>,
     },
+}
+
+impl Default for Installable {
+    fn default() -> Self {
+        Self::Flake {
+            reference: ".".to_string(),
+            attribute: Vec::new(),
+        }
+    }
 }
 
 impl FromArgMatches for Installable {

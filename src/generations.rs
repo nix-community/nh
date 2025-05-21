@@ -43,7 +43,7 @@ pub fn from_dir(generation_dir: &Path) -> Option<u64> {
         })
 }
 
-pub fn describe(generation_dir: &Path, current_profile: &Path) -> Option<GenerationInfo> {
+pub fn describe(generation_dir: &Path, _current_profile: &Path) -> Option<GenerationInfo> {
     let generation_number = from_dir(generation_dir)?;
 
     // Get metadata once and reuse for both date and existence checks
