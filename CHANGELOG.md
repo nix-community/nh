@@ -2,6 +2,11 @@
 
 # NH Changelog
 
+## Unreleased
+
+- `nh os build` and `nh os build-vm` now default to placing the output at
+  `./result` instead of a temp directory.
+
 ## 4.1.0
 
 ### Added
