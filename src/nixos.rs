@@ -158,10 +158,12 @@ impl OsRebuildArgs {
             BuildVm => "Building NixOS VM image",
             _ => "Building NixOS configuration",
         };
+
         commands::Build::new(toplevel)
             .extra_arg("--out-link")
             .extra_arg(out_path.get_path())
             .extra_args(&self.extra_args)
+            .passthrough(&self.common.passthrough)
             .builder(self.build_host.clone())
             .message(message)
             .nom(!self.common.no_nom)

@@ -9,6 +9,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 use crate::installable::Installable;
+use crate::interface::NixBuildPassthroughArgs;
 
 fn ssh_wrap(cmd: Exec, ssh: Option<&str>) -> Exec {
     if let Some(ssh) = ssh {
@@ -216,6 +217,10 @@ impl Build {
             self.extra_args.push(elem.as_ref().to_os_string());
         }
         self
+    }
+
+    pub fn passthrough(self, passthrough: &NixBuildPassthroughArgs) -> Self {
+        self.extra_args(passthrough.generate_passthrough_args())
     }
 
     pub fn run(&self) -> Result<()> {
