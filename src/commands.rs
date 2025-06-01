@@ -1,8 +1,8 @@
 use std::ffi::{OsStr, OsString};
 
 use color_eyre::{
-    eyre::{bail, Context},
     Result,
+    eyre::{Context, bail},
 };
 use subprocess::{Exec, ExitStatus, Redirection};
 use thiserror::Error;

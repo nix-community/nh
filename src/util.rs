@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command as StdCommand, Stdio};
 use std::str;
 
-use color_eyre::{eyre, Result};
+use color_eyre::{Result, eyre};
 use tempfile::TempDir;
 
 use crate::commands::Command;

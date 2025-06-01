@@ -1,6 +1,6 @@
 use std::{cmp::Ordering, env};
 
-use color_eyre::{eyre, Result};
+use color_eyre::{Result, eyre};
 use semver::Version;
 use tracing::warn;
 
@@ -51,9 +51,7 @@ pub fn check_nix_version() -> Result<()> {
             let binary_name = if is_lix_binary { "Lix" } else { "Nix" };
             warn!(
                 "Warning: {} version {} is older than the recommended minimum version {}. You may encounter issues.",
-                binary_name,
-                version,
-                min_version
+                binary_name, version, min_version
             );
             Ok(())
         }
@@ -124,7 +122,9 @@ pub fn setup_environment() -> Result<bool> {
     if let Ok(f) = std::env::var("FLAKE") {
         // Set NH_FLAKE if it's not already set
         if std::env::var("NH_FLAKE").is_err() {
-            unsafe { std::env::set_var("NH_FLAKE", f); }
+            unsafe {
+                std::env::set_var("NH_FLAKE", f);
+            }
 
             // Only warn if FLAKE is set and we're using it to set NH_FLAKE
             // AND none of the command-specific env vars are set

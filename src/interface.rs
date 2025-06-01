@@ -2,10 +2,10 @@ use std::path::PathBuf;
 
 use anstyle::Style;
 use clap::ValueEnum;
-use clap::{builder::Styles, Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, builder::Styles};
 
-use crate::installable::Installable;
 use crate::Result;
+use crate::installable::Installable;
 
 const fn make_style() -> Styles {
     Styles::plain().header(Style::new().bold()).literal(
@@ -56,18 +56,24 @@ impl NHCommand {
     pub fn run(self) -> Result<()> {
         match self {
             Self::Os(args) => {
-                unsafe { std::env::set_var("NH_CURRENT_COMMAND", "os"); }
+                unsafe {
+                    std::env::set_var("NH_CURRENT_COMMAND", "os");
+                }
                 args.run()
             }
             Self::Search(args) => args.run(),
             Self::Clean(proxy) => proxy.command.run(),
             Self::Completions(args) => args.run(),
             Self::Home(args) => {
-                unsafe { std::env::set_var("NH_CURRENT_COMMAND", "home"); }
+                unsafe {
+                    std::env::set_var("NH_CURRENT_COMMAND", "home");
+                }
                 args.run()
             }
             Self::Darwin(args) => {
-                unsafe { std::env::set_var("NH_CURRENT_COMMAND", "darwin"); }
+                unsafe {
+                    std::env::set_var("NH_CURRENT_COMMAND", "darwin");
+                }
                 args.run()
             }
         }

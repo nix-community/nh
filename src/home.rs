@@ -2,8 +2,8 @@ use std::env;
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-use color_eyre::eyre::bail;
 use color_eyre::Result;
+use color_eyre::eyre::bail;
 use tracing::{debug, info, warn};
 
 use crate::commands;
@@ -153,7 +153,9 @@ impl HomeRebuildArgs {
 
         if let Some(ext) = &self.backup_extension {
             info!("Using {} as the backup extension", ext);
-            unsafe { env::set_var("HOME_MANAGER_BACKUP_EXT", ext); }
+            unsafe {
+                env::set_var("HOME_MANAGER_BACKUP_EXT", ext);
+            }
         }
 
         Command::new(target_profile.get_path().join("activate"))
@@ -259,7 +261,9 @@ where
                         .to_args()
                         .join(" ")
                     };
-                    bail!("Explicitly specified home-manager configuration not found: {tried_attr_path}");
+                    bail!(
+                        "Explicitly specified home-manager configuration not found: {tried_attr_path}"
+                    );
                 }
             }
 
@@ -329,7 +333,9 @@ where
                         })
                         .collect::<Vec<_>>()
                         .join(", ");
-                    bail!("Couldn't find home-manager configuration automatically, tried: {tried_str}");
+                    bail!(
+                        "Couldn't find home-manager configuration automatically, tried: {tried_str}"
+                    );
                 }
             }
         }

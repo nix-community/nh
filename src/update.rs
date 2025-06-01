@@ -1,8 +1,8 @@
 use tracing::warn;
 
+use crate::Result;
 use crate::commands::Command;
 use crate::installable::Installable;
-use crate::Result;
 
 pub fn update(installable: &Installable, input: Option<String>) -> Result<()> {
     match installable {

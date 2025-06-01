@@ -1,14 +1,14 @@
 use std::process::Stdio;
 use std::time::Instant;
 
-use color_eyre::eyre::{bail, Context};
+use color_eyre::eyre::{Context, bail};
 use elasticsearch_dsl::{Operator, Query, Search, SearchResponse, TextQueryType};
 use interface::SearchArgs;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace, warn};
 
-use crate::{interface, Result};
+use crate::{Result, interface};
 
 // List of deprecated NixOS versions
 // Add new versions as they become deprecated.

@@ -66,18 +66,20 @@ fn test_value() {
     assert!(i.get("foo").is_ok());
     assert!(i.get("foo_bad").is_err());
     assert!(i.get("foo").unwrap().get("bar").is_ok());
-    assert!(i
-        .get("foo")
-        .unwrap()
-        .get("some")
-        .unwrap()
-        .get("other_bad")
-        .is_err());
-    assert!(i
-        .get("foo")
-        .unwrap()
-        .get("some")
-        .unwrap()
-        .get("other")
-        .is_ok());
+    assert!(
+        i.get("foo")
+            .unwrap()
+            .get("some")
+            .unwrap()
+            .get("other_bad")
+            .is_err()
+    );
+    assert!(
+        i.get("foo")
+            .unwrap()
+            .get("some")
+            .unwrap()
+            .get("other")
+            .is_ok()
+    );
 }

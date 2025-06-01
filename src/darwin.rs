@@ -1,8 +1,9 @@
 use std::env;
 
-use color_eyre::eyre::{bail, Context};
+use color_eyre::eyre::{Context, bail};
 use tracing::{debug, info, warn};
 
+use crate::Result;
 use crate::commands;
 use crate::commands::Command;
 use crate::installable::Installable;
@@ -10,7 +11,6 @@ use crate::interface::{DarwinArgs, DarwinRebuildArgs, DarwinReplArgs, DarwinSubc
 use crate::nixos::toplevel_for;
 use crate::update::update;
 use crate::util::get_hostname;
-use crate::Result;
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
 const CURRENT_PROFILE: &str = "/run/current-system";
