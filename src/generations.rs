@@ -39,7 +39,7 @@ pub fn from_dir(generation_dir: &Path) -> Option<u64> {
             let no_link_gen = generation_base.trim_end_matches("-link");
             no_link_gen
                 .rsplit_once('-')
-                .and_then(|(_, gen)| gen.parse::<u64>().ok())
+                .and_then(|(_, generation_num)| generation_num.parse::<u64>().ok())
         })
 }
 
@@ -137,7 +137,7 @@ pub fn describe(generation_dir: &Path) -> Option<GenerationInfo> {
                 configuration_revision,
                 specialisations,
                 current: false,
-            })
+            });
         }
     };
 
@@ -155,7 +155,7 @@ pub fn describe(generation_dir: &Path) -> Option<GenerationInfo> {
                 configuration_revision,
                 specialisations,
                 current: false,
-            })
+            });
         }
     };
 
@@ -194,21 +194,21 @@ pub fn print_info(mut generations: Vec<GenerationInfo>) {
 
     // Parse all dates at once and cache them
     let mut parsed_dates = HashMap::with_capacity(generations.len());
-    for gen in &generations {
-        let date = DateTime::parse_from_rfc3339(&gen.date).map_or_else(
+    for generation in &generations {
+        let date = DateTime::parse_from_rfc3339(&generation.date).map_or_else(
             |_| Local.timestamp_opt(0, 0).unwrap(),
             |dt| dt.with_timezone(&Local),
         );
         parsed_dates.insert(
-            gen.date.clone(),
+            generation.date.clone(),
             date.format("%Y-%m-%d %H:%M:%S").to_string(),
         );
     }
 
     // Sort generations by numeric value of the generation number
-    generations.sort_by_key(|gen| gen.number.parse::<u64>().unwrap_or(0));
+    generations.sort_by_key(|generation| generation.number.parse::<u64>().unwrap_or(0));
 
-    let current_generation = generations.iter().find(|gen| gen.current);
+    let current_generation = generations.iter().find(|generation| generation.current);
     debug!(?current_generation);
 
     if let Some(current) = current_generation {

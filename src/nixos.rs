@@ -2,8 +2,8 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use color_eyre::eyre::{bail, Context};
-use color_eyre::eyre::{eyre, Result};
+use color_eyre::eyre::{Context, bail};
+use color_eyre::eyre::{Result, eyre};
 use tracing::{debug, info, warn};
 
 use crate::commands;
@@ -106,7 +106,9 @@ impl OsRebuildArgs {
                             .as_deref()
                             .map_or(false, |attr| attr == "vm" || attr == "vmWithBootLoader")
                     {
-                        tracing::warn!("Guessing system is {hostname} for a VM image. If this isn't intended, use --hostname to change.");
+                        tracing::warn!(
+                            "Guessing system is {hostname} for a VM image. If this isn't intended, use --hostname to change."
+                        );
                     }
                     hostname.clone()
                 }
@@ -502,7 +504,7 @@ fn find_generation_by_number(number: u64) -> Result<generations::GenerationInfo>
             None
         })
     })
-    .filter(|gen| gen.number == number.to_string())
+    .filter(|generation| generation.number == number.to_string())
     .collect();
 
     if generations.is_empty() {

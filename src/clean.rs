@@ -5,17 +5,17 @@ use std::{
     time::SystemTime,
 };
 
-use color_eyre::eyre::{bail, eyre, Context, ContextCompat};
+use color_eyre::eyre::{Context, ContextCompat, bail, eyre};
 use nix::errno::Errno;
 use nix::{
     fcntl::AtFlags,
-    unistd::{faccessat, AccessFlags},
+    unistd::{AccessFlags, faccessat},
 };
 use regex::Regex;
-use tracing::{debug, info, instrument, span, warn, Level};
+use tracing::{Level, debug, info, instrument, span, warn};
 use uzers::os::unix::UserExt;
 
-use crate::{commands::Command, interface, Result};
+use crate::{Result, commands::Command, interface};
 
 // Nix impl:
 // https://github.com/NixOS/nix/blob/master/src/nix-collect-garbage/nix-collect-garbage.cc
@@ -140,8 +140,10 @@ impl interface::CleanMode {
                     Err(errno) => match errno {
                         Errno::EACCES | Errno::ENOENT => false,
                         _ => {
-                            bail!(eyre!("Checking access for gcroot {:?}, unknown error", dst)
-                                .wrap_err(errno))
+                            bail!(
+                                eyre!("Checking access for gcroot {:?}, unknown error", dst)
+                                    .wrap_err(errno)
+                            )
                         }
                     },
                 } {
@@ -200,11 +202,11 @@ impl interface::CleanMode {
         }
         for (profile, generations_tagged) in &profiles_tagged {
             println!("{}", profile.to_string_lossy().blue().bold());
-            for (gen, tbr) in generations_tagged.iter().rev() {
+            for (generation, tbr) in generations_tagged.iter().rev() {
                 if *tbr {
-                    println!("- {} {}", "DEL".red(), gen.path.to_string_lossy());
+                    println!("- {} {}", "DEL".red(), generation.path.to_string_lossy());
                 } else {
-                    println!("- {} {}", "OK ".green(), gen.path.to_string_lossy());
+                    println!("- {} {}", "OK ".green(), generation.path.to_string_lossy());
                 };
             }
             println!();
@@ -226,9 +228,9 @@ impl interface::CleanMode {
             }
 
             for generations_tagged in profiles_tagged.values() {
-                for (gen, tbr) in generations_tagged.iter().rev() {
+                for (generation, tbr) in generations_tagged.iter().rev() {
                     if *tbr {
-                        remove_path_nofail(&gen.path);
+                        remove_path_nofail(&generation.path);
                     }
                 }
             }
@@ -331,10 +333,10 @@ fn cleanable_generations(
     }
 
     let now = SystemTime::now();
-    for (gen, tbr) in &mut result {
-        match now.duration_since(gen.last_modified) {
+    for (generation, tbr) in &mut result {
+        match now.duration_since(generation.last_modified) {
             Err(err) => {
-                warn!(?err, ?now, ?gen, "Failed to compare time!");
+                warn!(?err, ?now, ?generation, "Failed to compare time!");
             }
             Ok(val) if val <= keep_since.into() => {
                 *tbr = false;
