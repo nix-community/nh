@@ -153,7 +153,7 @@ impl HomeRebuildArgs {
 
         if let Some(ext) = &self.backup_extension {
             info!("Using {} as the backup extension", ext);
-            env::set_var("HOME_MANAGER_BACKUP_EXT", ext);
+            unsafe { env::set_var("HOME_MANAGER_BACKUP_EXT", ext); }
         }
 
         Command::new(target_profile.get_path().join("activate"))
