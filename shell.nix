@@ -16,6 +16,7 @@ mkShell {
     nix-output-monitor
     taplo
     yaml-language-server
+    lldb
   ];
 
   buildInputs = lib.optionals stdenv.isDarwin [
