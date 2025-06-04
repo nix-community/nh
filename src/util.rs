@@ -1,7 +1,5 @@
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::{Command as StdCommand, Stdio};
-use std::str;
 
 use color_eyre::{Result, eyre};
 use tempfile::TempDir;
@@ -125,53 +123,4 @@ pub fn get_hostname() -> Result<String> {
 
         Ok(name.to_string())
     }
-}
-
-/// Retrieves all enabled experimental features in Nix.
-///
-/// This function executes the `nix config show experimental-features` command
-/// and returns a `HashSet` of the enabled features.
-///
-/// # Returns
-///
-/// * `Result<HashSet<String>>` - A `HashSet` of enabled experimental features
-///   or an error.
-pub fn get_nix_experimental_features() -> Result<HashSet<String>> {
-    let output = Command::new("nix")
-        .args(["config", "show", "experimental-features"])
-        .run_capture()?;
-
-    // If running with dry=true, output might be None
-    let output_str = match output {
-        Some(output) => output,
-        None => return Ok(HashSet::new()),
-    };
-
-    let enabled_features: HashSet<String> =
-        output_str.split_whitespace().map(String::from).collect();
-
-    Ok(enabled_features)
-}
-
-/// Gets the missing experimental features from a required list.
-///
-/// # Arguments
-///
-/// * `required_features` - A slice of string slices representing the features
-///   required.
-///
-/// # Returns
-///
-/// * `Result<Vec<String>>` - A vector of missing experimental features or an
-///   error.
-pub fn get_missing_experimental_features(required_features: &[&str]) -> Result<Vec<String>> {
-    let enabled_features = get_nix_experimental_features()?;
-
-    let missing_features: Vec<String> = required_features
-        .iter()
-        .filter(|&feature| !enabled_features.contains(*feature))
-        .map(|&s| s.to_string())
-        .collect();
-
-    Ok(missing_features)
 }

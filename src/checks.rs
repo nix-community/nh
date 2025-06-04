@@ -2,7 +2,7 @@ use std::{cmp::Ordering, env};
 
 use color_eyre::{Result, eyre};
 use semver::Version;
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::util;
 
@@ -59,54 +59,60 @@ pub fn check_nix_version() -> Result<()> {
     }
 }
 
-/// Verifies if the required experimental features are enabled
+/// Verifies that flakes are enabled
 ///
 /// # Returns
 ///
-/// * `Result<()>` - Ok if all required features are enabled, error otherwise
-pub fn check_nix_features() -> Result<()> {
+/// * `Result<()>` - Ok if flakes are enabled, error otherwise
+pub fn check_flakes_enabled() -> Result<()> {
     if env::var("NH_NO_CHECKS").is_ok() {
         return Ok(());
     }
 
-    let mut required_features = vec!["nix-command", "flakes"];
+    info!("Checking that flakes are enabled");
+    let flakes_enabled = std::process::Command::new("nix")
+        .args(["eval", "--expr", "builtins.getFlake"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()?;
 
-    // Lix up until 2.93.0 uses repl-flake, which is removed in the latest version of Nix.
+    if !flakes_enabled.success() {
+        warn!("Flakes are not enabled");
+        return Err(eyre::eyre!("Flakes are not enabled. Please enable them."));
+    }
+
+    tracing::debug!("Flakes are enabled");
+
     if util::is_lix()? {
-        let repl_flake_removed_in_lix_version = Version::parse("2.93.0")?;
-        let current_lix_version = Version::parse(&util::get_nix_version()?)?;
-        if current_lix_version < repl_flake_removed_in_lix_version {
-            required_features.push("repl-flake");
+        let dir = tempfile::Builder::new()
+            .prefix("nh-repl-flake-feature-check")
+            .tempdir()?;
+        let f = dir.path().join("flake.nix");
+        std::fs::write(&f, "{ outputs = _: {}; }")?;
+
+        info!("Checking that the repl-flake feature is enabled");
+        let repl_flake_enabled = std::process::Command::new("nix")
+            .current_dir(dir.path().to_path_buf())
+            .arg("repl")
+            .arg(dir.path())
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()?;
+
+        if !repl_flake_enabled.success() {
+            warn!("The repl-flake feature is not enabled");
+            return Err(eyre::eyre!(
+                "The repl-flake feature is not enabled. Please enable it."
+            ));
         }
+
+        tracing::debug!("The repl-flake feature is enabled");
+
+        let _ = dir.close();
     }
 
-    tracing::debug!("Required Nix features: {}", required_features.join(", "));
-
-    // Get currently enabled features
-    match util::get_nix_experimental_features() {
-        Ok(enabled_features) => {
-            let features_vec: Vec<_> = enabled_features.into_iter().collect();
-            tracing::debug!("Enabled Nix features: {}", features_vec.join(", "));
-        }
-        Err(e) => {
-            tracing::warn!("Failed to get enabled Nix features: {}", e);
-        }
-    }
-
-    let missing_features = util::get_missing_experimental_features(&required_features)?;
-
-    if !missing_features.is_empty() {
-        tracing::warn!(
-            "Missing required Nix features: {}",
-            missing_features.join(", ")
-        );
-        return Err(eyre::eyre!(
-            "Missing required experimental features. Please enable: {}",
-            missing_features.join(", ")
-        ));
-    }
-
-    tracing::debug!("All required Nix features are enabled");
     Ok(())
 }
 
@@ -153,6 +159,6 @@ pub fn verify_nix_environment() -> Result<()> {
     }
 
     check_nix_version()?;
-    check_nix_features()?;
+    check_flakes_enabled()?;
     Ok(())
 }
