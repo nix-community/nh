@@ -629,6 +629,7 @@ impl OsReplArgs {
         Command::new("nix")
             .arg("repl")
             .args(target_installable.to_args())
+            .show_output(true)
             .run()?;
 
         Ok(())
