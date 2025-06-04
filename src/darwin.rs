@@ -44,7 +44,7 @@ impl DarwinRebuildArgs {
             bail!("Don't run nh os as root. I will call sudo internally as needed");
         }
 
-        if self.update_args.update {
+        if self.update_args.update || self.update_args.update_input.is_some() {
             update(&self.common.installable, self.update_args.update_input)?;
         }
 
