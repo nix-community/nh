@@ -1,6 +1,19 @@
-<!-- markdownlint-disable no-duplicate-headings -->
+<!-- markdownlint-disable no-duplicate-heading -->
 
 # NH Changelog
+
+## Unreleased
+
+### Changed
+
+- Nh checks are now more robust in the sense that unnecessary features will not
+  be required when the underlying command does not depend on them.
+
+### Fixed
+
+- Nh will now correctly detect non-semver version strings, such as `x.ygit`.
+  Instead of failing the check, we now try to normalize the string and simply
+  skip the check with a warning.
 
 ## 4.1.1
 

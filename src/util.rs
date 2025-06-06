@@ -2,11 +2,53 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::{Command as StdCommand, Stdio};
 use std::str;
+use std::sync::OnceLock;
 
 use color_eyre::{Result, eyre};
 use tempfile::TempDir;
 
 use crate::commands::Command;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum NixVariant {
+    Nix,
+    Lix,
+    Determinate,
+}
+
+static NIX_VARIANT: OnceLock<NixVariant> = OnceLock::new();
+
+/// Get the Nix variant (cached)
+pub fn get_nix_variant() -> Result<&'static NixVariant> {
+    NIX_VARIANT.get_or_init(|| {
+        let output = Command::new("nix")
+            .arg("--version")
+            .run_capture()
+            .ok()
+            .flatten();
+
+        // XXX: If running with dry=true or Nix is not installed, output might be None
+        // The latter is less likely to occur, but we still want graceful handling.
+        let output_str = match output {
+            Some(output) => output,
+            None => return NixVariant::Nix, // default to standard Nix variant
+        };
+
+        let output_lower = output_str.to_lowercase();
+
+        // FIXME: This fails to account for Nix variants we don't check for and
+        // assumes the environment is mainstream Nix.
+        if output_lower.contains("determinate") {
+            NixVariant::Determinate
+        } else if output_lower.contains("lix") {
+            NixVariant::Lix
+        } else {
+            NixVariant::Nix
+        }
+    });
+
+    Ok(NIX_VARIANT.get().unwrap())
+}
 
 /// Retrieves the installed Nix version as a string.
 ///
@@ -61,20 +103,6 @@ pub fn ensure_ssh_key_login() -> Result<()> {
         .spawn()?
         .wait()?;
     Ok(())
-}
-
-/// Determines if the Nix binary is actually Lix
-///
-/// # Returns
-///
-/// * `Result<bool>` - True if the binary is Lix, false if it's standard Nix
-pub fn is_lix() -> Result<bool> {
-    let output = Command::new("nix")
-        .arg("--version")
-        .run_capture()?
-        .ok_or_else(|| eyre::eyre!("No output from command"))?;
-
-    Ok(output.to_lowercase().contains("lix"))
 }
 
 /// Represents an object that may be a temporary path

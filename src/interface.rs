@@ -1,3 +1,4 @@
+use std::env;
 use std::path::PathBuf;
 
 use anstyle::Style;
@@ -5,6 +6,10 @@ use clap::ValueEnum;
 use clap::{Args, Parser, Subcommand, builder::Styles};
 
 use crate::Result;
+use crate::checks::{
+    DarwinReplFeatures, FeatureRequirements, FlakeFeatures, HomeReplFeatures, LegacyFeatures,
+    NoFeatures, OsReplFeatures,
+};
 use crate::installable::Installable;
 
 const fn make_style() -> Styles {
@@ -53,7 +58,22 @@ pub enum NHCommand {
 }
 
 impl NHCommand {
+    pub fn get_feature_requirements(&self) -> Box<dyn FeatureRequirements> {
+        match self {
+            Self::Os(args) => args.get_feature_requirements(),
+            Self::Home(args) => args.get_feature_requirements(),
+            Self::Darwin(args) => args.get_feature_requirements(),
+            Self::Search(_) => Box::new(NoFeatures),
+            Self::Clean(_) => Box::new(NoFeatures),
+            Self::Completions(_) => Box::new(NoFeatures),
+        }
+    }
+
     pub fn run(self) -> Result<()> {
+        // Check features specific to this command
+        let requirements = self.get_feature_requirements();
+        requirements.check_features()?;
+
         match self {
             Self::Os(args) => {
                 unsafe {
@@ -88,6 +108,35 @@ impl NHCommand {
 pub struct OsArgs {
     #[command(subcommand)]
     pub subcommand: OsSubcommand,
+}
+
+impl OsArgs {
+    pub fn get_feature_requirements(&self) -> Box<dyn FeatureRequirements> {
+        match &self.subcommand {
+            OsSubcommand::Repl(args) => {
+                let is_flake = args.uses_flakes();
+                Box::new(OsReplFeatures { is_flake })
+            }
+            OsSubcommand::Switch(args)
+            | OsSubcommand::Boot(args)
+            | OsSubcommand::Test(args)
+            | OsSubcommand::Build(args) => {
+                if args.uses_flakes() {
+                    Box::new(FlakeFeatures)
+                } else {
+                    Box::new(LegacyFeatures)
+                }
+            }
+            OsSubcommand::BuildVm(args) => {
+                if args.common.uses_flakes() {
+                    Box::new(FlakeFeatures)
+                } else {
+                    Box::new(LegacyFeatures)
+                }
+            }
+            OsSubcommand::Info(_) | OsSubcommand::Rollback(_) => Box::new(LegacyFeatures),
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -164,6 +213,18 @@ pub struct OsRebuildArgs {
     pub build_host: Option<String>,
 }
 
+impl OsRebuildArgs {
+    pub fn uses_flakes(&self) -> bool {
+        // Check environment variables first
+        if env::var("NH_OS_FLAKE").is_ok_and(|v| !v.is_empty()) {
+            return true;
+        }
+
+        // Check installable type
+        matches!(self.common.installable, Installable::Flake { .. })
+    }
+}
+
 #[derive(Debug, Args)]
 pub struct OsRollbackArgs {
     /// Only print actions, without performing them
@@ -221,6 +282,18 @@ pub struct OsReplArgs {
     /// When using a flake installable, select this hostname from nixosConfigurations
     #[arg(long, short = 'H', global = true)]
     pub hostname: Option<String>,
+}
+
+impl OsReplArgs {
+    pub fn uses_flakes(&self) -> bool {
+        // Check environment variables first
+        if env::var("NH_OS_FLAKE").is_ok() {
+            return true;
+        }
+
+        // Check installable type
+        matches!(self.installable, Installable::Flake { .. })
+    }
 }
 
 #[derive(Debug, Args)]
@@ -329,6 +402,24 @@ pub struct HomeArgs {
     pub subcommand: HomeSubcommand,
 }
 
+impl HomeArgs {
+    pub fn get_feature_requirements(&self) -> Box<dyn FeatureRequirements> {
+        match &self.subcommand {
+            HomeSubcommand::Repl(args) => {
+                let is_flake = args.uses_flakes();
+                Box::new(HomeReplFeatures { is_flake })
+            }
+            HomeSubcommand::Switch(args) | HomeSubcommand::Build(args) => {
+                if args.uses_flakes() {
+                    Box::new(FlakeFeatures)
+                } else {
+                    Box::new(LegacyFeatures)
+                }
+            }
+        }
+    }
+}
+
 #[derive(Debug, Subcommand)]
 pub enum HomeSubcommand {
     /// Build and activate a home-manager configuration
@@ -372,6 +463,18 @@ pub struct HomeRebuildArgs {
     pub backup_extension: Option<String>,
 }
 
+impl HomeRebuildArgs {
+    pub fn uses_flakes(&self) -> bool {
+        // Check environment variables first
+        if env::var("NH_HOME_FLAKE").is_ok_and(|v| !v.is_empty()) {
+            return true;
+        }
+
+        // Check installable type
+        matches!(self.common.installable, Installable::Flake { .. })
+    }
+}
+
 #[derive(Debug, Args)]
 pub struct HomeReplArgs {
     #[command(flatten)]
@@ -388,6 +491,18 @@ pub struct HomeReplArgs {
     pub extra_args: Vec<String>,
 }
 
+impl HomeReplArgs {
+    pub fn uses_flakes(&self) -> bool {
+        // Check environment variables first
+        if env::var("NH_HOME_FLAKE").is_ok_and(|v| !v.is_empty()) {
+            return true;
+        }
+
+        // Check installable type
+        matches!(self.installable, Installable::Flake { .. })
+    }
+}
+
 #[derive(Debug, Parser)]
 /// Generate shell completion files into stdout
 pub struct CompletionArgs {
@@ -402,6 +517,24 @@ pub struct CompletionArgs {
 pub struct DarwinArgs {
     #[command(subcommand)]
     pub subcommand: DarwinSubcommand,
+}
+
+impl DarwinArgs {
+    pub fn get_feature_requirements(&self) -> Box<dyn FeatureRequirements> {
+        match &self.subcommand {
+            DarwinSubcommand::Repl(args) => {
+                let is_flake = args.uses_flakes();
+                Box::new(DarwinReplFeatures { is_flake })
+            }
+            DarwinSubcommand::Switch(args) | DarwinSubcommand::Build(args) => {
+                if args.uses_flakes() {
+                    Box::new(FlakeFeatures)
+                } else {
+                    Box::new(LegacyFeatures)
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -431,6 +564,18 @@ pub struct DarwinRebuildArgs {
     pub extra_args: Vec<String>,
 }
 
+impl DarwinRebuildArgs {
+    pub fn uses_flakes(&self) -> bool {
+        // Check environment variables first
+        if env::var("NH_DARWIN_FLAKE").is_ok_and(|v| !v.is_empty()) {
+            return true;
+        }
+
+        // Check installable type
+        matches!(self.common.installable, Installable::Flake { .. })
+    }
+}
+
 #[derive(Debug, Args)]
 pub struct DarwinReplArgs {
     #[command(flatten)]
@@ -439,6 +584,18 @@ pub struct DarwinReplArgs {
     /// When using a flake installable, select this hostname from darwinConfigurations
     #[arg(long, short = 'H', global = true)]
     pub hostname: Option<String>,
+}
+
+impl DarwinReplArgs {
+    pub fn uses_flakes(&self) -> bool {
+        // Check environment variables first
+        if env::var("NH_DARWIN_FLAKE").is_ok_and(|v| !v.is_empty()) {
+            return true;
+        }
+
+        // Check installable type
+        matches!(self.installable, Installable::Flake { .. })
+    }
 }
 
 #[derive(Debug, Args)]

@@ -28,7 +28,7 @@ fn main() -> Result<()> {
     tracing::debug!("{args:#?}");
     tracing::debug!(%NH_VERSION, ?NH_REV);
 
-    // Verify the Nix environment before running commands
+    // Check Nix version upfront
     checks::verify_nix_environment()?;
 
     // Once we assert required Nix features, validate NH environment checks
