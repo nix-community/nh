@@ -224,9 +224,12 @@ impl Command {
             cmd = cmd.env("SUDO_ASKPASS", askpass).arg("-A");
         }
 
-        // Apply explicit environment variables
-        for (key, value) in explicit_env_vars {
-            cmd = cmd.env(key, value);
+        // Insert 'env' command to explicitly pass environment variables to the elevated command
+        if !explicit_env_vars.is_empty() {
+            cmd = cmd.arg("env");
+            for (key, value) in explicit_env_vars {
+                cmd = cmd.arg(format!("{}={}", key, value));
+            }
         }
 
         cmd
