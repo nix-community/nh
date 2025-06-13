@@ -240,76 +240,31 @@ impl Command {
         // Get the current executable path
         let current_exe = std::env::current_exe().expect("Failed to get current executable path");
 
-        // Create a command for self-elevation with proper environment handling
+        // Self-elevation with proper environment handling
         let cmd_builder = Self::new(&current_exe)
             .elevate(true)
             .with_nix_env()
             .with_nh_env();
 
-        // Convert to std::process::Command
-        let mut std_cmd = std::process::Command::new("sudo");
+        let sudo_exec = cmd_builder.build_sudo_cmd();
 
-        // Apply environment variables and arguments from the Exec command
-        // We need to manually reconstruct this since Exec doesn't expose its internals
-
-        // Collect variables to preserve for sudo
-        let mut preserve_vars = Vec::new();
-        let mut explicit_env_vars = HashMap::new();
-
-        for (key, action) in &cmd_builder.env_vars {
-            match action {
-                EnvAction::Set(value) => {
-                    explicit_env_vars.insert(key.clone(), value.clone());
-                }
-                EnvAction::Preserve => {
-                    preserve_vars.push(key.as_str());
-                }
-                EnvAction::Remove => {
-                    // Explicitly don't add to preserve_vars
-                }
-            }
-        }
-
-        if cfg!(target_os = "macos") {
-            // Check for if sudo has the preserve-env flag
-            let has_preserve_env = Exec::cmd("sudo")
-                .args(&["--help"])
-                .stderr(Redirection::None)
-                .stdout(Redirection::Pipe)
-                .capture()
-                .map(|output| output.stdout_str().contains("--preserve-env"))
-                .unwrap_or(false);
-
-            if has_preserve_env && !preserve_vars.is_empty() {
-                std_cmd.args([
-                    "--set-home",
-                    &format!("--preserve-env={}", preserve_vars.join(",")),
-                    "env",
-                ]);
-            } else {
-                std_cmd.arg("--set-home");
-            }
-        } else {
-            // On Linux, use specific environment preservation
-            if !preserve_vars.is_empty() {
-                std_cmd.arg(format!("--preserve-env={}", preserve_vars.join(",")));
-            }
-        }
-
-        // Use NH_SUDO_ASKPASS program for sudo if present
-        if let Ok(askpass) = std::env::var("NH_SUDO_ASKPASS") {
-            std_cmd.env("SUDO_ASKPASS", askpass).arg("-A");
-        }
-
-        // Apply explicit environment variables
-        for (key, value) in explicit_env_vars {
-            std_cmd.env(key, value);
-        }
-
-        // Add the current executable and all original arguments
-        std_cmd.arg(&current_exe);
+        // Add the target executable and arguments to the sudo command
+        let exec_with_args = sudo_exec.arg(&current_exe);
         let args: Vec<String> = std::env::args().skip(1).collect();
-        std_cmd.args(args);
+        let final_exec = exec_with_args.args(&args);
+
+        // Convert Exec to std::process::Command by parsing the command line
+        let cmdline = final_exec.to_cmdline_lossy();
+        let parts: Vec<&str> = cmdline.split_whitespace().collect();
+
+        if parts.is_empty() {
+            panic!("Failed to build sudo command");
+        }
+
+        let mut std_cmd = std::process::Command::new(parts[0]);
+        if parts.len() > 1 {
+            std_cmd.args(&parts[1..]);
+        }
 
         std_cmd
     }
