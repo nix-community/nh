@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 
 use color_eyre::{
@@ -21,6 +22,19 @@ fn ssh_wrap(cmd: Exec, ssh: Option<&str>) -> Exec {
     }
 }
 
+#[allow(dead_code)] // shut up
+#[derive(Debug, Clone)]
+pub enum EnvAction {
+    /// Set an environment variable to a specific value
+    Set(String),
+
+    /// Preserve an environment variable from the current environment
+    Preserve,
+
+    /// Remove/unset an environment variable
+    Remove,
+}
+
 #[derive(Debug)]
 pub struct Command {
     dry: bool,
@@ -30,6 +44,7 @@ pub struct Command {
     elevate: bool,
     ssh: Option<String>,
     show_output: bool,
+    env_vars: HashMap<String, EnvAction>,
 }
 
 impl Command {
@@ -42,6 +57,7 @@ impl Command {
             elevate: false,
             ssh: None,
             show_output: false,
+            env_vars: HashMap::new(),
         }
     }
 
@@ -86,40 +102,224 @@ impl Command {
         self
     }
 
+    /// Preserve multiple environment variables from the current environment
+    pub fn preserve_envs<I, K>(mut self, keys: I) -> Self
+    where
+        I: IntoIterator<Item = K>,
+        K: AsRef<str>,
+    {
+        for key in keys {
+            self.env_vars
+                .insert(key.as_ref().to_string(), EnvAction::Preserve);
+        }
+        self
+    }
+
+    /// Configure environment for Nix operations with proper HOME handling
+    pub fn with_nix_env(mut self) -> Self {
+        // Preserve original user's HOME and USER
+        if let Ok(home) = std::env::var("HOME") {
+            self.env_vars
+                .insert("HOME".to_string(), EnvAction::Set(home));
+        }
+        if let Ok(user) = std::env::var("USER") {
+            self.env_vars
+                .insert("USER".to_string(), EnvAction::Set(user));
+        }
+
+        // Preserve Nix-related environment variables
+        // TODO: is this everything we need? Previously we only preserved *some* variables
+        // and nh continued to work, but any missing vars might break functionality completely
+        // unexpectedly.
+        self.preserve_envs([
+            "PATH",
+            "NIX_CONFIG",
+            "NIX_PATH",
+            "NIX_REMOTE",
+            "NIX_SSL_CERT_FILE",
+            "NIX_USER_CONF_FILES",
+        ])
+    }
+
+    /// Configure environment for NH operations
+    pub fn with_nh_env(mut self) -> Self {
+        // Preserve all NH_* environment variables
+        for (key, value) in std::env::vars() {
+            if key.starts_with("NH_") {
+                self.env_vars.insert(key, EnvAction::Set(value));
+            }
+        }
+        self
+    }
+
+    fn apply_env_to_exec(&self, mut cmd: Exec) -> Exec {
+        for (key, action) in &self.env_vars {
+            match action {
+                EnvAction::Set(value) => {
+                    cmd = cmd.env(key, value);
+                }
+                EnvAction::Preserve => {
+                    if let Ok(value) = std::env::var(key) {
+                        cmd = cmd.env(key, value);
+                    }
+                }
+                EnvAction::Remove => {
+                    // For remove, we'll handle this in the sudo construction
+                    // by not including it in preserved variables
+                }
+            }
+        }
+        cmd
+    }
+
+    fn build_sudo_cmd(&self) -> Exec {
+        let mut cmd = Exec::cmd("sudo");
+
+        // Collect variables to preserve for sudo
+        let mut preserve_vars = Vec::new();
+        let mut explicit_env_vars = HashMap::new();
+
+        for (key, action) in &self.env_vars {
+            match action {
+                EnvAction::Set(value) => {
+                    explicit_env_vars.insert(key.clone(), value.clone());
+                }
+                EnvAction::Preserve => {
+                    preserve_vars.push(key.as_str());
+                }
+                EnvAction::Remove => {
+                    // Explicitly don't add to preserve_vars
+                }
+            }
+        }
+
+        if cfg!(target_os = "macos") {
+            // Check for if sudo has the preserve-env flag
+            let has_preserve_env = Exec::cmd("sudo")
+                .args(&["--help"])
+                .stderr(Redirection::None)
+                .stdout(Redirection::Pipe)
+                .capture()
+                .map(|output| output.stdout_str().contains("--preserve-env"))
+                .unwrap_or(false);
+
+            if has_preserve_env && !preserve_vars.is_empty() {
+                cmd = cmd.args(&[
+                    "--set-home",
+                    &format!("--preserve-env={}", preserve_vars.join(",")),
+                    "env",
+                ]);
+            } else {
+                cmd = cmd.arg("--set-home");
+            }
+        } else {
+            // On Linux, use specific environment preservation
+            if !preserve_vars.is_empty() {
+                cmd = cmd.arg(format!("--preserve-env={}", preserve_vars.join(",")));
+            }
+        }
+
+        // Use NH_SUDO_ASKPASS program for sudo if present
+        if let Ok(askpass) = std::env::var("NH_SUDO_ASKPASS") {
+            cmd = cmd.env("SUDO_ASKPASS", askpass).arg("-A");
+        }
+
+        // Apply explicit environment variables
+        for (key, value) in explicit_env_vars {
+            cmd = cmd.env(key, value);
+        }
+
+        cmd
+    }
+
+    /// Create a sudo command for self-elevation with proper environment handling
+    pub fn self_elevate_cmd() -> std::process::Command {
+        // Get the current executable path
+        let current_exe = std::env::current_exe().expect("Failed to get current executable path");
+
+        // Create a command for self-elevation with proper environment handling
+        let cmd_builder = Self::new(&current_exe)
+            .elevate(true)
+            .with_nix_env()
+            .with_nh_env();
+
+        // Convert to std::process::Command
+        let mut std_cmd = std::process::Command::new("sudo");
+
+        // Apply environment variables and arguments from the Exec command
+        // We need to manually reconstruct this since Exec doesn't expose its internals
+
+        // Collect variables to preserve for sudo
+        let mut preserve_vars = Vec::new();
+        let mut explicit_env_vars = HashMap::new();
+
+        for (key, action) in &cmd_builder.env_vars {
+            match action {
+                EnvAction::Set(value) => {
+                    explicit_env_vars.insert(key.clone(), value.clone());
+                }
+                EnvAction::Preserve => {
+                    preserve_vars.push(key.as_str());
+                }
+                EnvAction::Remove => {
+                    // Explicitly don't add to preserve_vars
+                }
+            }
+        }
+
+        if cfg!(target_os = "macos") {
+            // Check for if sudo has the preserve-env flag
+            let has_preserve_env = Exec::cmd("sudo")
+                .args(&["--help"])
+                .stderr(Redirection::None)
+                .stdout(Redirection::Pipe)
+                .capture()
+                .map(|output| output.stdout_str().contains("--preserve-env"))
+                .unwrap_or(false);
+
+            if has_preserve_env && !preserve_vars.is_empty() {
+                std_cmd.args([
+                    "--set-home",
+                    &format!("--preserve-env={}", preserve_vars.join(",")),
+                    "env",
+                ]);
+            } else {
+                std_cmd.arg("--set-home");
+            }
+        } else {
+            // On Linux, use specific environment preservation
+            if !preserve_vars.is_empty() {
+                std_cmd.arg(format!("--preserve-env={}", preserve_vars.join(",")));
+            }
+        }
+
+        // Use NH_SUDO_ASKPASS program for sudo if present
+        if let Ok(askpass) = std::env::var("NH_SUDO_ASKPASS") {
+            std_cmd.env("SUDO_ASKPASS", askpass).arg("-A");
+        }
+
+        // Apply explicit environment variables
+        for (key, value) in explicit_env_vars {
+            std_cmd.env(key, value);
+        }
+
+        // Add the current executable and all original arguments
+        std_cmd.arg(&current_exe);
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        std_cmd.args(args);
+
+        std_cmd
+    }
+
     pub fn run(&self) -> Result<()> {
         let cmd = if self.elevate {
-            let cmd = if cfg!(target_os = "macos") {
-                // Check for if sudo has the preserve-env flag
-                Exec::cmd("sudo").args(
-                    if Exec::cmd("sudo")
-                        .args(&["--help"])
-                        .stderr(Redirection::None)
-                        .stdout(Redirection::Pipe)
-                        .capture()?
-                        .stdout_str()
-                        .contains("--preserve-env")
-                    {
-                        &["--set-home", "--preserve-env=PATH", "env"]
-                    } else {
-                        &["--set-home"]
-                    },
-                )
-            } else {
-                Exec::cmd("sudo")
-            };
-
-            // use NH_SUDO_ASKPASS program for sudo if present
-            let askpass = std::env::var("NH_SUDO_ASKPASS");
-            let cmd = if let Ok(askpass) = askpass {
-                cmd.env("SUDO_ASKPASS", askpass).arg("-A")
-            } else {
-                cmd
-            };
-
-            cmd.arg(&self.command).args(&self.args)
+            let sudo_cmd = self.build_sudo_cmd();
+            sudo_cmd.arg(&self.command).args(&self.args)
         } else {
-            Exec::cmd(&self.command).args(&self.args)
+            let cmd = Exec::cmd(&self.command).args(&self.args);
+            self.apply_env_to_exec(cmd)
         };
+
         // Configure output redirection based on show_output setting
         let cmd = ssh_wrap(
             if self.show_output {
@@ -152,6 +352,8 @@ impl Command {
             .args(&self.args)
             .stderr(Redirection::None)
             .stdout(Redirection::Pipe);
+
+        let cmd = self.apply_env_to_exec(cmd);
 
         if let Some(m) = &self.message {
             info!("{}", m);
