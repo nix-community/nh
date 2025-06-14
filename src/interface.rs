@@ -605,6 +605,6 @@ pub struct UpdateArgs {
     pub update: bool,
 
     #[arg(short = 'U', long = "update-input")]
-    /// Update a single flake input
-    pub update_input: Option<String>,
+    /// Update the specified flake input(s)
+    pub update_input: Option<Vec<String>>,
 }
