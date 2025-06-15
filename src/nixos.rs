@@ -82,7 +82,7 @@ impl OsRebuildArgs {
             true
         };
 
-        if self.update_args.update {
+        if self.update_args.update || self.update_args.update_input.is_some() {
             update(&self.common.installable, self.update_args.update_input)?;
         }
 

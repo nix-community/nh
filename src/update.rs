@@ -4,13 +4,20 @@ use crate::Result;
 use crate::commands::Command;
 use crate::installable::Installable;
 
-pub fn update(installable: &Installable, input: Option<String>) -> Result<()> {
+pub fn update(installable: &Installable, inputs: Option<Vec<String>>) -> Result<()> {
     match installable {
         Installable::Flake { reference, .. } => {
             let mut cmd = Command::new("nix").args(["flake", "update"]);
 
-            if let Some(i) = input {
-                cmd = cmd.arg(&i).message(format!("Updating flake input {i}"));
+            if let Some(inputs) = inputs {
+                for input in &inputs {
+                    cmd = cmd.arg(input);
+                }
+                cmd = cmd.message(format!(
+                    "Updating flake input{maybe_plural} {inputs}",
+                    maybe_plural = if inputs.len() > 1 { "s" } else { "" },
+                    inputs = inputs.join(", ")
+                ));
             } else {
                 cmd = cmd.message("Updating all flake inputs");
             }
