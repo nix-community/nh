@@ -94,7 +94,7 @@ impl OsRebuildArgs {
             }
         };
 
-        let target_hostname = match &self.hostname {
+        let dest_attr = match &self.hostname {
             Some(h) => h.to_owned(),
             None => match &system_hostname {
                 Some(hostname) => {
@@ -149,7 +149,7 @@ impl OsRebuildArgs {
         };
 
         let toplevel = toplevel_for(
-            &target_hostname,
+            &dest_attr,
             installable,
             final_attr.unwrap_or(String::from("toplevel")).as_str(),
         );
@@ -158,6 +158,7 @@ impl OsRebuildArgs {
             BuildVm => "Building NixOS VM image",
             _ => "Building NixOS configuration",
         };
+
         commands::Build::new(toplevel)
             .extra_arg("--out-link")
             .extra_arg(out_path.get_path())
@@ -182,6 +183,21 @@ impl OsRebuildArgs {
             Some(spec) => out_path.get_path().join("specialisation").join(spec),
         };
 
+        let dest_hostname = match target_profile.try_exists()? {
+            false => return Err(eyre!("Target profile doesn't exist")),
+            true => {
+                let hostname_file = target_profile.join("etc/hostname");
+                if !hostname_file.try_exists()? {
+                    return Err(eyre!(
+                        "/etc/hostname missing in profile: {}",
+                        hostname_file.display()
+                    ));
+                }
+                fs::read_to_string(&hostname_file)?.trim().to_string()
+            }
+        };
+
+        debug!("Target hostname: {}", dest_hostname);
         debug!("Output path: {}", out_path.get_path().display());
         debug!("Target profile path: {}", target_profile.display());
         debug!("Target profile exists: {}", target_profile.exists());
@@ -198,10 +214,9 @@ impl OsRebuildArgs {
                 target_profile.display()
             ));
         }
-
         if self.build_host.is_none()
             && self.target_host.is_none()
-            && system_hostname.map_or(true, |h| h == target_hostname)
+            && system_hostname.map_or(true, |h| h == dest_hostname)
         {
             debug!(
                 "Comparing with target profile: {}",
