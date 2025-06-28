@@ -8,7 +8,7 @@ use clap::{Args, Parser, Subcommand, builder::Styles};
 use crate::Result;
 use crate::checks::{
     DarwinReplFeatures, FeatureRequirements, FlakeFeatures, HomeReplFeatures, LegacyFeatures,
-    NoFeatures, OsReplFeatures,
+    NoFeatures, OsReplFeatures, SystemManagerReplFeatures,
 };
 use crate::installable::Installable;
 
@@ -618,12 +618,13 @@ pub struct SystemManagerArgs {
 impl SystemManagerArgs {
     pub fn get_feature_requirements(&self) -> Box<dyn FeatureRequirements> {
         match &self.subcommand {
+            SystemManagerSubcommand::Repl(args) => {
+                assert!(args.uses_flakes(), "system-manager doesn't support flakes");
+                Box::new(SystemManagerReplFeatures)
+            }
             SystemManagerSubcommand::Switch(args) | SystemManagerSubcommand::Build(args) => {
-                if args.uses_flakes() {
-                    Box::new(FlakeFeatures)
-                } else {
-                    Box::new(LegacyFeatures)
-                }
+                assert!(args.uses_flakes(), "system-manager doesn't support flakes");
+                Box::new(FlakeFeatures)
             }
         }
     }
@@ -631,10 +632,12 @@ impl SystemManagerArgs {
 
 #[derive(Debug, Subcommand)]
 pub enum SystemManagerSubcommand {
-    /// Build and activate a nix-darwin configuration
+    /// Build and activate a system-manager configuration
     Switch(SystemManagerRebuildArgs),
-    /// Build a nix-darwin configuration
+    /// Build a system-manager configuration
     Build(SystemManagerRebuildArgs),
+    /// Load a system-manager configuration in a Nix REPL
+    Repl(SystemManagerReplArgs),
 }
 
 #[derive(Debug, Args)]
@@ -645,7 +648,7 @@ pub struct SystemManagerRebuildArgs {
     #[command(flatten)]
     pub update_args: UpdateArgs,
 
-    /// When using a flake installable, select this hostname from darwinConfigurations
+    /// When using a flake installable, select this hostname from systemConfigs
     #[arg(long, short = 'H', global = true)]
     pub hostname: Option<String>,
 
@@ -663,6 +666,28 @@ impl SystemManagerRebuildArgs {
 
         // Check installable type
         matches!(self.common.installable, Installable::Flake { .. })
+    }
+}
+
+#[derive(Debug, Args)]
+pub struct SystemManagerReplArgs {
+    #[command(flatten)]
+    pub installable: Installable,
+
+    /// When using a flake installable, select this hostname from systemConfigurations
+    #[arg(long, short = 'H', global = true)]
+    pub hostname: Option<String>,
+}
+
+impl SystemManagerReplArgs {
+    pub fn uses_flakes(&self) -> bool {
+        // Check environment variables first
+        if env::var("NH_SYSTEM_MANAGER_FLAKE").is_ok_and(|v| !v.is_empty()) {
+            return true;
+        }
+
+        // Check installable type
+        matches!(self.installable, Installable::Flake { .. })
     }
 }
 

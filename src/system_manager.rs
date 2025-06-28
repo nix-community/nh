@@ -7,6 +7,7 @@ use crate::Result;
 use crate::commands;
 use crate::commands::Command;
 use crate::installable::Installable;
+use crate::interface::SystemManagerReplArgs;
 use crate::interface::{SystemManagerArgs, SystemManagerRebuildArgs, SystemManagerSubcommand};
 use crate::update::update;
 use crate::util::get_hostname;
@@ -24,6 +25,7 @@ impl SystemManagerArgs {
                 }
                 args.rebuild(Build)
             }
+            SystemManagerSubcommand::Repl(args) => args.run(),
         }
     }
 }
@@ -57,9 +59,9 @@ impl SystemManagerRebuildArgs {
 
         debug!(?out_path);
 
-        // Use NH_SYSTEM_FLAKE if available, otherwise use the provided installable
-        let installable = if let Ok(system_manager_flake) = env::var("NH_SYSTEM_FLAKE") {
-            debug!("Using NH_SYSTEM_FLAKE: {}", system_manager_flake);
+        // Use NH_SYSTEM_MANAGER_FLAKE if available, otherwise use the provided installable
+        let installable = if let Ok(system_manager_flake) = env::var("NH_SYSTEM_MANAGER_FLAKE") {
+            debug!("Using NH_SYSTEM_MANAGER_FLAKE: {}", system_manager_flake);
 
             let mut elems = system_manager_flake.splitn(2, '#');
             let reference = elems.next().unwrap().to_owned();
@@ -92,7 +94,7 @@ impl SystemManagerRebuildArgs {
             .extra_arg("--out-link")
             .extra_arg(out_path.get_path())
             .extra_args(&self.extra_args)
-            .message("Building Darwin configuration")
+            .message("Building System Manager configuration")
             .nom(!self.common.no_nom)
             .run()?;
 
@@ -152,6 +154,53 @@ impl SystemManagerRebuildArgs {
             out_path.get_path()
         );
         drop(out_path);
+
+        Ok(())
+    }
+}
+
+impl SystemManagerReplArgs {
+    fn run(self) -> Result<()> {
+        // Use NH_SYSTEM_MANAGER_FLAKE if available, otherwise use the provided installable
+        let mut target_installable =
+            if let Ok(system_manager_flake) = env::var("NH_SYSTEM_MANAGER_FLAKE") {
+                debug!("Using NH_SYSTEM_MANAGER_FLAKE: {}", system_manager_flake);
+
+                let mut elems = system_manager_flake.splitn(2, '#');
+                let reference = elems.next().unwrap().to_owned();
+                let attribute = elems
+                    .next()
+                    .map(crate::installable::parse_attribute)
+                    .unwrap_or_default();
+
+                Installable::Flake {
+                    reference,
+                    attribute,
+                }
+            } else {
+                self.installable
+            };
+
+        if matches!(target_installable, Installable::Store { .. }) {
+            bail!("Nix doesn't support nix store installables.");
+        }
+
+        let hostname = self.hostname.ok_or(()).or_else(|()| get_hostname())?;
+
+        if let Installable::Flake {
+            ref mut attribute, ..
+        } = target_installable
+        {
+            if attribute.is_empty() {
+                attribute.push(String::from("systemConfigs"));
+                attribute.push(hostname);
+            }
+        }
+
+        Command::new("nix")
+            .arg("repl")
+            .args(target_installable.to_args())
+            .run()?;
 
         Ok(())
     }

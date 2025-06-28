@@ -345,6 +345,25 @@ impl FeatureRequirements for DarwinReplFeatures {
     }
 }
 
+/// Feature requirements for System Manager repl commands
+#[derive(Debug)]
+pub struct SystemManagerReplFeatures;
+
+impl FeatureRequirements for SystemManagerReplFeatures {
+    fn required_features(&self) -> Vec<&'static str> {
+        let mut features = vec![];
+
+        // For flake repls, only need nix-command and flakes
+        if let Ok(variant) = util::get_nix_variant() {
+            if !matches!(variant, NixVariant::Determinate) {
+                features.push("nix-command");
+                features.push("flakes");
+            }
+        }
+
+        features
+    }
+}
 /// Feature requirements for commands that don't need experimental features
 #[derive(Debug)]
 pub struct NoFeatures;
