@@ -125,7 +125,8 @@ impl Command {
             if self.show_output {
                 cmd.stderr(Redirection::Merge)
             } else {
-                cmd.stderr(Redirection::None).stdout(Redirection::None)
+                cmd.stderr(subprocess::NullFile)
+                    .stdout(subprocess::NullFile)
             },
             self.ssh.as_deref(),
         );
