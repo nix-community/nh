@@ -11,6 +11,7 @@ mod json;
 mod logging;
 mod nixos;
 mod search;
+mod system_manager;
 mod update;
 mod util;
 

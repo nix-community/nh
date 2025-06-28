@@ -51,6 +51,7 @@ pub enum NHCommand {
     Os(OsArgs),
     Home(HomeArgs),
     Darwin(DarwinArgs),
+    SystemManager(SystemManagerArgs),
     Search(SearchArgs),
     Clean(CleanProxy),
     #[command(hide = true)]
@@ -63,6 +64,7 @@ impl NHCommand {
             Self::Os(args) => args.get_feature_requirements(),
             Self::Home(args) => args.get_feature_requirements(),
             Self::Darwin(args) => args.get_feature_requirements(),
+            Self::SystemManager(args) => args.get_feature_requirements(),
             Self::Search(_) => Box::new(NoFeatures),
             Self::Clean(_) => Box::new(NoFeatures),
             Self::Completions(_) => Box::new(NoFeatures),
@@ -95,6 +97,12 @@ impl NHCommand {
                     std::env::set_var("NH_CURRENT_COMMAND", "darwin");
                 }
                 args.run()
+            }
+            Self::SystemManager(_) => {
+                unsafe {
+                    std::env::set_var("NH_CURRENT_COMMAND", "system-manager");
+                }
+                unimplemented!();
             }
         }
     }
@@ -595,6 +603,66 @@ impl DarwinReplArgs {
 
         // Check installable type
         matches!(self.installable, Installable::Flake { .. })
+    }
+}
+
+/// system-manager functionality
+///
+/// Implements functionality mostly around but not exclusive to system-manager-rebuild
+#[derive(Debug, Args)]
+pub struct SystemManagerArgs {
+    #[command(subcommand)]
+    pub subcommand: SystemManagerSubcommand,
+}
+
+impl SystemManagerArgs {
+    pub fn get_feature_requirements(&self) -> Box<dyn FeatureRequirements> {
+        match &self.subcommand {
+            SystemManagerSubcommand::Switch(args) | SystemManagerSubcommand::Build(args) => {
+                if args.uses_flakes() {
+                    Box::new(FlakeFeatures)
+                } else {
+                    Box::new(LegacyFeatures)
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SystemManagerSubcommand {
+    /// Build and activate a nix-darwin configuration
+    Switch(SystemManagerRebuildArgs),
+    /// Build a nix-darwin configuration
+    Build(SystemManagerRebuildArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct SystemManagerRebuildArgs {
+    #[command(flatten)]
+    pub common: CommonRebuildArgs,
+
+    #[command(flatten)]
+    pub update_args: UpdateArgs,
+
+    /// When using a flake installable, select this hostname from darwinConfigurations
+    #[arg(long, short = 'H', global = true)]
+    pub hostname: Option<String>,
+
+    /// Extra arguments passed to nix build
+    #[arg(last = true)]
+    pub extra_args: Vec<String>,
+}
+
+impl SystemManagerRebuildArgs {
+    pub fn uses_flakes(&self) -> bool {
+        // Check environment variables first
+        if env::var("NH_FLAKE").is_ok_and(|v| !v.is_empty()) {
+            return true;
+        }
+
+        // Check installable type
+        matches!(self.common.installable, Installable::Flake { .. })
     }
 }
 
