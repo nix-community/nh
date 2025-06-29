@@ -88,6 +88,8 @@ impl Command {
 
     pub fn run(&self) -> Result<()> {
         let cmd = if self.elevate {
+            // Detect whether the user wants to use doas
+            let usedoas = std::env::var("NH_USE_DOAS").is_ok();
             let cmd = if cfg!(target_os = "macos") {
                 // Check for if sudo has the preserve-env flag
                 Exec::cmd("sudo").args(
@@ -104,14 +106,18 @@ impl Command {
                         &["--set-home"]
                     },
                 )
+            } else if usedoas {
+                // non-macOS & the user wants to use DOAS
+                Exec::cmd("doas")
             } else {
+                // fallback to sudo
                 Exec::cmd("sudo")
             };
 
             // use NH_SUDO_ASKPASS program for sudo if present
             let askpass = std::env::var("NH_SUDO_ASKPASS");
-            let cmd = if let Ok(askpass) = askpass {
-                cmd.env("SUDO_ASKPASS", askpass).arg("-A")
+            let cmd = if !usedoas && askpass.is_ok() {
+                cmd.env("SUDO_ASKPASS", askpass.unwrap()).arg("-A")
             } else {
                 cmd
             };

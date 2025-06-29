@@ -47,18 +47,30 @@ fn main() -> Result<()> {
 fn self_elevate() -> ! {
     use std::os::unix::process::CommandExt;
 
-    let mut cmd = std::process::Command::new("sudo");
-    cmd.arg("--preserve-env");
+    let usedoas = std::env::var("NH_USE_DOAS").is_ok();
+    let helper = if !cfg!(target_os = "macos") && usedoas {
+        "doas"
+    } else {
+        "sudo"
+    };
 
-    if cfg!(target_os = "macos") {
-        cmd.args(["--set-home", "--preserve-env=PATH", "env"]);
-    }
+    let mut cmd = std::process::Command::new(helper);
+    // --preserve-env and -A are not valid flags for opendoas,
+    // this keeps preserves the original logic, but only applies it
+    // when sudo is the active helper.
+    if helper == "sudo" {
+        cmd.arg("--preserve-env");
 
-    // use NH_SUDO_ASKPASS program for sudo if present
-    let askpass = std::env::var("NH_SUDO_ASKPASS");
-    if let Ok(askpass) = askpass {
-        cmd.env("SUDO_ASKPASS", askpass).arg("-A");
-    }
+        if cfg!(target_os = "macos") {
+            cmd.args(["--set-home", "--preserve-env=PATH", "env"]);
+        }
+
+        // use NH_SUDO_ASKPASS program for sudo if present
+        let askpass = std::env::var("NH_SUDO_ASKPASS");
+        if let Ok(askpass) = askpass {
+            cmd.env("SUDO_ASKPASS", askpass).arg("-A");
+        }
+    };
 
     cmd.args(std::env::args());
     debug!("{:?}", cmd);
