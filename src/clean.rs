@@ -77,12 +77,21 @@ impl interface::CleanMode {
                     bail!("nh clean user: don't run me as root!");
                 }
                 let user = nix::unistd::User::from_uid(uid)?.unwrap();
-                profiles.extend(profiles_in_dir(
-                    PathBuf::from(std::env::var("HOME")?).join(".local/state/nix/profiles"),
-                ));
-                profiles.extend(profiles_in_dir(
-                    PathBuf::from("/nix/var/nix/profiles/per-user").join(user.name),
-                ));
+
+                let xdg_profile_dir =
+                    PathBuf::from(std::env::var("HOME")?).join(".local/state/nix/profiles");
+
+                if xdg_profile_dir.is_dir() {
+                    profiles.extend(profiles_in_dir(xdg_profile_dir));
+                }
+
+                let per_user_profile_dir =
+                    PathBuf::from("/nix/var/nix/profiles/per-user").join(&user.name);
+
+                if per_user_profile_dir.is_dir() {
+                    profiles.extend(profiles_in_dir(per_user_profile_dir));
+                }
+
                 args
             }
         };
