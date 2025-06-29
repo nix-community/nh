@@ -83,6 +83,11 @@ impl interface::CleanMode {
 
                 if xdg_profile_dir.is_dir() {
                     profiles.extend(profiles_in_dir(xdg_profile_dir));
+                } else {
+                    warn!(
+                        "Profiles directory not found, skipping: {}",
+                        xdg_profile_dir.display()
+                    );
                 }
 
                 let per_user_profile_dir =
@@ -90,6 +95,17 @@ impl interface::CleanMode {
 
                 if per_user_profile_dir.is_dir() {
                     profiles.extend(profiles_in_dir(per_user_profile_dir));
+                } else {
+                    warn!(
+                        "Profiles directory not found, skipping: {}",
+                        per_user_profile_dir.display()
+                    );
+                }
+
+                if profiles.is_empty() {
+                    warn!(
+                        "No active profile directories found for the current user. Nothing to clean."
+                    );
                 }
 
                 args
