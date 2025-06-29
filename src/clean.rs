@@ -77,30 +77,24 @@ impl interface::CleanMode {
                     bail!("nh clean user: don't run me as root!");
                 }
                 let user = nix::unistd::User::from_uid(uid)?.unwrap();
+                let home_dir = PathBuf::from(std::env::var("HOME")?);
 
-                let xdg_profile_dir =
-                    PathBuf::from(std::env::var("HOME")?).join(".local/state/nix/profiles");
+                let paths_to_check = [
+                    home_dir.join(".local/state/nix/profiles"),
+                    PathBuf::from("/nix/var/nix/profiles/per-user").join(&user.name),
+                ];
 
-                if xdg_profile_dir.is_dir() {
-                    profiles.extend(profiles_in_dir(xdg_profile_dir));
-                } else {
-                    warn!(
-                        "Profiles directory not found, skipping: {}",
-                        xdg_profile_dir.display()
-                    );
-                }
-
-                let per_user_profile_dir =
-                    PathBuf::from("/nix/var/nix/profiles/per-user").join(&user.name);
-
-                if per_user_profile_dir.is_dir() {
-                    profiles.extend(profiles_in_dir(per_user_profile_dir));
-                } else {
-                    warn!(
-                        "Profiles directory not found, skipping: {}",
-                        per_user_profile_dir.display()
-                    );
-                }
+                profiles.extend(
+                    paths_to_check
+                        .into_iter()
+                        .inspect(|path| {
+                            if !path.is_dir() {
+                                warn!("Profiles directory not found, skipping: {}", path.display());
+                            }
+                        })
+                        .filter(|path| path.is_dir())
+                        .flat_map(profiles_in_dir),
+                );
 
                 if profiles.is_empty() {
                     warn!(
