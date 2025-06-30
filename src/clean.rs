@@ -51,11 +51,38 @@ impl interface::CleanMode {
                 if !uid.is_root() {
                     crate::self_elevate();
                 }
-                profiles.extend(profiles_in_dir("/nix/var/nix/profiles"));
-                for read_dir in PathBuf::from("/nix/var/nix/profiles/per-user").read_dir()? {
-                    let path = read_dir?.path();
-                    profiles.extend(profiles_in_dir(path));
-                }
+
+                let paths_to_check = [
+                    PathBuf::from("/nix/var/nix/profiles"),
+                    PathBuf::from("/nix/var/nix/profiles/per-user"),
+                ];
+
+                profiles.extend(
+                    paths_to_check
+                        .into_iter()
+                        .inspect(|path| {
+                            if !path.is_dir() {
+                                warn!("Profiles directory not found, skipping: {}", path.display());
+                            }
+                        })
+                        .filter(|path| path.is_dir())
+                        .flat_map(|path| {
+                            if path.ends_with("per-user") {
+                                path.read_dir()
+                                    .map(|read_dir| {
+                                        read_dir
+                                            .filter_map(|entry| entry.ok())
+                                            .map(|entry| entry.path())
+                                            .filter(|path| path.is_dir())
+                                            .flat_map(profiles_in_dir)
+                                            .collect::<Vec<_>>()
+                                    })
+                                    .unwrap_or_default()
+                            } else {
+                                profiles_in_dir(path)
+                            }
+                        }),
+                );
 
                 // Most unix systems start regular users at uid 1000+, but macos is special at 501+
                 // https://en.wikipedia.org/wiki/User_identifier
@@ -65,9 +92,15 @@ impl interface::CleanMode {
                 for user in unsafe { uzers::all_users() } {
                     if user.uid() >= uid_min && user.uid() < uid_max || user.uid() == 0 {
                         debug!(?user, "Adding XDG profiles for user");
-                        profiles.extend(profiles_in_dir(
-                            user.home_dir().join(".local/state/nix/profiles"),
-                        ));
+                        let user_profiles_path = user.home_dir().join(".local/state/nix/profiles");
+                        if user_profiles_path.is_dir() {
+                            profiles.extend(profiles_in_dir(user_profiles_path));
+                        } else {
+                            warn!(
+                                "Profiles directory not found, skipping: {}",
+                                user_profiles_path.display()
+                            );
+                        }
                     }
                 }
                 args
