@@ -241,6 +241,7 @@ impl interface::CleanMode {
                 .args(["store", "gc"])
                 .dry(args.dry)
                 .message("Performing garbage collection on the nix store")
+                .show_output(true)
                 .run()?;
         }
 
