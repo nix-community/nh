@@ -77,7 +77,7 @@ impl OsRebuildArgs {
             false
         } else {
             if nix::unistd::Uid::effective().is_root() {
-                bail!("Don't run nh os as root. I will call sudo internally as needed");
+                bail!("Don't run nh os as root. I will call sudo or doas internally as needed");
             }
             true
         };
@@ -344,7 +344,7 @@ impl OsRollbackArgs {
             false
         } else {
             if nix::unistd::Uid::effective().is_root() {
-                bail!("Don't run nh os as root. I will call sudo internally as needed");
+                bail!("Don't run nh os as root. I will call sudo or doas internally as needed");
             }
             true
         };
