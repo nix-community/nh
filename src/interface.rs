@@ -384,6 +384,10 @@ pub struct CleanArgs {
     /// Don't clean gcroots
     #[arg(long)]
     pub nogcroots: bool,
+
+    /// Show cleanup statistics
+    #[arg(long, short)]
+    pub stats: bool,
 }
 
 #[derive(Debug, Clone, Args)]
