@@ -2,6 +2,18 @@
 
 # NH Changelog
 
+<!--
+This is the Nh changelog. It aims to describe changes that occurred within the
+codebase, to the extent that concerns *both users and contributors*. If you are
+a contributor, please add your changes under the "Unreleased" section as tags
+will be created at the discretion of maintainers. If your changes fix an
+existing bug, you must describe the new behaviour (ideally in comparison to the
+old one) and put it under the "Fixed" subsection. Linking the relevant open
+issue is not necessary, but good to have. Otherwise, general-purpose changes can
+be put in the "Changed" section or, if it's just to remove code or
+functionality, under the "Removed" section.
+-->
+
 ## Unreleased
 
 ### Changed
@@ -24,9 +36,15 @@
   skip the check with a warning.
 - In the case system switch is disabled (`system.switch enable = false;`) Nh
   will provide a more descriptive error message hinting at what might be the
-  issue.
+  issue. ([#331](https://github.com/nix-community/nh/issues/331))
   - We cannot accurately guess what the issue is, but this should be more
-    graceful than simply throwing an error about a missingg path (what path?)
+    graceful than simply throwing an error about a missing path (what path?)
+- Nh will now carefully pick environment variables passed to individual
+  commands. This resolves the "`$HOME` is not owned by you!" error, but it's
+  also a part of a larger refactor that involves only providing relevant
+  variables to individual commands. This is an experimental change, please let
+  us know if you face any new bugs.
+  ([#314](https://github.com/nix-community/nh/issues/314))
 
 ## 4.1.1
 
