@@ -243,7 +243,10 @@ where
                     })?;
 
                 if check_res.map(|s| s.trim().to_owned()).as_deref() == Some("true") {
-                    debug!("Using explicit configuration from flag: {}", config_name);
+                    debug!(
+                        "Using explicit configuration from flag/environment: {}",
+                        config_name
+                    );
                     attribute.push(config_name);
                     if push_drv {
                         attribute.extend(toplevel.clone());

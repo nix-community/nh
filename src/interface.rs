@@ -185,11 +185,11 @@ pub struct OsRebuildArgs {
     pub update_args: UpdateArgs,
 
     /// When using a flake installable, select this hostname from nixosConfigurations
-    #[arg(long, short = 'H', global = true)]
+    #[arg(long, short = 'H', global = true, env = "NH_OS_HOSTNAME")]
     pub hostname: Option<String>,
 
     /// Explicitly select some specialisation
-    #[arg(long, short)]
+    #[arg(long, short, env = "NH_OS_SPECIALISATION")]
     pub specialisation: Option<String>,
 
     /// Ignore specialisations
@@ -236,7 +236,7 @@ pub struct OsRollbackArgs {
     pub ask: bool,
 
     /// Explicitly select some specialisation
-    #[arg(long, short)]
+    #[arg(long, short, env = "NH_OS_SPECIALISATION")]
     pub specialisation: Option<String>,
 
     /// Ignore specialisations
@@ -280,7 +280,7 @@ pub struct OsReplArgs {
     pub installable: Installable,
 
     /// When using a flake installable, select this hostname from nixosConfigurations
-    #[arg(long, short = 'H', global = true)]
+    #[arg(long, short = 'H', global = true, env = "NH_OS_HOSTNAME")]
     pub hostname: Option<String>,
 }
 
@@ -443,11 +443,11 @@ pub struct HomeRebuildArgs {
     /// Name of the flake homeConfigurations attribute, like username@hostname
     ///
     /// If unspecified, will try <username>@<hostname> and <username>
-    #[arg(long, short)]
+    #[arg(long, short, env = "NH_HOME_CONFIGURATION")]
     pub configuration: Option<String>,
 
     /// Explicitly select some specialisation
-    #[arg(long, short)]
+    #[arg(long, short, env = "NH_HOME_SPECIALISATION")]
     pub specialisation: Option<String>,
 
     /// Ignore specialisations
@@ -483,7 +483,7 @@ pub struct HomeReplArgs {
     /// Name of the flake homeConfigurations attribute, like username@hostname
     ///
     /// If unspecified, will try <username>@<hostname> and <username>
-    #[arg(long, short)]
+    #[arg(long, short, env = "NH_HOME_CONFIGURATION")]
     pub configuration: Option<String>,
 
     /// Extra arguments passed to nix repl
@@ -556,7 +556,7 @@ pub struct DarwinRebuildArgs {
     pub update_args: UpdateArgs,
 
     /// When using a flake installable, select this hostname from darwinConfigurations
-    #[arg(long, short = 'H', global = true)]
+    #[arg(long, short = 'H', global = true, env = "NH_DARWIN_HOSTNAME")]
     pub hostname: Option<String>,
 
     /// Extra arguments passed to nix build
@@ -582,7 +582,7 @@ pub struct DarwinReplArgs {
     pub installable: Installable,
 
     /// When using a flake installable, select this hostname from darwinConfigurations
-    #[arg(long, short = 'H', global = true)]
+    #[arg(long, short = 'H', global = true, env = "NH_DARWIN_HOSTNAME")]
     pub hostname: Option<String>,
 }
 
