@@ -278,6 +278,7 @@ impl OsRebuildArgs {
                 .ssh(self.target_host.clone())
                 .message("Activating configuration")
                 .elevate(elevate)
+                .preserve_envs(["NIXOS_INSTALL_BOOTLOADER"])
                 .run()?;
         }
 
@@ -322,6 +323,7 @@ impl OsRebuildArgs {
                 .ssh(self.target_host)
                 .elevate(elevate)
                 .message("Adding configuration to bootloader")
+                .preserve_envs(["NIXOS_INSTALL_BOOTLOADER"])
                 .run()?;
         }
 
@@ -458,6 +460,7 @@ impl OsRollbackArgs {
         match Command::new(&switch_to_configuration)
             .arg("switch")
             .elevate(elevate)
+            .preserve_envs(["NIXOS_INSTALL_BOOTLOADER"])
             .run()
         {
             Ok(()) => {
