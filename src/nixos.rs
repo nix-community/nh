@@ -127,7 +127,7 @@ impl OsRebuildArgs {
             },
         };
 
-        debug!(?out_path);
+        debug!("Output path: {out_path:?}");
 
         // Use NH_OS_FLAKE if available, otherwise use the provided installable
         let installable = if let Ok(os_flake) = env::var("NH_OS_FLAKE") {

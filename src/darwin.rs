@@ -59,7 +59,7 @@ impl DarwinRebuildArgs {
             }),
         };
 
-        debug!(?out_path);
+        debug!("Output path: {out_path:?}");
 
         // Use NH_DARWIN_FLAKE if available, otherwise use the provided installable
         let installable = if let Ok(darwin_flake) = env::var("NH_DARWIN_FLAKE") {

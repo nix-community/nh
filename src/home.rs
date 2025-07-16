@@ -51,7 +51,7 @@ impl HomeRebuildArgs {
             }),
         };
 
-        debug!(?out_path);
+        debug!("Output path: {out_path:?}");
 
         // Use NH_HOME_FLAKE if available, otherwise use the provided installable
         let installable = if let Ok(home_flake) = env::var("NH_HOME_FLAKE") {
