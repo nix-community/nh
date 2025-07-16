@@ -20,6 +20,8 @@ fn ssh_wrap(cmd: Exec, ssh: Option<&str>) -> Exec {
     let mut ssh_cmd = Exec::cmd("ssh").arg("-T").arg(ssh);
 
     let opts = std::env::var("NIX_SSHOPTS").unwrap_or_default();
+    debug!("NIX_SSHOPTS set to {opts}");
+
     let all_args: Vec<String> = std::iter::once("-T".to_string())
         .chain(std::iter::once(ssh.to_string()))
         .chain(
@@ -52,6 +54,7 @@ fn ssh_wrap(cmd: Exec, ssh: Option<&str>) -> Exec {
         ssh_cmd = ssh_cmd.arg(opt);
     }
 
+    debug!("Using ssh_cmd: {}", ssh_cmd.to_cmdline_lossy());
     ssh_cmd.stdin(cmd.to_cmdline_lossy().as_str())
 }
 

@@ -36,6 +36,8 @@ functionality, under the "Removed" section.
 - `nh clean` will now skip directories that are checked and don't exist. Instead
   of throwing an error, it will print a warning about which directories were
   skipped.
+- Fine-grain and streamline environment variable propagation across modules for
+  correctness. `NIX_SSHOPTS` is now preserved and used for remote deployments.
 
 ### Fixed
 
