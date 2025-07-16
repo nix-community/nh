@@ -13,10 +13,20 @@ use crate::installable::Installable;
 
 fn ssh_wrap(cmd: Exec, ssh: Option<&str>) -> Exec {
     if let Some(ssh) = ssh {
-        Exec::cmd("ssh")
+        let mut ssh_cmd = Exec::cmd("ssh")
             .arg("-T")
             .arg(ssh)
-            .stdin(cmd.to_cmdline_lossy().as_str())
+            .arg("-o")
+            .arg("ControlMaster=auto")
+            .arg("-o")
+            .arg("ControlPersist=60")
+            .arg("-o")
+            .arg(format!(
+                "ControlPath={}/nh-ssh-{}",
+                std::env::temp_dir().display(),
+                std::process::id()
+            ));
+        ssh_cmd.stdin(cmd.to_cmdline_lossy().as_str())
     } else {
         cmd
     }
