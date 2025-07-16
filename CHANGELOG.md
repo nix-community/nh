@@ -28,6 +28,9 @@ functionality, under the "Removed" section.
 - `nh darwin switch` now shows the output from the `darwin-rebuild` activation.
   This allows you to see more details about the activation from `nix-darwin`, as
   well as `Home Manager`.
+- The `NH_OS_HOSTNAME`, `NH_OS_SPECIALISATION`, `NH_HOME_CONFIGURATION`,
+  `NH_HOME_SPECIALISATION`, and `NH_DARWIN_HOSTNAME` environmental variables are
+  now consulted when determining what attribute/specialisation to use.
 
 ### Fixed
 
