@@ -23,6 +23,50 @@ fn ssh_wrap(cmd: Exec, ssh: Option<&str>) -> Exec {
     } else {
         cmd
     }
+    let ssh = match ssh {
+        Some(s) => s,
+        None => return cmd,
+    };
+
+    let mut ssh_cmd = Exec::cmd("ssh").arg("-T").arg(ssh);
+
+    let opts = std::env::var("NIX_SSHOPTS").unwrap_or_default();
+    debug!("NIX_SSHOPTS set to {opts}");
+
+    let all_args: Vec<String> = std::iter::once("-T".to_string())
+        .chain(std::iter::once(ssh.to_string()))
+        .chain(
+            opts.split_whitespace()
+                .map(std::string::ToString::to_string),
+        )
+        .collect();
+
+    let has_controlmaster = all_args.iter().any(|s| s.contains("ControlMaster"));
+    let has_controlpersist = all_args.iter().any(|s| s.contains("ControlPersist"));
+    let has_controlpath = all_args.iter().any(|s| s.contains("ControlPath"));
+
+    if !has_controlmaster {
+        ssh_cmd = ssh_cmd.arg("-o").arg("ControlMaster=auto");
+    }
+
+    if !has_controlpersist {
+        ssh_cmd = ssh_cmd.arg("-o").arg("ControlPersist=60");
+    }
+
+    if !has_controlpath {
+        ssh_cmd = ssh_cmd.arg("-o").arg(format!(
+            "ControlPath={}/nh-ssh-{}",
+            std::env::temp_dir().display(),
+            std::process::id()
+        ));
+    }
+
+    for opt in opts.split_whitespace() {
+        ssh_cmd = ssh_cmd.arg(opt);
+    }
+
+    debug!("Using ssh_cmd: {}", ssh_cmd.to_cmdline_lossy());
+    ssh_cmd.stdin(cmd.to_cmdline_lossy().as_str())
 }
 
 #[allow(dead_code)] // shut up

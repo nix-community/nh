@@ -46,6 +46,8 @@ functionality, under the "Removed" section.
   - It's roughly %4 faster according to testing, but IO is still a limiting
     factor and results may differ.
 - Added more context to some minor debug messages across platform commands.
+- Fine-grain and streamline environment variable propagation across modules for
+  correctness. `NIX_SSHOPTS` is now preserved and used for remote deployments.
 
 ### Fixed
 
