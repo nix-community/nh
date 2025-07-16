@@ -12,24 +12,47 @@ use tracing::{debug, info};
 use crate::installable::Installable;
 
 fn ssh_wrap(cmd: Exec, ssh: Option<&str>) -> Exec {
-    if let Some(ssh) = ssh {
-        let mut ssh_cmd = Exec::cmd("ssh")
-            .arg("-T")
-            .arg(ssh)
-            .arg("-o")
-            .arg("ControlMaster=auto")
-            .arg("-o")
-            .arg("ControlPersist=60")
-            .arg("-o")
-            .arg(format!(
-                "ControlPath={}/nh-ssh-{}",
-                std::env::temp_dir().display(),
-                std::process::id()
-            ));
-        ssh_cmd.stdin(cmd.to_cmdline_lossy().as_str())
-    } else {
-        cmd
+    let ssh = match ssh {
+        Some(s) => s,
+        None => return cmd,
+    };
+
+    let mut ssh_cmd = Exec::cmd("ssh").arg("-T").arg(ssh);
+
+    let opts = std::env::var("NIX_SSHOPTS").unwrap_or_default();
+    let all_args: Vec<String> = std::iter::once("-T".to_string())
+        .chain(std::iter::once(ssh.to_string()))
+        .chain(
+            opts.split_whitespace()
+                .map(std::string::ToString::to_string),
+        )
+        .collect();
+
+    let has_controlmaster = all_args.iter().any(|s| s.contains("ControlMaster"));
+    let has_controlpersist = all_args.iter().any(|s| s.contains("ControlPersist"));
+    let has_controlpath = all_args.iter().any(|s| s.contains("ControlPath"));
+
+    if !has_controlmaster {
+        ssh_cmd = ssh_cmd.arg("-o").arg("ControlMaster=auto");
     }
+
+    if !has_controlpersist {
+        ssh_cmd = ssh_cmd.arg("-o").arg("ControlPersist=60");
+    }
+
+    if !has_controlpath {
+        ssh_cmd = ssh_cmd.arg("-o").arg(format!(
+            "ControlPath={}/nh-ssh-{}",
+            std::env::temp_dir().display(),
+            std::process::id()
+        ));
+    }
+
+    for opt in opts.split_whitespace() {
+        ssh_cmd = ssh_cmd.arg(opt);
+    }
+
+    ssh_cmd.stdin(cmd.to_cmdline_lossy().as_str())
 }
 
 #[allow(dead_code)] // shut up
@@ -319,6 +342,14 @@ impl Command {
             self.ssh.as_deref(),
         );
 
+        let control_cleanup = self.ssh.as_ref().map(|_| {
+            format!(
+                "{}/nh-ssh-{}",
+                std::env::temp_dir().display(),
+                std::process::id()
+            )
+        });
+
         if let Some(m) = &self.message {
             info!("{}", m);
         }
@@ -335,6 +366,17 @@ impl Command {
             .unwrap_or_else(|| "Command failed".to_string());
         let res = cmd.capture();
         if let Err(e) = res {
+            if let Some(control_path) = &control_cleanup {
+                let _ = Exec::cmd("ssh")
+                    .arg("-o")
+                    .arg(format!("ControlPath={control_path}"))
+                    .arg("-O")
+                    .arg("exit")
+                    .arg("dummyhost")
+                    .stderr(Redirection::None)
+                    .stdout(Redirection::None)
+                    .capture();
+            }
             return Err(e).wrap_err(msg);
         }
 
@@ -345,9 +387,43 @@ impl Command {
                 .map(subprocess::CaptureData::stderr_str)
                 .unwrap_or_default();
             if stderr.trim().is_empty() {
+                if let Some(control_path) = &control_cleanup {
+                    let _ = Exec::cmd("ssh")
+                        .arg("-o")
+                        .arg(format!("ControlPath={control_path}"))
+                        .arg("-O")
+                        .arg("exit")
+                        .arg("dummyhost")
+                        .stderr(Redirection::None)
+                        .stdout(Redirection::None)
+                        .capture();
+                }
                 bail!("{} (exit status {:?})", msg, status);
             }
+            if let Some(control_path) = &control_cleanup {
+                let _ = Exec::cmd("ssh")
+                    .arg("-o")
+                    .arg(format!("ControlPath={control_path}"))
+                    .arg("-O")
+                    .arg("exit")
+                    .arg("dummyhost")
+                    .stderr(Redirection::None)
+                    .stdout(Redirection::None)
+                    .capture();
+            }
             bail!("{} (exit status {:?})\nstderr:\n{}", msg, status, stderr);
+        }
+
+        if let Some(control_path) = &control_cleanup {
+            let _ = Exec::cmd("ssh")
+                .arg("-o")
+                .arg(format!("ControlPath={control_path}"))
+                .arg("-O")
+                .arg("exit")
+                .arg("dummyhost")
+                .stderr(Redirection::None)
+                .stdout(Redirection::None)
+                .capture();
         }
 
         Ok(())
