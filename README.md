@@ -202,4 +202,4 @@ about it on various channels. NH would not be where it is without you.
 
 [![Dependency status](https://deps.rs/repo/github/nix-community/nh/status.svg)](https://deps.rs/repo/github/nix-community/nh)
 
-[![Packaging status](https://repology.org/badge/vertical-allrepos/nh.svg)](https://repology.org/project/unit/versions)
+[![Packaging status](https://repology.org/badge/vertical-allrepos/nh.svg)](https://repology.org/project/nh/versions)
