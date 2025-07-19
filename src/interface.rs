@@ -1,4 +1,5 @@
 use std::env;
+use std::ffi::OsString;
 use std::path::PathBuf;
 
 use anstyle::Style;
@@ -42,6 +43,10 @@ pub struct Main {
     /// Increase logging verbosity, can be passed multiple times for
     /// more detailed logs.
     pub verbosity: clap_verbosity_flag::Verbosity<WarnLevel>,
+
+    #[arg(short, long, global = true, env, value_hint = clap::ValueHint::CommandName)]
+    /// Choose what privilege elevation program should be used
+    pub elevation_program: Option<OsString>,
 
     #[command(subcommand)]
     pub command: NHCommand,
