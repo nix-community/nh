@@ -83,6 +83,7 @@ impl HomeRebuildArgs {
             .extra_arg("--out-link")
             .extra_arg(out_path.get_path())
             .extra_args(&self.extra_args)
+            .passthrough(&self.common.passthrough)
             .message("Building Home-Manager configuration")
             .nom(!self.common.no_nom)
             .run()
