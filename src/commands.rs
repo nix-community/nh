@@ -11,6 +11,7 @@ use thiserror::Error;
 use tracing::debug;
 
 use crate::installable::Installable;
+use crate::util::get_elevation_program;
 
 fn ssh_wrap(cmd: Exec, ssh: Option<&str>) -> Exec {
     if let Some(ssh) = ssh {
@@ -202,7 +203,7 @@ impl Command {
     }
 
     fn build_sudo_cmd(&self) -> Exec {
-        let mut cmd = Exec::cmd("sudo");
+        let mut cmd = Exec::cmd(get_elevation_program().unwrap());
 
         // Collect variables to preserve for sudo
         let mut preserve_vars = Vec::new();
