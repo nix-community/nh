@@ -8,7 +8,9 @@ use crate::Result;
 use crate::commands;
 use crate::commands::Command;
 use crate::installable::Installable;
-use crate::interface::{DarwinArgs, DarwinRebuildArgs, DarwinReplArgs, DarwinSubcommand, DiffType};
+use crate::interface::{
+    DarwinArgs, DarwinEditArgs, DarwinRebuildArgs, DarwinReplArgs, DarwinSubcommand, DiffType,
+};
 use crate::nixos::toplevel_for;
 use crate::update::update;
 use crate::util::{get_hostname, print_dix_diff};
@@ -33,6 +35,7 @@ impl DarwinArgs {
                 args.rebuild(&Build)
             }
             DarwinSubcommand::Repl(args) => args.run(),
+            DarwinSubcommand::Edit(args) => args.run(),
         }
     }
 }
@@ -240,6 +243,21 @@ impl DarwinReplArgs {
         Command::new("nix")
             .arg("repl")
             .args(target_installable.to_args())
+            .with_required_env()
+            .show_output(true)
+            .run()?;
+
+        Ok(())
+    }
+}
+
+impl DarwinEditArgs {
+    fn run(self) -> Result<()> {
+        let editor = env::var("EDITOR").unwrap_or_else(|_| "nano".to_string());
+        let flake = env::var("NH_DARWIN_FLAKE").or_else(|_| env::var("NH_FLAKE"))?;
+
+        Command::new(editor)
+            .arg(flake + "/flake.nix")
             .with_required_env()
             .show_output(true)
             .run()?;

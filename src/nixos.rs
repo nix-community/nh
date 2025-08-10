@@ -12,7 +12,8 @@ use crate::generations;
 use crate::installable::Installable;
 use crate::interface::OsSubcommand::{self};
 use crate::interface::{
-    self, DiffType, OsBuildVmArgs, OsGenerationsArgs, OsRebuildArgs, OsReplArgs, OsRollbackArgs,
+    self, DiffType, OsBuildVmArgs, OsEditArgs, OsGenerationsArgs, OsRebuildArgs, OsReplArgs,
+    OsRollbackArgs,
 };
 use crate::update::update;
 use crate::util::ensure_ssh_key_login;
@@ -38,6 +39,7 @@ impl interface::OsArgs {
             }
             OsSubcommand::BuildVm(args) => args.build_vm(),
             OsSubcommand::Repl(args) => args.run(),
+            OsSubcommand::Edit(args) => args.run(),
             OsSubcommand::Info(args) => args.info(),
             OsSubcommand::Rollback(args) => args.rollback(),
         }
@@ -724,6 +726,21 @@ impl OsReplArgs {
         Command::new("nix")
             .arg("repl")
             .args(target_installable.to_args())
+            .with_required_env()
+            .show_output(true)
+            .run()?;
+
+        Ok(())
+    }
+}
+
+impl OsEditArgs {
+    fn run(self) -> Result<()> {
+        let editor = env::var("EDITOR").unwrap_or_else(|_| "nano".to_string());
+        let flake = env::var("NH_OS_FLAKE").or_else(|_| env::var("NH_FLAKE"))?;
+
+        Command::new(editor)
+            .arg(flake + "/flake.nix")
             .with_required_env()
             .show_output(true)
             .run()?;
