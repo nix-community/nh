@@ -43,8 +43,7 @@ fn main() -> Result<()> {
 
     let elevation = args
         .elevation_program
-        .map(|program| ElevationStrategy::Prefer(program))
-        .unwrap_or(ElevationStrategy::Auto);
+        .map_or(ElevationStrategy::Auto, ElevationStrategy::Prefer);
 
     args.command.run(elevation)
 }

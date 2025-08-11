@@ -7,12 +7,12 @@ use clap::ValueEnum;
 use clap::{Args, Parser, Subcommand, builder::Styles};
 use clap_verbosity_flag::InfoLevel;
 
-use crate::commands::ElevationStrategy;
 use crate::Result;
 use crate::checks::{
     DarwinReplFeatures, FeatureRequirements, FlakeFeatures, HomeReplFeatures, LegacyFeatures,
     NoFeatures, OsReplFeatures,
 };
+use crate::commands::ElevationStrategy;
 use crate::installable::Installable;
 
 const fn make_style() -> Styles {

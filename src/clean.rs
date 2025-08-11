@@ -354,12 +354,11 @@ fn profiles_in_dir<P: AsRef<Path> + fmt::Debug>(dir: P) -> Vec<PathBuf> {
                         let path = e.path();
 
                         if let Ok(dst) = path.read_link() {
-                            let name = match dst.file_name() {
-                                Some(f) => f.to_string_lossy(),
-                                None => {
-                                    warn!("Failed to get filename for {:?}", dst);
-                                    continue;
-                                }
+                            let name = if let Some(f) = dst.file_name() {
+                                f.to_string_lossy()
+                            } else {
+                                warn!("Failed to get filename for {:?}", dst);
+                                continue;
                             };
 
                             if GENERATION_REGEX.captures(&name).is_some() {

@@ -4,10 +4,10 @@ use std::path::PathBuf;
 use color_eyre::eyre::{Context, bail, eyre};
 use tracing::{debug, warn};
 
-use crate::commands::ElevationStrategy;
 use crate::Result;
 use crate::commands;
 use crate::commands::Command;
+use crate::commands::ElevationStrategy;
 use crate::installable::Installable;
 use crate::interface::{DarwinArgs, DarwinRebuildArgs, DarwinReplArgs, DarwinSubcommand, DiffType};
 use crate::nixos::toplevel_for;

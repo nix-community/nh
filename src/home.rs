@@ -112,12 +112,11 @@ impl HomeRebuildArgs {
         let spec_location =
             PathBuf::from(std::env::var("HOME")?).join(".local/share/home-manager/specialisation");
 
-        let current_specialisation = match spec_location.to_str() {
-            Some(s) => std::fs::read_to_string(s).ok(),
-            None => {
-                tracing::warn!("spec_location path is not valid UTF-8");
-                None
-            }
+        let current_specialisation = if let Some(s) = spec_location.to_str() {
+            std::fs::read_to_string(s).ok()
+        } else {
+            tracing::warn!("spec_location path is not valid UTF-8");
+            None
         };
 
         let target_specialisation = if self.no_specialisation {

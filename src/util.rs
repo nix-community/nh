@@ -288,7 +288,7 @@ pub fn get_missing_experimental_features(required_features: &[&str]) -> Result<V
 ///
 /// ```rust
 /// use nh::commands::ElevationStrategy;
-/// 
+///
 /// // Elevate the current process to run as root
 /// let elevate: fn(ElevationStrategy) -> ! = nh::util::self_elevate;
 /// ```

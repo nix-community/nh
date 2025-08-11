@@ -50,8 +50,9 @@ impl ElevationStrategy {
     pub fn resolve(&self) -> Result<OsString> {
         match self {
             ElevationStrategy::Auto => Self::choice(),
-            ElevationStrategy::Prefer(program) => {
-                which(program).map(|x| x.into_os_string()).or_else(|_| {
+            ElevationStrategy::Prefer(program) => which(program)
+                .map(std::path::PathBuf::into_os_string)
+                .or_else(|_| {
                     let auto = Self::choice()?;
                     warn!(
                         "{} not found. Using {} instead",
@@ -59,8 +60,7 @@ impl ElevationStrategy {
                         auto.to_string_lossy()
                     );
                     Ok(auto)
-                })
-            }
+                }),
             ElevationStrategy::Force(program) => Ok(program.into()),
         }
     }
@@ -81,7 +81,7 @@ impl ElevationStrategy {
     ///
     /// The logic for choosing this order is that a person with `doas` installed is more likely
     /// to be using it as their main privilege elevation program.
-    /// `run0` and `pkexec` are preinstalled in any NixOS system with polkit support installed,
+    /// `run0` and `pkexec` are preinstalled in any `NixOS` system with polkit support installed,
     /// so they have been placed lower as it's easier to deactivate sudo than it is to remove
     /// `run0`/`pkexec`
     ///
@@ -304,14 +304,18 @@ impl Command {
 
         // Insert 'env' command to explicitly pass environment variables to the elevated command
         cmd = cmd.arg("env");
-        for arg in self.env_vars.iter().flat_map(|(key, action)| match action {
-            EnvAction::Set(value) => Some(format!("{key}={value}")),
-            EnvAction::Preserve => match std::env::var(key) {
-                Ok(value) => Some(format!("{key}={value}")),
-                Err(_) => None,
-            },
-            EnvAction::Remove => None,
-        }) {
+        for arg in self
+            .env_vars
+            .iter()
+            .filter_map(|(key, action)| match action {
+                EnvAction::Set(value) => Some(format!("{key}={value}")),
+                EnvAction::Preserve => match std::env::var(key) {
+                    Ok(value) => Some(format!("{key}={value}")),
+                    Err(_) => None,
+                },
+                EnvAction::Remove => None,
+            })
+        {
             cmd = cmd.arg(arg);
         }
 

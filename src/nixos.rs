@@ -66,7 +66,12 @@ impl OsBuildVmArgs {
 impl OsRebuildArgs {
     // final_attr is the attribute of config.system.build.X to evaluate.
     #[expect(clippy::cognitive_complexity, clippy::too_many_lines)]
-    fn rebuild(self, variant: &OsRebuildVariant, final_attr: Option<String>, elevation: ElevationStrategy) -> Result<()> {
+    fn rebuild(
+        self,
+        variant: &OsRebuildVariant,
+        final_attr: Option<String>,
+        elevation: ElevationStrategy,
+    ) -> Result<()> {
         use OsRebuildVariant::{Boot, Build, BuildVm, Switch, Test};
 
         if self.build_host.is_some() || self.target_host.is_some() {
