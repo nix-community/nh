@@ -7,7 +7,8 @@ use color_eyre::{
 };
 use subprocess::{Exec, ExitStatus, Redirection};
 use thiserror::Error;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
+use which::which;
 
 use crate::installable::Installable;
 use crate::interface::NixBuildPassthroughArgs;
@@ -36,13 +37,79 @@ pub enum EnvAction {
     Remove,
 }
 
+/// Define what strategy to use when choosing privilege scalation programs.
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ElevationStrategy {
+    Auto,
+    Prefer(OsString),
+    Force(&'static str),
+}
+
+impl ElevationStrategy {
+    pub fn resolve(&self) -> Result<OsString> {
+        match self {
+            ElevationStrategy::Auto => Self::choice(),
+            ElevationStrategy::Prefer(program) => which(program)
+                .map(std::path::PathBuf::into_os_string)
+                .or_else(|_| {
+                    let auto = Self::choice()?;
+                    warn!(
+                        "{} not found. Using {} instead",
+                        program.to_string_lossy(),
+                        auto.to_string_lossy()
+                    );
+                    Ok(auto)
+                }),
+            ElevationStrategy::Force(program) => Ok(program.into()),
+        }
+    }
+
+    /// Gets a path to a previlege elevation program based on what is available in the system.
+    ///
+    /// This funtion checks for the existence of common privilege elevation program names in
+    /// the `PATH` using the `which` crate and returns a Ok result with the `OsString` of the
+    /// path to the binary. In the case none of the checked programs are found a Err result is
+    /// returned.
+    ///
+    /// The search is done in this order:
+    ///
+    /// 1. `doas`
+    /// 1. `sudo`
+    /// 1. `run0`
+    /// 1. `pkexec`
+    ///
+    /// The logic for choosing this order is that a person with `doas` installed is more likely
+    /// to be using it as their main privilege elevation program.
+    /// `run0` and `pkexec` are preinstalled in any `NixOS` system with polkit support installed,
+    /// so they have been placed lower as it's easier to deactivate sudo than it is to remove
+    /// `run0`/`pkexec`
+    ///
+    /// # Returns
+    ///
+    /// * `Result<OsString>` - The absolute path to the privilege elevation program binary or an error if a
+    /// program can't be found.
+    fn choice() -> Result<OsString> {
+        const STRATEGIES: [&str; 4] = ["doas", "sudo", "run0", "pkexec"];
+
+        for strategy in STRATEGIES {
+            if let Ok(path) = which(strategy) {
+                debug!(?path, "{strategy} path found");
+                return Ok(path.into_os_string());
+            }
+        }
+
+        Err(eyre::eyre!("No elevation strategy found"))
+    }
+}
+
 #[derive(Debug)]
 pub struct Command {
     dry: bool,
     message: Option<String>,
     command: OsString,
     args: Vec<OsString>,
-    elevate: bool,
+    elevate: Option<ElevationStrategy>,
     ssh: Option<String>,
     show_output: bool,
     env_vars: HashMap<String, EnvAction>,
@@ -55,7 +122,7 @@ impl Command {
             message: None,
             command: command.as_ref().to_os_string(),
             args: vec![],
-            elevate: false,
+            elevate: None,
             ssh: None,
             show_output: false,
             env_vars: HashMap::new(),
@@ -64,7 +131,7 @@ impl Command {
 
     /// Set whether to run the command with elevated privileges.
     #[must_use]
-    pub fn elevate(mut self, elevate: bool) -> Self {
+    pub fn elevate(mut self, elevate: Option<ElevationStrategy>) -> Self {
         self.elevate = elevate;
         self
     }
@@ -163,7 +230,7 @@ impl Command {
         }
 
         // Only propagate HOME for non-elevated commands
-        if !self.elevate {
+        if self.elevate.is_none() {
             if let Ok(home) = std::env::var("HOME") {
                 self.env_vars
                     .insert("HOME".to_string(), EnvAction::Set(home));
@@ -221,63 +288,44 @@ impl Command {
         cmd
     }
 
+    /// Creates a Exec that contains elevates the program with proper environment handling.
+    ///
+    /// Panics: If called when `self.elevate` is `None`
     fn build_sudo_cmd(&self) -> Exec {
-        let mut cmd = Exec::cmd("sudo");
-
-        // Collect variables to preserve for sudo
-        let mut preserve_vars = Vec::new();
-        let mut explicit_env_vars = HashMap::new();
-
-        for (key, action) in &self.env_vars {
-            match action {
-                EnvAction::Set(value) => {
-                    explicit_env_vars.insert(key.clone(), value.clone());
-                }
-                EnvAction::Preserve => {
-                    preserve_vars.push(key.as_str());
-                }
-                EnvAction::Remove => {
-                    // Explicitly don't add to preserve_vars
-                }
-            }
-        }
-
-        // Platform-agnostic handling for preserve-env
-        if !preserve_vars.is_empty() {
-            // NH_SUDO_PRESERVE_ENV: set to "0" to disable --preserve-env, "1" to force, unset defaults to force
-            let preserve_env_override = std::env::var("NH_SUDO_PRESERVE_ENV").ok();
-            match preserve_env_override.as_deref() {
-                Some("0") => {
-                    cmd = cmd.arg("--set-home");
-                }
-                Some("1") | None => {
-                    cmd = cmd.args(&[
-                        "--set-home",
-                        &format!("--preserve-env={}", preserve_vars.join(",")),
-                    ]);
-                }
-                _ => {
-                    cmd = cmd.args(&[
-                        "--set-home",
-                        &format!("--preserve-env={}", preserve_vars.join(",")),
-                    ]);
-                }
-            }
-        } else if cfg!(target_os = "macos") {
-            cmd = cmd.arg("--set-home");
-        }
+        let elevation_program = self.elevate.as_ref().unwrap().resolve().unwrap();
+        let mut cmd = Exec::cmd(&elevation_program);
 
         // Use NH_SUDO_ASKPASS program for sudo if present
-        if let Ok(askpass) = std::env::var("NH_SUDO_ASKPASS") {
-            cmd = cmd.env("SUDO_ASKPASS", askpass).arg("-A");
+        if elevation_program.to_string_lossy().contains("sudo") {
+            if let Ok(askpass) = std::env::var("NH_SUDO_ASKPASS") {
+                cmd = cmd.env("SUDO_ASKPASS", askpass).arg("-A");
+            }
         }
 
+        // NH_PRESERVE_ENV: set to "0" to disable preserving environment variables, "1" to force, unset defaults to force
+        let preserve_env = std::env::var("NH_PRESERVE_ENV")
+            .as_deref()
+            .map(|x| match x {
+                "0" => false,
+                "1" | _ => true,
+            })
+            .unwrap_or(true);
+
         // Insert 'env' command to explicitly pass environment variables to the elevated command
-        if !explicit_env_vars.is_empty() {
-            cmd = cmd.arg("env");
-            for (key, value) in explicit_env_vars {
-                cmd = cmd.arg(format!("{key}={value}"));
-            }
+        cmd = cmd.arg("env");
+        for arg in self
+            .env_vars
+            .iter()
+            .filter_map(|(key, action)| match action {
+                EnvAction::Set(value) => Some(format!("{key}={value}")),
+                EnvAction::Preserve if preserve_env => match std::env::var(key) {
+                    Ok(value) => Some(format!("{key}={value}")),
+                    Err(_) => None,
+                },
+                _ => None,
+            })
+        {
+            cmd = cmd.arg(arg);
         }
 
         cmd
@@ -288,13 +336,15 @@ impl Command {
     /// # Errors
     ///
     /// Returns an error if the current executable path cannot be determined or sudo command cannot be built.
-    pub fn self_elevate_cmd() -> Result<std::process::Command> {
+    pub fn self_elevate_cmd(strategy: ElevationStrategy) -> Result<std::process::Command> {
         // Get the current executable path
         let current_exe =
             std::env::current_exe().context("Failed to get current executable path")?;
 
         // Self-elevation with proper environment handling
-        let cmd_builder = Self::new(&current_exe).elevate(true).with_required_env();
+        let cmd_builder = Self::new(&current_exe)
+            .elevate(Some(strategy))
+            .with_required_env();
 
         let sudo_exec = cmd_builder.build_sudo_cmd();
 
@@ -329,7 +379,7 @@ impl Command {
     ///
     /// Panics if the command result is unexpectedly None.
     pub fn run(&self) -> Result<()> {
-        let cmd = if self.elevate {
+        let cmd = if self.elevate.is_some() {
             self.build_sudo_cmd().arg(&self.command).args(&self.args)
         } else {
             self.apply_env_to_exec(Exec::cmd(&self.command).args(&self.args))
@@ -586,7 +636,7 @@ mod tests {
         assert!(!cmd.dry);
         assert!(cmd.message.is_none());
         assert!(cmd.args.is_empty());
-        assert!(!cmd.elevate);
+        assert!(cmd.elevate.is_none());
         assert!(cmd.ssh.is_none());
         assert!(!cmd.show_output);
         assert!(cmd.env_vars.is_empty());
@@ -596,16 +646,16 @@ mod tests {
     fn test_command_builder_pattern() {
         let cmd = Command::new("test")
             .dry(true)
-            .elevate(true)
             .show_output(true)
+            .elevate(Some(ElevationStrategy::Force("sudo")))
             .ssh(Some("host".to_string()))
             .message("test message")
             .arg("arg1")
             .args(["arg2", "arg3"]);
 
         assert!(cmd.dry);
-        assert!(cmd.elevate);
         assert!(cmd.show_output);
+        assert_eq!(cmd.elevate, Some(ElevationStrategy::Force("sudo")));
         assert_eq!(cmd.ssh, Some("host".to_string()));
         assert_eq!(cmd.message, Some("test message".to_string()));
         assert_eq!(
@@ -780,7 +830,7 @@ mod tests {
 
     #[test]
     fn test_build_sudo_cmd_basic() {
-        let cmd = Command::new("test");
+        let cmd = Command::new("test").elevate(Some(ElevationStrategy::Force("sudo")));
         let sudo_exec = cmd.build_sudo_cmd();
 
         // Platform-agnostic: 'sudo' may not be the first token if env vars are injected (e.g., NH_SUDO_ASKPASS).
@@ -792,29 +842,45 @@ mod tests {
     #[test]
     #[serial]
     fn test_build_sudo_cmd_with_preserve_vars() {
-        let cmd = Command::new("test").preserve_envs(["VAR1", "VAR2"]);
+        let _preserve_env_guard = EnvGuard::new("NH_PRESERVE_ENV", "1");
+        let _var1_guard = EnvGuard::new("VAR1", "1");
+        let _var2_guard = EnvGuard::new("VAR2", "2");
+
+        let cmd = Command::new("test")
+            .preserve_envs(["VAR1", "VAR2"])
+            .elevate(Some(ElevationStrategy::Force("sudo")));
 
         let sudo_exec = cmd.build_sudo_cmd();
         let cmdline = sudo_exec.to_cmdline_lossy();
 
-        // NH_SUDO_PRESERVE_ENV: set to "0" to disable --preserve-env, "1" to force, unset defaults to force
-        let preserve_env_override = std::env::var("NH_SUDO_PRESERVE_ENV").ok();
-        match preserve_env_override.as_deref() {
-            Some("0") => {
-                assert!(!cmdline.contains("--preserve-env="));
-            }
-            Some("1") | None | _ => {
-                assert!(cmdline.contains("--preserve-env="));
-                assert!(cmdline.contains("VAR1"));
-                assert!(cmdline.contains("VAR2"));
-            }
-        }
+        assert!(cmdline.contains("env"));
+        assert!(cmdline.contains("VAR1=1"));
+        assert!(cmdline.contains("VAR2=2"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_build_sudo_cmd_with_disabled_preserve_vars() {
+        let _preserve_env_guard = EnvGuard::new("NH_PRESERVE_ENV", "0");
+        let _var1_guard = EnvGuard::new("VAR1", "1");
+        let _var2_guard = EnvGuard::new("VAR2", "2");
+
+        let cmd = Command::new("test")
+            .preserve_envs(["VAR1", "VAR2"])
+            .elevate(Some(ElevationStrategy::Force("sudo")));
+
+        let sudo_exec = cmd.build_sudo_cmd();
+        let cmdline = sudo_exec.to_cmdline_lossy();
+
+        assert!(cmdline.contains("env"));
+        assert!(!cmdline.contains("VAR1=1"));
+        assert!(!cmdline.contains("VAR2=2"));
     }
 
     #[test]
     #[serial]
     fn test_build_sudo_cmd_with_set_vars() {
-        let mut cmd = Command::new("test");
+        let mut cmd = Command::new("test").elevate(Some(ElevationStrategy::Force("sudo")));
         cmd.env_vars.insert(
             "TEST_VAR".to_string(),
             EnvAction::Set("test_value".to_string()),
@@ -831,7 +897,10 @@ mod tests {
     #[test]
     #[serial]
     fn test_build_sudo_cmd_with_remove_vars() {
-        let mut cmd = Command::new("test");
+        let _preserve_guard = EnvGuard::new("VAR_TO_PRESERVE", "preserve");
+        let _remove_guard = EnvGuard::new("VAR_TO_REMOVE", "remove");
+
+        let mut cmd = Command::new("test").elevate(Some(ElevationStrategy::Force("sudo")));
         cmd.env_vars
             .insert("VAR_TO_PRESERVE".to_string(), EnvAction::Preserve);
         cmd.env_vars
@@ -840,11 +909,9 @@ mod tests {
         let sudo_exec = cmd.build_sudo_cmd();
         let cmdline = sudo_exec.to_cmdline_lossy();
 
-        // Should preserve only the Preserve variable, not the Remove one
-        if cmdline.contains("--preserve-env=") {
-            assert!(cmdline.contains("VAR_TO_PRESERVE"));
-            assert!(!cmdline.contains("VAR_TO_REMOVE"));
-        }
+        assert!(cmdline.contains("env"));
+        assert!(cmdline.contains("VAR_TO_PRESERVE=preserve"));
+        assert!(!cmdline.contains("VAR_TO_REMOVE"));
     }
 
     #[test]
@@ -852,7 +919,7 @@ mod tests {
     fn test_build_sudo_cmd_with_askpass() {
         let _guard = EnvGuard::new("NH_SUDO_ASKPASS", "/path/to/askpass");
 
-        let cmd = Command::new("test");
+        let cmd = Command::new("test").elevate(Some(ElevationStrategy::Force("sudo")));
         let sudo_exec = cmd.build_sudo_cmd();
         let cmdline = sudo_exec.to_cmdline_lossy();
 
@@ -863,7 +930,9 @@ mod tests {
     #[test]
     #[serial]
     fn test_build_sudo_cmd_env_added_once() {
-        let mut cmd = Command::new("test");
+        let _preserve_guard = EnvGuard::new("PRESERVE_VAR", "preserve");
+
+        let mut cmd = Command::new("test").elevate(Some(ElevationStrategy::Force("sudo")));
         cmd.env_vars.insert(
             "TEST_VAR1".to_string(),
             EnvAction::Set("value1".to_string()),
@@ -892,6 +961,8 @@ mod tests {
         // Should contain our explicit environment variables
         assert!(cmdline.contains("TEST_VAR1=value1"));
         assert!(cmdline.contains("TEST_VAR2=value2"));
+        // and the preserved too
+        assert!(cmdline.contains("PRESERVE_VAR=preserve"));
     }
 
     #[test]

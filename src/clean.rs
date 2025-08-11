@@ -16,6 +16,7 @@ use nix::{
 use regex::Regex;
 use tracing::{Level, debug, info, instrument, span, warn};
 
+use crate::commands::ElevationStrategy;
 use crate::{Result, commands::Command, interface};
 
 // Nix impl:
@@ -68,7 +69,7 @@ impl interface::CleanMode {
     ///
     /// Panics if the current user's UID cannot be resolved to a user. For
     /// example, if  `User::from_uid(uid)` returns `None`.
-    pub fn run(&self) -> Result<()> {
+    pub fn run(&self, elevate: ElevationStrategy) -> Result<()> {
         use owo_colors::OwoColorize;
 
         let mut profiles = Vec::new();
@@ -86,7 +87,7 @@ impl interface::CleanMode {
             }
             Self::All(args) => {
                 if !uid.is_root() {
-                    crate::util::self_elevate();
+                    crate::util::self_elevate(elevate);
                 }
 
                 let paths_to_check = [
@@ -353,12 +354,11 @@ fn profiles_in_dir<P: AsRef<Path> + fmt::Debug>(dir: P) -> Vec<PathBuf> {
                         let path = e.path();
 
                         if let Ok(dst) = path.read_link() {
-                            let name = match dst.file_name() {
-                                Some(f) => f.to_string_lossy(),
-                                None => {
-                                    warn!("Failed to get filename for {:?}", dst);
-                                    continue;
-                                }
+                            let name = if let Some(f) = dst.file_name() {
+                                f.to_string_lossy()
+                            } else {
+                                warn!("Failed to get filename for {:?}", dst);
+                                continue;
                             };
 
                             if GENERATION_REGEX.captures(&name).is_some() {
