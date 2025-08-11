@@ -302,6 +302,15 @@ impl Command {
             }
         }
 
+        // NH_PRESERVE_ENV: set to "0" to disable preserving environment variables, "1" to force, unset defaults to force
+        let preserve_env = std::env::var("NH_PRESERVE_ENV")
+            .as_deref()
+            .map(|x| match x {
+                "0" => false,
+                "1" | _ => true,
+            })
+            .unwrap_or(true);
+
         // Insert 'env' command to explicitly pass environment variables to the elevated command
         cmd = cmd.arg("env");
         for arg in self
@@ -309,11 +318,11 @@ impl Command {
             .iter()
             .filter_map(|(key, action)| match action {
                 EnvAction::Set(value) => Some(format!("{key}={value}")),
-                EnvAction::Preserve => match std::env::var(key) {
+                EnvAction::Preserve if preserve_env => match std::env::var(key) {
                     Ok(value) => Some(format!("{key}={value}")),
                     Err(_) => None,
                 },
-                EnvAction::Remove => None,
+                _ => None,
             })
         {
             cmd = cmd.arg(arg);
@@ -833,6 +842,7 @@ mod tests {
     #[test]
     #[serial]
     fn test_build_sudo_cmd_with_preserve_vars() {
+        let _preserve_env_guard = EnvGuard::new("NH_PRESERVE_ENV", "1");
         let _var1_guard = EnvGuard::new("VAR1", "1");
         let _var2_guard = EnvGuard::new("VAR2", "2");
 
@@ -846,6 +856,25 @@ mod tests {
         assert!(cmdline.contains("env"));
         assert!(cmdline.contains("VAR1=1"));
         assert!(cmdline.contains("VAR2=2"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_build_sudo_cmd_with_disabled_preserve_vars() {
+        let _preserve_env_guard = EnvGuard::new("NH_PRESERVE_ENV", "0");
+        let _var1_guard = EnvGuard::new("VAR1", "1");
+        let _var2_guard = EnvGuard::new("VAR2", "2");
+
+        let cmd = Command::new("test")
+            .preserve_envs(["VAR1", "VAR2"])
+            .elevate(Some(ElevationStrategy::Force("sudo")));
+
+        let sudo_exec = cmd.build_sudo_cmd();
+        let cmdline = sudo_exec.to_cmdline_lossy();
+
+        assert!(cmdline.contains("env"));
+        assert!(!cmdline.contains("VAR1=1"));
+        assert!(!cmdline.contains("VAR2=2"));
     }
 
     #[test]
