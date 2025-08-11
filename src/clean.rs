@@ -16,6 +16,7 @@ use nix::{
 use regex::Regex;
 use tracing::{Level, debug, info, instrument, span, warn};
 
+use crate::commands::ElevationStrategy;
 use crate::{Result, commands::Command, interface};
 
 // Nix impl:
@@ -68,7 +69,7 @@ impl interface::CleanMode {
     ///
     /// Panics if the current user's UID cannot be resolved to a user. For
     /// example, if  `User::from_uid(uid)` returns `None`.
-    pub fn run(&self) -> Result<()> {
+    pub fn run(&self, elevate: ElevationStrategy) -> Result<()> {
         use owo_colors::OwoColorize;
 
         let mut profiles = Vec::new();
@@ -86,7 +87,7 @@ impl interface::CleanMode {
             }
             Self::All(args) => {
                 if !uid.is_root() {
-                    crate::util::self_elevate();
+                    crate::util::self_elevate(elevate);
                 }
 
                 let paths_to_check = [
