@@ -11,6 +11,8 @@ pub mod interface;
 pub mod json;
 pub mod logging;
 pub mod nixos;
+#[cfg(feature = "notifications")]
+pub mod notify;
 pub mod search;
 pub mod update;
 pub mod util;

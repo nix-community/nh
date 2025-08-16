@@ -6,10 +6,14 @@
   use-nom ? true,
   nix-output-monitor ? null,
   rev ? "dirty",
+  nixos-icons,
+  stdenv,
+  notifications ? !stdenv.isDarwin,
 }:
 assert use-nom -> nix-output-monitor != null;
 let
-  runtimeDeps = lib.optionals use-nom [ nix-output-monitor ];
+  runtimeDeps =
+    lib.optionals use-nom [ nix-output-monitor ] ++ lib.optionals notifications [ nixos-icons ];
   cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
 in
 rustPlatform.buildRustPackage {
@@ -35,6 +39,8 @@ rustPlatform.buildRustPackage {
     installShellFiles
     makeBinaryWrapper
   ];
+
+  buildFeatures = lib.optionals notifications [ "notifications" ];
 
   postInstall = ''
     mkdir completions man

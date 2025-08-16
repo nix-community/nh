@@ -1,4 +1,5 @@
 use std::env;
+use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -14,6 +15,10 @@ use crate::interface::OsSubcommand::{self};
 use crate::interface::{
     self, DiffType, OsBuildVmArgs, OsGenerationsArgs, OsRebuildArgs, OsReplArgs, OsRollbackArgs,
 };
+#[cfg(feature = "notifications")]
+use crate::notify;
+#[cfg(feature = "notifications")]
+use crate::notify::NotificationResponse;
 use crate::update::update;
 use crate::util::ensure_ssh_key_login;
 use crate::util::{get_hostname, print_dix_diff};
@@ -51,6 +56,19 @@ enum OsRebuildVariant {
     Boot,
     Test,
     BuildVm,
+}
+
+impl fmt::Display for OsRebuildVariant {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let s = match self {
+            OsRebuildVariant::Build => "build",
+            OsRebuildVariant::Switch => "switch",
+            OsRebuildVariant::Boot => "boot",
+            OsRebuildVariant::Test => "test",
+            OsRebuildVariant::BuildVm => "build-vm",
+        };
+        write!(f, "{s}")
+    }
 }
 
 impl OsBuildVmArgs {
@@ -233,16 +251,68 @@ impl OsRebuildArgs {
             if self.common.ask {
                 warn!("--ask has no effect as dry run was requested");
             }
+
+            #[cfg(feature = "notifications")]
+            if let Err(e) = notify::notify()
+                .with_summary(&format!("nh os {variant}"))
+                .with_body("NixOS configuration built successfully.")
+                .send()
+            {
+                warn!("{e}");
+            }
+
             return Ok(());
         }
 
         if self.common.ask {
-            let confirmation = inquire::Confirm::new("Apply the config?")
-                .with_default(false)
-                .prompt()?;
+            info!("Apply the config?");
+
+            let confirmation = {
+                #[cfg(feature = "notifications")]
+                {
+                    // Attempt to send a desktop notification with "Apply" and "Reject" actions.
+                    // - If the user selects "Apply", proceed.
+                    // - If the user selects "Reject", cancel.
+                    // - If the notification is dismissed, times out, or fails to send, fallback to a terminal prompt.
+                    match notify::notify()
+                        .with_summary(&format!("nh os {variant}"))
+                        .with_body("NixOS configuration built successfully.")
+                        .with_urgency(notify::Urgency::Critical)
+                        .with_action("default", "Apply")
+                        .with_action("reject", "Reject")
+                        .send()
+                    {
+                        Ok(Some(NotificationResponse::Action(action))) => match action.as_ref() {
+                            "default" => true,
+                            "reject" => false,
+                            _ => unreachable!(),
+                        },
+                        _ => inquire::Confirm::new("Apply the config?")
+                            .with_default(false)
+                            .prompt()?,
+                    }
+                }
+
+                #[cfg(not(feature = "notifications"))]
+                {
+                    inquire::Confirm::new("Apply the config?")
+                        .with_default(false)
+                        .prompt()?
+                }
+            };
 
             if !confirmation {
                 bail!("User rejected the new config");
+            }
+        } else {
+            #[cfg(feature = "notifications")]
+            if let Err(e) = notify::notify()
+                .with_summary(&format!("nh os {variant}"))
+                .with_body("NixOS configuration built successfully.")
+                .with_urgency(notify::Urgency::Low)
+                .send()
+            {
+                warn!("{e}");
             }
         }
 

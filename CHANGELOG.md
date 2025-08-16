@@ -18,6 +18,7 @@ functionality, under the "Removed" section.
 
 ### Changed
 
+- Implemented support for the [Desktop Notifications Specification](https://specifications.freedesktop.org/)
 - Nh checks are now more robust in the sense that unnecessary features will not
   be required when the underlying command does not depend on them.
 - The `--update-input` flag now supports being specified multiple times.

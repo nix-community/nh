@@ -10,6 +10,8 @@ mod interface;
 mod json;
 mod logging;
 mod nixos;
+#[cfg(feature = "notifications")]
+mod notify;
 mod search;
 mod update;
 mod util;
