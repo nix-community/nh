@@ -121,6 +121,7 @@ impl OsArgs {
                 let is_flake = args.uses_flakes();
                 Box::new(OsReplFeatures { is_flake })
             }
+            OsSubcommand::Edit(_) => Box::new(FlakeFeatures),
             OsSubcommand::Switch(args)
             | OsSubcommand::Boot(args)
             | OsSubcommand::Test(args)
@@ -159,6 +160,9 @@ pub enum OsSubcommand {
 
     /// Load system in a repl
     Repl(OsReplArgs),
+
+    /// Edit NixOS configuration
+    Edit(OsEditArgs),
 
     /// List available generations from profile path
     Info(OsGenerationsArgs),
@@ -316,7 +320,7 @@ impl OsReplArgs {
     #[must_use]
     pub fn uses_flakes(&self) -> bool {
         // Check environment variables first
-        if env::var("NH_OS_FLAKE").is_ok() {
+        if env::var("NH_OS_FLAKE").is_ok_and(|v| !v.is_empty()) {
             return true;
         }
 
@@ -324,6 +328,9 @@ impl OsReplArgs {
         matches!(self.installable, Installable::Flake { .. })
     }
 }
+
+#[derive(Debug, Args)]
+pub struct OsEditArgs {}
 
 #[derive(Debug, Args)]
 pub struct OsGenerationsArgs {
@@ -447,6 +454,7 @@ impl HomeArgs {
                 let is_flake = args.uses_flakes();
                 Box::new(HomeReplFeatures { is_flake })
             }
+            HomeSubcommand::Edit(_) => Box::new(FlakeFeatures),
             HomeSubcommand::Switch(args) | HomeSubcommand::Build(args) => {
                 if args.uses_flakes() {
                     Box::new(FlakeFeatures)
@@ -468,6 +476,9 @@ pub enum HomeSubcommand {
 
     /// Load a home-manager configuration in a Nix REPL
     Repl(HomeReplArgs),
+
+    /// Edit home-manager configuration
+    Edit(HomeEditArgs),
 }
 
 #[derive(Debug, Args)]
@@ -543,6 +554,9 @@ impl HomeReplArgs {
     }
 }
 
+#[derive(Debug, Args)]
+pub struct HomeEditArgs {}
+
 #[derive(Debug, Parser)]
 /// Generate shell completion files into stdout
 pub struct CompletionArgs {
@@ -567,6 +581,7 @@ impl DarwinArgs {
                 let is_flake = args.uses_flakes();
                 Box::new(DarwinReplFeatures { is_flake })
             }
+            DarwinSubcommand::Edit(_) => Box::new(FlakeFeatures),
             DarwinSubcommand::Switch(args) | DarwinSubcommand::Build(args) => {
                 if args.uses_flakes() {
                     Box::new(FlakeFeatures)
@@ -586,6 +601,8 @@ pub enum DarwinSubcommand {
     Build(DarwinRebuildArgs),
     /// Load a nix-darwin configuration in a Nix REPL
     Repl(DarwinReplArgs),
+    /// Edit nix-darwin configuration
+    Edit(DarwinEditArgs),
 }
 
 #[derive(Debug, Args)]
@@ -644,6 +661,9 @@ impl DarwinReplArgs {
         matches!(self.installable, Installable::Flake { .. })
     }
 }
+
+#[derive(Debug, Args)]
+pub struct DarwinEditArgs {}
 
 #[derive(Debug, Args)]
 pub struct UpdateArgs {
