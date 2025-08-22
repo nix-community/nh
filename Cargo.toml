@@ -27,6 +27,7 @@ path = "src/lib.rs"
 
 [dependencies]
 anstyle = "1.0.11"
+brewdiff = "0.2.0"
 chrono = "0.4.41"
 clap.workspace = true
 clap-verbosity-flag = { version = "3.0.4", features = [ "tracing" ], default-features = false }

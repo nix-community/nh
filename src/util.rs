@@ -30,6 +30,7 @@ impl<W: io::Write> fmt::Write for WriteFmt<W> {
     self.0.write_all(string.as_bytes()).map_err(|_| fmt::Error)
   }
 }
+
 /// Get the Nix variant (cached)
 pub fn get_nix_variant() -> &'static NixVariant {
   NIX_VARIANT.get_or_init(|| {
@@ -334,5 +335,95 @@ pub fn print_dix_diff(
       dix::write_size_diffln(&mut out, size_old, size_new)?;
     }
   }
+  Ok(())
+}
+
+/// Prints the difference between Homebrew packages in darwin generations.
+///
+/// # Arguments
+///
+/// * `old_generation` - A reference to the path of the old/current generation.
+/// * `new_generation` - A reference to the path of the new generation.
+///
+/// # Returns
+///
+/// Returns `Ok(())` if the operation completed successfully, or an error
+/// wrapped in `eyre::Result` if something went wrong. Silently returns Ok(())
+/// if Homebrew is not available or not configured.
+#[cfg(target_os = "macos")]
+pub fn print_homebrew_diff(
+  _old_generation: &Path,
+  new_generation: &Path,
+) -> Result<()> {
+  if !homebrew_available() {
+    debug!("Homebrew not found, skipping Homebrew diff");
+    return Ok(());
+  }
+
+  // Try to extract the nix-darwin Homebrew intent from the new profile
+  // If this fails, it likely means Homebrew isn't configured in the profile
+  let nix_intent = match brewdiff::extract_nix_darwin_intent(new_generation) {
+    Ok(intent) => intent,
+    Err(e) => {
+      debug!("Could not extract Homebrew intent from profile: {}", e);
+      return Ok(());
+    },
+  };
+
+  if !nix_intent.has_packages() {
+    debug!("No Homebrew packages configured in profile, skipping diff");
+    return Ok(());
+  }
+
+  let mut out = WriteFmt(io::stdout());
+
+  let diff_handle = brewdiff::spawn_homebrew_diff(new_generation.to_path_buf());
+  let diff_data = match diff_handle.join() {
+    Ok(Ok(data)) => data,
+    Ok(Err(e)) => {
+      debug!("Failed to compute Homebrew diff: {}", e);
+      return Ok(());
+    },
+    Err(_) => {
+      debug!("Homebrew diff thread panicked");
+      return Ok(());
+    },
+  };
+
+  if diff_data.has_changes() {
+    // Separator from dix' output
+    println!();
+
+    // Print statistics first to make it clear the details below belong to
+    // Homebrew
+    brewdiff::write_homebrew_stats(&mut out, &diff_data)?;
+    brewdiff::display::write_diff(&mut out, &diff_data)?;
+  } else {
+    debug!("No Homebrew package changes detected");
+  }
+
+  Ok(())
+}
+
+/// Checks if Homebrew is available on the system
+#[cfg(target_os = "macos")]
+fn homebrew_available() -> bool {
+  use std::process::Command as StdCommand;
+
+  StdCommand::new("which")
+    .arg("brew")
+    .stdout(Stdio::null())
+    .stderr(Stdio::null())
+    .status()
+    .map(|s| s.success())
+    .unwrap_or(false)
+}
+
+/// Stub for non-macOS platforms
+#[cfg(not(target_os = "macos"))]
+pub fn print_homebrew_diff(
+  _old_generation: &Path,
+  _new_generation: &Path,
+) -> Result<()> {
   Ok(())
 }

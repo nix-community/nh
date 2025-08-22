@@ -17,7 +17,7 @@ use crate::{
   },
   nixos::toplevel_for,
   update::update,
-  util::{get_hostname, print_dix_diff},
+  util::{get_hostname, print_dix_diff, print_homebrew_diff},
 };
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
@@ -142,6 +142,8 @@ impl DarwinRebuildArgs {
         target_profile.display()
       );
       let _ = print_dix_diff(&PathBuf::from(CURRENT_PROFILE), &target_profile);
+      let _ =
+        print_homebrew_diff(&PathBuf::from(CURRENT_PROFILE), &target_profile);
     }
 
     if self.common.ask && !self.common.dry && !matches!(variant, Build) {
