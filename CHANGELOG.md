@@ -16,6 +16,13 @@ functionality, under the "Removed" section.
 
 ## Unreleased
 
+### Added
+
+- `nh darwin` now displays Homebrew package changes alongside Nix package
+  changes when using nix-darwin configurations with Homebrew management enabled.
+  This shows formulae, casks, taps, and Mac App Store apps that will be
+  added or removed during a configuration switch.
+
 ### Changed
 
 - Nh checks are now more robust in the sense that unnecessary features will not
