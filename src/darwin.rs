@@ -11,7 +11,7 @@ use crate::installable::Installable;
 use crate::interface::{DarwinArgs, DarwinRebuildArgs, DarwinReplArgs, DarwinSubcommand, DiffType};
 use crate::nixos::toplevel_for;
 use crate::update::update;
-use crate::util::{get_hostname, print_dix_diff};
+use crate::util::{get_hostname, print_dix_diff, print_homebrew_diff};
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
 const CURRENT_PROFILE: &str = "/run/current-system";
@@ -130,6 +130,7 @@ impl DarwinRebuildArgs {
                 target_profile.display()
             );
             let _ = print_dix_diff(&PathBuf::from(CURRENT_PROFILE), &target_profile);
+            let _ = print_homebrew_diff(&PathBuf::from(CURRENT_PROFILE), &target_profile);
         }
 
         if self.common.ask && !self.common.dry && !matches!(variant, Build) {

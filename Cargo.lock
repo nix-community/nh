@@ -158,6 +158,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b8e56985ec62d17e9c1001dc89c88ecd7dc08e47eba5ec7c29c7b5eeecde967"
 
 [[package]]
+name = "brewdiff"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "877eb05cf54889e3ac31b427ffe8d95f6c109cd7e7c5abc0004896dd168937ae"
+dependencies = [
+ "owo-colors",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1163,6 +1176,7 @@ name = "nh"
 version = "4.2.0-beta2"
 dependencies = [
  "anstyle",
+ "brewdiff",
  "chrono",
  "clap",
  "clap-verbosity-flag",
