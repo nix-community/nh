@@ -9,7 +9,9 @@ use tracing::{debug, info, warn};
 use crate::commands;
 use crate::commands::Command;
 use crate::installable::Installable;
-use crate::interface::{self, DiffType, HomeRebuildArgs, HomeReplArgs, HomeSubcommand};
+use crate::interface::{
+    self, DiffType, HomeEditArgs, HomeRebuildArgs, HomeReplArgs, HomeSubcommand,
+};
 use crate::update::update;
 use crate::util::{get_hostname, print_dix_diff};
 
@@ -30,6 +32,7 @@ impl interface::HomeArgs {
                 args.rebuild(&Build)
             }
             HomeSubcommand::Repl(args) => args.run(),
+            HomeSubcommand::Edit(args) => args.run(),
         }
     }
 }
@@ -392,6 +395,21 @@ impl HomeReplArgs {
             .with_required_env()
             .arg("repl")
             .args(toplevel.to_args())
+            .show_output(true)
+            .run()?;
+
+        Ok(())
+    }
+}
+
+impl HomeEditArgs {
+    fn run(self) -> Result<()> {
+        let editor = env::var("EDITOR").unwrap_or_else(|_| "nano".to_string());
+        let flake = env::var("NH_HOME_FLAKE").or_else(|_| env::var("NH_FLAKE"))?;
+
+        Command::new(editor)
+            .arg(flake + "/flake.nix")
+            .with_required_env()
             .show_output(true)
             .run()?;
 
