@@ -1,9 +1,11 @@
 use std::env;
+use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use color_eyre::eyre::{Context, bail};
 use color_eyre::eyre::{Result, eyre};
+use notify_rust::Notification;
 use tracing::{debug, info, warn};
 
 use crate::commands;
@@ -51,6 +53,19 @@ enum OsRebuildVariant {
     Boot,
     Test,
     BuildVm,
+}
+
+impl fmt::Display for OsRebuildVariant {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let s = match self {
+            OsRebuildVariant::Build => "build",
+            OsRebuildVariant::Switch => "switch",
+            OsRebuildVariant::Boot => "boot",
+            OsRebuildVariant::Test => "test",
+            OsRebuildVariant::BuildVm => "build-vm",
+        };
+        write!(f, "{s}")
+    }
 }
 
 impl OsBuildVmArgs {
@@ -233,17 +248,57 @@ impl OsRebuildArgs {
             if self.common.ask {
                 warn!("--ask has no effect as dry run was requested");
             }
+
+            if let Err(e) = Notification::new()
+                .summary(&format!("nh os {variant}"))
+                .body("NixOS configuration built successfully.")
+                .show()
+            {
+                warn!("{e}");
+            }
+
             return Ok(());
         }
 
         if self.common.ask {
-            let confirmation = inquire::Confirm::new("Apply the config?")
-                .with_default(false)
-                .prompt()?;
+            info!("Apply the config?");
+
+            let confirmation = match Notification::new()
+                .summary(&format!("nh os {variant}"))
+                .body("NixOS configuration built successfully.")
+                .action("default", "Apply")
+                .action("reject", "Reject")
+                .show()
+            {
+                Ok(notification) => {
+                    let mut confirmation = false;
+                    notification.wait_for_action(|action| {
+                        confirmation = match action {
+                            "default" => true,
+                            "reject" => false,
+                            // Notification was closed, fallback to inquire
+                            _ => inquire::Confirm::new("Apply the config?")
+                                .with_default(false)
+                                .prompt()
+                                .unwrap_or_default(),
+                        }
+                    });
+                    confirmation
+                }
+                Err(_) => inquire::Confirm::new("Apply the config?")
+                    .with_default(false)
+                    .prompt()?,
+            };
 
             if !confirmation {
                 bail!("User rejected the new config");
             }
+        } else if let Err(e) = Notification::new()
+            .summary(&format!("nh os {variant}"))
+            .body("NixOS configuration built successfully.")
+            .show()
+        {
+            warn!("{e}");
         }
 
         if let Some(target_host) = &self.target_host {
