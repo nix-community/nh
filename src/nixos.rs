@@ -8,6 +8,7 @@ use tracing::{debug, info, warn};
 
 use crate::commands;
 use crate::commands::Command;
+use crate::commands::ElevationStrategy;
 use crate::generations;
 use crate::installable::Installable;
 use crate::interface::OsSubcommand::{self};
@@ -24,22 +25,22 @@ const CURRENT_PROFILE: &str = "/run/current-system";
 const SPEC_LOCATION: &str = "/etc/specialisation";
 
 impl interface::OsArgs {
-    pub fn run(self) -> Result<()> {
+    pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
         use OsRebuildVariant::{Boot, Build, Switch, Test};
         match self.subcommand {
-            OsSubcommand::Boot(args) => args.rebuild(&Boot, None),
-            OsSubcommand::Test(args) => args.rebuild(&Test, None),
-            OsSubcommand::Switch(args) => args.rebuild(&Switch, None),
+            OsSubcommand::Boot(args) => args.rebuild(&Boot, None, elevation),
+            OsSubcommand::Test(args) => args.rebuild(&Test, None, elevation),
+            OsSubcommand::Switch(args) => args.rebuild(&Switch, None, elevation),
             OsSubcommand::Build(args) => {
                 if args.common.ask || args.common.dry {
                     warn!("`--ask` and `--dry` have no effect for `nh os build`");
                 }
-                args.rebuild(&Build, None)
+                args.rebuild(&Build, None, elevation)
             }
-            OsSubcommand::BuildVm(args) => args.build_vm(),
+            OsSubcommand::BuildVm(args) => args.build_vm(elevation),
             OsSubcommand::Repl(args) => args.run(),
             OsSubcommand::Info(args) => args.info(),
-            OsSubcommand::Rollback(args) => args.rollback(),
+            OsSubcommand::Rollback(args) => args.rollback(elevation),
         }
     }
 }
@@ -54,18 +55,23 @@ enum OsRebuildVariant {
 }
 
 impl OsBuildVmArgs {
-    fn build_vm(self) -> Result<()> {
+    fn build_vm(self, elevation: ElevationStrategy) -> Result<()> {
         let final_attr = get_final_attr(true, self.with_bootloader);
         debug!("Building VM with attribute: {}", final_attr);
         self.common
-            .rebuild(&OsRebuildVariant::BuildVm, Some(final_attr))
+            .rebuild(&OsRebuildVariant::BuildVm, Some(final_attr), elevation)
     }
 }
 
 impl OsRebuildArgs {
     // final_attr is the attribute of config.system.build.X to evaluate.
     #[expect(clippy::cognitive_complexity, clippy::too_many_lines)]
-    fn rebuild(self, variant: &OsRebuildVariant, final_attr: Option<String>) -> Result<()> {
+    fn rebuild(
+        self,
+        variant: &OsRebuildVariant,
+        final_attr: Option<String>,
+        elevation: ElevationStrategy,
+    ) -> Result<()> {
         use OsRebuildVariant::{Boot, Build, BuildVm, Switch, Test};
 
         if self.build_host.is_some() || self.target_host.is_some() {
@@ -290,7 +296,7 @@ impl OsRebuildArgs {
                 .arg("test")
                 .ssh(self.target_host.clone())
                 .message("Activating configuration")
-                .elevate(elevate)
+                .elevate(elevate.then_some(elevation.clone()))
                 .preserve_envs(["NIXOS_INSTALL_BOOTLOADER"])
                 .with_required_env()
                 .run()
@@ -303,7 +309,7 @@ impl OsRebuildArgs {
                 .context("Failed to resolve output path")?;
 
             Command::new("nix")
-                .elevate(elevate)
+                .elevate(elevate.then_some(elevation.clone()))
                 .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
                 .arg(&canonical_out_path)
                 .ssh(self.target_host.clone())
@@ -336,7 +342,7 @@ impl OsRebuildArgs {
             Command::new(switch_to_configuration)
                 .arg("boot")
                 .ssh(self.target_host)
-                .elevate(elevate)
+                .elevate(elevate.then_some(elevation))
                 .message("Adding configuration to bootloader")
                 .preserve_envs(["NIXOS_INSTALL_BOOTLOADER"])
                 .with_required_env()
@@ -351,7 +357,7 @@ impl OsRebuildArgs {
 }
 
 impl OsRollbackArgs {
-    fn rollback(&self) -> Result<()> {
+    fn rollback(&self, elevation: ElevationStrategy) -> Result<()> {
         let elevate = if self.bypass_root_check {
             warn!("Bypassing root check, now running nix as root");
             false
@@ -438,7 +444,7 @@ impl OsRollbackArgs {
             .arg("-sfn") // force, symbolic link
             .arg(&generation_link)
             .arg(SYSTEM_PROFILE)
-            .elevate(elevate)
+            .elevate(elevate.then_some(elevation.clone()))
             .message("Setting system profile")
             .with_required_env()
             .run()
@@ -482,7 +488,7 @@ impl OsRollbackArgs {
 
         match Command::new(&switch_to_configuration)
             .arg("switch")
-            .elevate(elevate)
+            .elevate(elevate.then_some(elevation.clone()))
             .preserve_envs(["NIXOS_INSTALL_BOOTLOADER"])
             .with_required_env()
             .run()
@@ -503,7 +509,7 @@ impl OsRollbackArgs {
                         .arg("-sfn") // Force, symbolic link
                         .arg(&current_gen_link)
                         .arg(SYSTEM_PROFILE)
-                        .elevate(elevate)
+                        .elevate(elevate.then_some(elevation))
                         .message("Rolling back system profile")
                         .with_required_env()
                         .run()

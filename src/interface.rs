@@ -1,4 +1,5 @@
 use std::env;
+use std::ffi::OsString;
 use std::path::PathBuf;
 
 use anstyle::Style;
@@ -11,6 +12,7 @@ use crate::checks::{
     DarwinReplFeatures, FeatureRequirements, FlakeFeatures, HomeReplFeatures, LegacyFeatures,
     NoFeatures, OsReplFeatures,
 };
+use crate::commands::ElevationStrategy;
 use crate::installable::Installable;
 
 const fn make_style() -> Styles {
@@ -43,6 +45,10 @@ pub struct Main {
     /// more detailed logs.
     pub verbosity: clap_verbosity_flag::Verbosity<InfoLevel>,
 
+    #[arg(short, long, global = true, env = "NH_ELEVATION_PROGRAM", value_hint = clap::ValueHint::CommandName)]
+    /// Choose what privilege elevation program should be used
+    pub elevation_program: Option<OsString>,
+
     #[command(subcommand)]
     pub command: NHCommand,
 }
@@ -72,7 +78,7 @@ impl NHCommand {
         }
     }
 
-    pub fn run(self) -> Result<()> {
+    pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
         // Check features specific to this command
         let requirements = self.get_feature_requirements();
         requirements.check_features()?;
@@ -82,10 +88,10 @@ impl NHCommand {
                 unsafe {
                     std::env::set_var("NH_CURRENT_COMMAND", "os");
                 }
-                args.run()
+                args.run(elevation)
             }
             Self::Search(args) => args.run(),
-            Self::Clean(proxy) => proxy.command.run(),
+            Self::Clean(proxy) => proxy.command.run(elevation),
             Self::Completions(args) => args.run(),
             Self::Home(args) => {
                 unsafe {
@@ -97,7 +103,7 @@ impl NHCommand {
                 unsafe {
                     std::env::set_var("NH_CURRENT_COMMAND", "darwin");
                 }
-                args.run()
+                args.run(elevation)
             }
         }
     }

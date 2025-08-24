@@ -13,7 +13,7 @@ use color_eyre::eyre;
 use regex::Regex;
 use tracing::{debug, info};
 
-use crate::commands::Command;
+use crate::commands::{Command, ElevationStrategy};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NixVariant {
@@ -268,13 +268,15 @@ pub fn get_missing_experimental_features(required_features: &[&str]) -> Result<V
 /// # Examples
 ///
 /// ```rust
+/// use nh::commands::ElevationStrategy;
+///
 /// // Elevate the current process to run as root
-/// let elevate: fn() -> ! = nh::util::self_elevate;
+/// let elevate: fn(ElevationStrategy) -> ! = nh::util::self_elevate;
 /// ```
-pub fn self_elevate() -> ! {
+pub fn self_elevate(strategy: ElevationStrategy) -> ! {
     use std::os::unix::process::CommandExt;
 
-    let mut cmd = crate::commands::Command::self_elevate_cmd()
+    let mut cmd = crate::commands::Command::self_elevate_cmd(strategy)
         .expect("Failed to create self-elevation command");
     debug!("{:?}", cmd);
     let err = cmd.exec();

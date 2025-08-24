@@ -7,6 +7,7 @@ use tracing::{debug, warn};
 use crate::Result;
 use crate::commands;
 use crate::commands::Command;
+use crate::commands::ElevationStrategy;
 use crate::installable::Installable;
 use crate::interface::{DarwinArgs, DarwinRebuildArgs, DarwinReplArgs, DarwinSubcommand, DiffType};
 use crate::nixos::toplevel_for;
@@ -22,15 +23,15 @@ impl DarwinArgs {
     /// # Errors
     ///
     /// Returns an error if the operation fails.
-    pub fn run(self) -> Result<()> {
+    pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
         use DarwinRebuildVariant::{Build, Switch};
         match self.subcommand {
-            DarwinSubcommand::Switch(args) => args.rebuild(&Switch),
+            DarwinSubcommand::Switch(args) => args.rebuild(&Switch, elevation),
             DarwinSubcommand::Build(args) => {
                 if args.common.ask || args.common.dry {
                     warn!("`--ask` and `--dry` have no effect for `nh darwin build`");
                 }
-                args.rebuild(&Build)
+                args.rebuild(&Build, elevation)
             }
             DarwinSubcommand::Repl(args) => args.run(),
         }
@@ -43,7 +44,7 @@ enum DarwinRebuildVariant {
 }
 
 impl DarwinRebuildArgs {
-    fn rebuild(self, variant: &DarwinRebuildVariant) -> Result<()> {
+    fn rebuild(self, variant: &DarwinRebuildVariant, elevation: ElevationStrategy) -> Result<()> {
         use DarwinRebuildVariant::{Build, Switch};
 
         if nix::unistd::Uid::effective().is_root() && !self.bypass_root_check {
@@ -146,7 +147,7 @@ impl DarwinRebuildArgs {
             Command::new("nix")
                 .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
                 .arg(&out_path)
-                .elevate(true)
+                .elevate(Some(elevation.clone()))
                 .dry(self.common.dry)
                 .with_required_env()
                 .run()
@@ -167,7 +168,7 @@ impl DarwinRebuildArgs {
             Command::new(darwin_rebuild)
                 .arg("activate")
                 .message("Activating configuration")
-                .elevate(needs_elevation)
+                .elevate(needs_elevation.then_some(elevation))
                 .dry(self.common.dry)
                 .show_output(true)
                 .with_required_env()

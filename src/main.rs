@@ -16,6 +16,8 @@ mod util;
 
 use color_eyre::Result;
 
+use crate::commands::ElevationStrategy;
+
 pub const NH_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const NH_REV: Option<&str> = option_env!("NH_REV");
 
@@ -35,5 +37,9 @@ fn main() -> Result<()> {
     // added to setup_environment in the future.
     checks::verify_variables()?;
 
-    args.command.run()
+    let elevation = args
+        .elevation_program
+        .map_or(ElevationStrategy::Auto, ElevationStrategy::Prefer);
+
+    args.command.run(elevation)
 }

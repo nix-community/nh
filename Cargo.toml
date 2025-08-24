@@ -55,6 +55,7 @@ textwrap = { features = [ "terminal_size" ], version = "0.16.0" }
 thiserror = "2.0"
 tracing = "0.1.40"
 tracing-subscriber = { features = [ "env-filter", "registry", "std" ], version = "0.3.18" }
+which = "8.0"
 
 [target.'cfg(target_os="macos")'.dependencies]
 system-configuration = "0.6.1"
