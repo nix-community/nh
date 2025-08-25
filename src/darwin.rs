@@ -102,13 +102,19 @@ impl DarwinRebuildArgs {
 
         let toplevel = toplevel_for(hostname, processed_installable, "toplevel");
 
-        commands::Build::new(toplevel)
+        let mut build = commands::Build::new(toplevel)
             .extra_arg("--out-link")
             .extra_arg(&out_path)
             .extra_args(&self.extra_args)
             .passthrough(&self.common.passthrough)
             .message("Building Darwin configuration")
-            .nom(!self.common.no_nom)
+            .nom(!self.common.no_nom);
+
+        if self.common.refresh {
+            build = build.extra_arg("--refresh");
+        }
+
+        build
             .run()
             .wrap_err("Failed to build Darwin configuration")?;
 

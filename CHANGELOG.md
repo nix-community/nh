@@ -46,6 +46,7 @@ functionality, under the "Removed" section.
   - It's roughly %4 faster according to testing, but IO is still a limiting
     factor and results may differ.
 - Added more context to some minor debug messages across platform commands.
+- The `--refresh` flag is now treated as a passthrough argument to Nix.
 
 ### Fixed
 

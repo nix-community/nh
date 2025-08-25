@@ -164,16 +164,20 @@ impl OsRebuildArgs {
             _ => "Building NixOS configuration",
         };
 
-        commands::Build::new(toplevel)
+        let mut build = commands::Build::new(toplevel)
             .extra_arg("--out-link")
             .extra_arg(&out_path)
             .extra_args(&self.extra_args)
             .passthrough(&self.common.passthrough)
             .builder(self.build_host.clone())
             .message(message)
-            .nom(!self.common.no_nom)
-            .run()
-            .wrap_err("Failed to build configuration")?;
+            .nom(!self.common.no_nom);
+
+        if self.common.refresh {
+            build = build.extra_arg("--refresh");
+        }
+
+        build.run().wrap_err("Failed to build configuration")?;
 
         let current_specialisation = std::fs::read_to_string(SPEC_LOCATION).ok();
 

@@ -87,13 +87,19 @@ impl HomeRebuildArgs {
             self.configuration.clone(),
         )?;
 
-        commands::Build::new(toplevel)
+        let mut build = commands::Build::new(toplevel)
             .extra_arg("--out-link")
             .extra_arg(&out_path)
             .extra_args(&self.extra_args)
             .passthrough(&self.common.passthrough)
             .message("Building Home-Manager configuration")
-            .nom(!self.common.no_nom)
+            .nom(!self.common.no_nom);
+
+        if self.common.refresh {
+            build = build.extra_arg("--refresh");
+        }
+
+        build
             .run()
             .wrap_err("Failed to build Home-Manager configuration")?;
 
