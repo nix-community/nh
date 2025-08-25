@@ -298,6 +298,10 @@ pub struct CommonRebuildArgs {
     #[arg(long, short, value_enum, default_value_t = DiffType::Auto)]
     pub diff: DiffType,
 
+    /// Refresh flakes to the latest revision
+    #[arg(long)]
+    pub refresh: bool,
+
     #[command(flatten)]
     pub passthrough: NixBuildPassthroughArgs,
 }
@@ -706,10 +710,6 @@ pub struct NixBuildPassthroughArgs {
     #[arg(long)]
     pub accept_flake_config: bool,
 
-    /// Refresh flakes to the latest revision
-    #[arg(long)]
-    pub refresh: bool,
-
     /// Allow impure builds
     #[arg(long)]
     pub impure: bool,
@@ -800,9 +800,6 @@ impl NixBuildPassthroughArgs {
         }
         if self.accept_flake_config {
             args.push("--accept-flake-config".into());
-        }
-        if self.refresh {
-            args.push("--refresh".into());
         }
         if self.impure {
             args.push("--impure".into());
