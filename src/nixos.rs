@@ -13,7 +13,8 @@ use crate::generations;
 use crate::installable::Installable;
 use crate::interface::OsSubcommand::{self};
 use crate::interface::{
-    self, DiffType, OsBuildVmArgs, OsGenerationsArgs, OsRebuildArgs, OsReplArgs, OsRollbackArgs,
+    self, DiffType, OsBuildVmArgs, OsEditArgs, OsGenerationsArgs, OsRebuildArgs, OsReplArgs,
+    OsRollbackArgs,
 };
 use crate::update::update;
 use crate::util::ensure_ssh_key_login;
@@ -39,6 +40,7 @@ impl interface::OsArgs {
             }
             OsSubcommand::BuildVm(args) => args.build_vm(elevation),
             OsSubcommand::Repl(args) => args.run(),
+            OsSubcommand::Edit(args) => args.run(),
             OsSubcommand::Info(args) => args.info(),
             OsSubcommand::Rollback(args) => args.rollback(elevation),
         }
@@ -721,6 +723,89 @@ impl OsReplArgs {
             .with_required_env()
             .show_output(true)
             .run()?;
+
+        Ok(())
+    }
+}
+
+impl OsEditArgs {
+    fn run(self) -> Result<()> {
+        let editor = if let Ok(var) = env::var("EDITOR") {
+            var
+        } else {
+            bail!("Unset environment variable `EDITOR`.")
+        };
+
+        // Use NH_OS_FLAKE if available, otherwise use the provided installable
+        let target_installable = if let Ok(os_flake) = env::var("NH_OS_FLAKE") {
+            debug!("Using NH_OS_FLAKE: {}", os_flake);
+
+            let mut elems = os_flake.splitn(2, '#');
+            let reference = match elems.next() {
+                Some(r) => r.to_owned(),
+                None => return Err(eyre!("NH_OS_FLAKE missing reference part")),
+            };
+            let attribute = elems
+                .next()
+                .map(crate::installable::parse_attribute)
+                .unwrap_or_default();
+
+            Installable::Flake {
+                reference,
+                attribute,
+            }
+        } else {
+            self.installable
+        };
+
+        match target_installable {
+            Installable::File { path, .. } => {
+                let str_path = path
+                    .to_str()
+                    .ok_or_else(|| eyre!("Edit path is not valid UTF-8"))?;
+
+                Command::new(editor)
+                    .arg(str_path)
+                    .with_required_env()
+                    .show_output(true)
+                    .run()?
+            }
+            Installable::Flake { reference, .. } => {
+                match &reference[0..5] {
+                    "path:" => {
+                        // Removes `path:` prefix
+                        let path = &reference[5..];
+
+                        Command::new(editor)
+                            .arg(path)
+                            .with_required_env()
+                            .show_output(true)
+                            .run()?
+                    }
+                    _ => {
+                        Command::new("nix")
+                            .arg("flake")
+                            .arg("prefetch")
+                            .arg("-o")
+                            .arg("result")
+                            .arg(reference)
+                            .with_required_env()
+                            .show_output(true)
+                            .run()?;
+
+                        Command::new(editor)
+                            .arg("result")
+                            .with_required_env()
+                            .show_output(true)
+                            .run()?;
+
+                        std::fs::remove_file("result")?
+                    }
+                };
+            }
+            Installable::Store { .. } => bail!("Nix doesn't support nix store installables."),
+            Installable::Expression { .. } => bail!("Nix doesn't support nix expression."),
+        };
 
         Ok(())
     }

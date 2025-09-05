@@ -126,6 +126,13 @@ impl OsArgs {
                 let is_flake = args.uses_flakes();
                 Box::new(OsReplFeatures { is_flake })
             }
+            OsSubcommand::Edit(args) => {
+                if args.uses_flakes() {
+                    Box::new(FlakeFeatures)
+                } else {
+                    Box::new(LegacyFeatures)
+                }
+            }
             OsSubcommand::Switch(args)
             | OsSubcommand::Boot(args)
             | OsSubcommand::Test(args)
@@ -164,6 +171,9 @@ pub enum OsSubcommand {
 
     /// Load system in a repl
     Repl(OsReplArgs),
+
+    /// Edit a NixOS configuration
+    Edit(OsEditArgs),
 
     /// List available generations from profile path
     Info(OsGenerationsArgs),
@@ -321,7 +331,29 @@ impl OsReplArgs {
     #[must_use]
     pub fn uses_flakes(&self) -> bool {
         // Check environment variables first
-        if env::var("NH_OS_FLAKE").is_ok() {
+        if env::var("NH_OS_FLAKE").is_ok_and(|v| !v.is_empty()) {
+            return true;
+        }
+
+        // Check installable type
+        matches!(self.installable, Installable::Flake { .. })
+    }
+}
+
+#[derive(Debug, Args)]
+pub struct OsEditArgs {
+    #[command(flatten)]
+    pub installable: Installable,
+
+    /// When using a flake installable, select this hostname from nixosConfigurations
+    #[arg(long, short = 'H', global = true)]
+    pub hostname: Option<String>,
+}
+
+impl OsEditArgs {
+    pub fn uses_flakes(&self) -> bool {
+        // Check environment variables first
+        if env::var("NH_OS_FLAKE").is_ok_and(|v| !v.is_empty()) {
             return true;
         }
 
@@ -452,6 +484,13 @@ impl HomeArgs {
                 let is_flake = args.uses_flakes();
                 Box::new(HomeReplFeatures { is_flake })
             }
+            HomeSubcommand::Edit(args) => {
+                if args.uses_flakes() {
+                    Box::new(FlakeFeatures)
+                } else {
+                    Box::new(LegacyFeatures)
+                }
+            }
             HomeSubcommand::Switch(args) | HomeSubcommand::Build(args) => {
                 if args.uses_flakes() {
                     Box::new(FlakeFeatures)
@@ -473,6 +512,9 @@ pub enum HomeSubcommand {
 
     /// Load a home-manager configuration in a Nix REPL
     Repl(HomeReplArgs),
+
+    /// Edit a home-manager configuration
+    Edit(HomeEditArgs),
 }
 
 #[derive(Debug, Args)]
@@ -548,6 +590,34 @@ impl HomeReplArgs {
     }
 }
 
+#[derive(Debug, Args)]
+pub struct HomeEditArgs {
+    #[command(flatten)]
+    pub installable: Installable,
+
+    /// Name of the flake homeConfigurations attribute, like username@hostname
+    ///
+    /// If unspecified, will try <username>@<hostname> and <username>
+    #[arg(long, short)]
+    pub configuration: Option<String>,
+
+    /// Extra arguments passed to nix repl
+    #[arg(last = true)]
+    pub extra_args: Vec<String>,
+}
+
+impl HomeEditArgs {
+    pub fn uses_flakes(&self) -> bool {
+        // Check environment variables first
+        if env::var("NH_HOME_FLAKE").is_ok_and(|v| !v.is_empty()) {
+            return true;
+        }
+
+        // Check installable type
+        matches!(self.installable, Installable::Flake { .. })
+    }
+}
+
 #[derive(Debug, Parser)]
 /// Generate shell completion files into stdout
 pub struct CompletionArgs {
@@ -572,6 +642,13 @@ impl DarwinArgs {
                 let is_flake = args.uses_flakes();
                 Box::new(DarwinReplFeatures { is_flake })
             }
+            DarwinSubcommand::Edit(args) => {
+                if args.uses_flakes() {
+                    Box::new(FlakeFeatures)
+                } else {
+                    Box::new(LegacyFeatures)
+                }
+            }
             DarwinSubcommand::Switch(args) | DarwinSubcommand::Build(args) => {
                 if args.uses_flakes() {
                     Box::new(FlakeFeatures)
@@ -591,6 +668,8 @@ pub enum DarwinSubcommand {
     Build(DarwinRebuildArgs),
     /// Load a nix-darwin configuration in a Nix REPL
     Repl(DarwinReplArgs),
+    /// Edit a nix-darwin configuration
+    Edit(DarwinEditArgs),
 }
 
 #[derive(Debug, Args)]
@@ -639,6 +718,28 @@ pub struct DarwinReplArgs {
 
 impl DarwinReplArgs {
     #[must_use]
+    pub fn uses_flakes(&self) -> bool {
+        // Check environment variables first
+        if env::var("NH_DARWIN_FLAKE").is_ok_and(|v| !v.is_empty()) {
+            return true;
+        }
+
+        // Check installable type
+        matches!(self.installable, Installable::Flake { .. })
+    }
+}
+
+#[derive(Debug, Args)]
+pub struct DarwinEditArgs {
+    #[command(flatten)]
+    pub installable: Installable,
+
+    /// When using a flake installable, select this hostname from darwinConfigurations
+    #[arg(long, short = 'H', global = true)]
+    pub hostname: Option<String>,
+}
+
+impl DarwinEditArgs {
     pub fn uses_flakes(&self) -> bool {
         // Check environment variables first
         if env::var("NH_DARWIN_FLAKE").is_ok_and(|v| !v.is_empty()) {

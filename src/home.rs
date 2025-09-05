@@ -9,7 +9,9 @@ use tracing::{debug, info, warn};
 use crate::commands;
 use crate::commands::Command;
 use crate::installable::Installable;
-use crate::interface::{self, DiffType, HomeRebuildArgs, HomeReplArgs, HomeSubcommand};
+use crate::interface::{
+    self, DiffType, HomeEditArgs, HomeRebuildArgs, HomeReplArgs, HomeSubcommand,
+};
 use crate::update::update;
 use crate::util::{get_hostname, print_dix_diff};
 
@@ -30,6 +32,7 @@ impl interface::HomeArgs {
                 args.rebuild(&Build)
             }
             HomeSubcommand::Repl(args) => args.run(),
+            HomeSubcommand::Edit(args) => args.run(),
         }
     }
 }
@@ -394,6 +397,96 @@ impl HomeReplArgs {
             .args(toplevel.to_args())
             .show_output(true)
             .run()?;
+
+        Ok(())
+    }
+}
+
+impl HomeEditArgs {
+    fn run(self) -> Result<()> {
+        let editor = if let Ok(var) = env::var("EDITOR") {
+            var
+        } else {
+            bail!("Unset environment variable `EDITOR`.")
+        };
+
+        // Use NH_HOME_FLAKE if available, otherwise use the provided installable
+        let installable = if let Ok(home_flake) = env::var("NH_HOME_FLAKE") {
+            debug!("Using NH_HOME_FLAKE: {home_flake}");
+
+            let mut elems = home_flake.splitn(2, '#');
+            let reference = match elems.next() {
+                Some(r) => r.to_owned(),
+                None => return Err(eyre!("NH_HOME_FLAKE missing reference part")),
+            };
+            let attribute = elems
+                .next()
+                .map(crate::installable::parse_attribute)
+                .unwrap_or_default();
+
+            Installable::Flake {
+                reference,
+                attribute,
+            }
+        } else {
+            self.installable
+        };
+
+        let toplevel = toplevel_for(
+            installable,
+            false,
+            &self.extra_args,
+            self.configuration.clone(),
+        )?;
+
+        match toplevel {
+            Installable::File { path, .. } => {
+                let str_path = path
+                    .to_str()
+                    .ok_or_else(|| eyre!("Edit path is not valid UTF-8"))?;
+
+                Command::new(editor)
+                    .arg(str_path)
+                    .with_required_env()
+                    .show_output(true)
+                    .run()?
+            }
+            Installable::Flake { reference, .. } => {
+                match &reference[0..5] {
+                    "path:" => {
+                        // Removes `path:` prefix
+                        let path = &reference[5..];
+
+                        Command::new(editor)
+                            .arg(path)
+                            .with_required_env()
+                            .show_output(true)
+                            .run()?
+                    }
+                    _ => {
+                        Command::new("nix")
+                            .arg("flake")
+                            .arg("prefetch")
+                            .arg("-o")
+                            .arg("result")
+                            .arg(reference)
+                            .with_required_env()
+                            .show_output(true)
+                            .run()?;
+
+                        Command::new(editor)
+                            .arg("result")
+                            .with_required_env()
+                            .show_output(true)
+                            .run()?;
+
+                        std::fs::remove_file("result")?
+                    }
+                };
+            }
+            Installable::Store { .. } => bail!("Nix doesn't support nix store installables."),
+            Installable::Expression { .. } => bail!("Nix doesn't support nix expression."),
+        };
 
         Ok(())
     }
