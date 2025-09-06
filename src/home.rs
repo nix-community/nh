@@ -10,8 +10,16 @@ use crate::{
   commands,
   commands::Command,
   installable::Installable,
-  interface::{self, DiffType, HomeRebuildArgs, HomeReplArgs, HomeSubcommand},
+  interface::{
+    self,
+    DiffType,
+    HomeRebuildArgs,
+    HomeReplArgs,
+    HomeSubcommand,
+    NotifyAskMode,
+  },
   nh_info,
+  notify::NotificationSender,
   update::update,
   util::{get_hostname, print_dix_diff},
 };
@@ -27,7 +35,7 @@ impl interface::HomeArgs {
     match self.subcommand {
       HomeSubcommand::Switch(args) => args.rebuild(&Switch),
       HomeSubcommand::Build(args) => {
-        if args.common.ask || args.common.dry {
+        if args.common.ask.is_some() || args.common.dry {
           warn!("`--ask` and `--dry` have no effect for `nh home build`");
         }
         args.rebuild(&Build)
@@ -151,16 +159,28 @@ impl HomeRebuildArgs {
     }
 
     if self.common.dry || matches!(variant, Build) {
-      if self.common.ask {
+      if self.common.ask.is_some() {
         warn!("--ask has no effect as dry run was requested");
       }
       return Ok(());
     }
 
-    if self.common.ask {
-      let confirmation = inquire::Confirm::new("Apply the config?")
-        .with_default(false)
-        .prompt()?;
+    if let Some(ask) = &self.common.ask {
+      let confirmation = match ask {
+        NotifyAskMode::Prompt => {
+          inquire::Confirm::new("Apply the config?")
+            .with_default(false)
+            .prompt()?
+        },
+        #[cfg(all(unix, not(target_os = "macos")))]
+        NotifyAskMode::Notify => {
+          NotificationSender::new(
+            "nh home switch",
+            "Do you want to apply the Home Manager configuration?",
+          )
+          .ask()
+        },
+      };
 
       if !confirmation {
         bail!("User rejected the new config");
