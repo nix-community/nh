@@ -14,6 +14,7 @@ use crate::{
   interface::{
     self,
     DiffType,
+    NotifyAskMode,
     OsBuildVmArgs,
     OsGenerationsArgs,
     OsRebuildArgs,
@@ -22,6 +23,7 @@ use crate::{
     OsSubcommand::{self},
   },
   nh_info,
+  notify::NotificationSender,
   update::update,
   util::{ensure_ssh_key_login, get_hostname, print_dix_diff},
 };
@@ -39,7 +41,7 @@ impl interface::OsArgs {
       OsSubcommand::Test(args) => args.rebuild(&Test, None, elevation),
       OsSubcommand::Switch(args) => args.rebuild(&Switch, None, elevation),
       OsSubcommand::Build(args) => {
-        if args.common.ask || args.common.dry {
+        if args.common.ask.is_some() || args.common.dry {
           warn!("`--ask` and `--dry` have no effect for `nh os build`");
         }
         args.rebuild(&Build, None, elevation)
@@ -132,7 +134,7 @@ impl OsRebuildArgs {
     self.handle_dix_diff(&target_profile);
 
     if self.common.dry || matches!(variant, Build | BuildVm) {
-      if self.common.ask {
+      if self.common.ask.is_some() {
         warn!("--ask has no effect as dry run was requested");
       }
 
@@ -317,10 +319,22 @@ impl OsRebuildArgs {
   ) -> Result<()> {
     use OsRebuildVariant::{Boot, Switch, Test};
 
-    if self.common.ask {
-      let confirmation = inquire::Confirm::new("Apply the config?")
-        .with_default(false)
-        .prompt()?;
+    if let Some(ask) = &self.common.ask {
+      let confirmation = match ask {
+        NotifyAskMode::Prompt => {
+          inquire::Confirm::new("Apply the config?")
+            .with_default(false)
+            .prompt()?
+        },
+        #[cfg(all(unix, not(target_os = "macos")))]
+        NotifyAskMode::Notify => {
+          NotificationSender::new(
+            "nh os switch",
+            "Do you want to apply the NixOS configuration?",
+          )
+          .ask()
+        },
+      };
 
       if !confirmation {
         bail!("User rejected the new config");
@@ -465,13 +479,25 @@ impl OsRollbackArgs {
       return Ok(());
     }
 
-    if self.ask {
-      let confirmation = inquire::Confirm::new(&format!(
-        "Roll back to generation {}?",
-        target_generation.number
-      ))
-      .with_default(false)
-      .prompt()?;
+    if let Some(ask) = &self.ask {
+      let confirmation = match ask {
+        NotifyAskMode::Prompt => {
+          inquire::Confirm::new(&format!(
+            "Roll back to generation {}?",
+            target_generation.number
+          ))
+          .with_default(false)
+          .prompt()?
+        },
+        #[cfg(all(unix, not(target_os = "macos")))]
+        NotifyAskMode::Notify => {
+          NotificationSender::new(
+            "nh os rollback",
+            &format!("Roll back to generation {}?", target_generation.number),
+          )
+          .ask()
+        },
+      };
 
       if !confirmation {
         bail!("User rejected the rollback");
@@ -659,7 +685,7 @@ fn print_vm_instructions(out_path: &Path) {
   }
 }
 
-/// Runs the built NixOS VM by executing the VM runner script.
+/// Runs the built `NixOS` VM by executing the VM runner script.
 ///
 /// Locates the VM runner script in the build output directory and executes it,
 /// streaming its output to the user. Returns an error if the script cannot be

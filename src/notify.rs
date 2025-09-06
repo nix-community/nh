@@ -68,6 +68,11 @@ impl NotificationSender {
       .notification
       .urgency(self.urgency.unwrap_or(Urgency::Normal));
 
+    #[cfg(target_os = "macos")]
+    {
+      _ = &mut self;
+    }
+
     self.notification.show()?;
     Ok(())
   }
@@ -91,7 +96,8 @@ impl NotificationSender {
   /// # Errors
   ///
   /// Returns an error if the notification cannot be shown.
-  pub fn ask(mut self) -> Result<bool> {
+  #[must_use]
+  pub fn ask(mut self) -> bool {
     #[cfg(all(unix, not(target_os = "macos")))]
     {
       self
@@ -101,7 +107,7 @@ impl NotificationSender {
       self.notification.action("reject", "Reject");
     }
 
-    let handle = self.notification.show()?;
+    let handle = self.notification.show().unwrap();
 
     #[cfg(all(unix, not(target_os = "macos")))]
     {
@@ -109,9 +115,14 @@ impl NotificationSender {
       handle.wait_for_action(|s| {
         confirmation = s == "accept";
       });
-      return Ok(confirmation);
+      confirmation
     }
 
-    Ok(false)
+    #[cfg(target_os = "macos")]
+    {
+      _ = &mut self;
+      _ = handle;
+      false
+    }
   }
 }
