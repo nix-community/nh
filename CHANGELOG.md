@@ -48,6 +48,9 @@ functionality, under the "Removed" section.
 - Added more context to some minor debug messages across platform commands.
 - Fine-grain and streamline environment variable propagation across modules for
   correctness. `NIX_SSHOPTS` is now preserved and used for remote deployments.
+- Nh now supports alternative privilege escalation methods. Namely `doas`,
+  `run0` and a fallback `pkexec` strategies will be attempted if the system does
+  not use `sudo`.
 
 ### Fixed
 
