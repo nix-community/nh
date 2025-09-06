@@ -15,7 +15,11 @@ use thiserror::Error;
 use tracing::{debug, warn};
 use which::which;
 
-use crate::{installable::Installable, interface::NixBuildPassthroughArgs, nh_info};
+use crate::{
+  installable::Installable,
+  interface::NixBuildPassthroughArgs,
+  nh_info,
+};
 
 static PASSWORD_CACHE: OnceLock<Mutex<HashMap<String, SecretString>>> =
   OnceLock::new();
