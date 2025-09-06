@@ -12,7 +12,10 @@ use color_eyre::{Result, eyre};
 use regex::Regex;
 use tracing::debug;
 
-use crate::{commands::{Command, ElevationStrategy}, nh_info};
+use crate::{
+  commands::{Command, ElevationStrategy},
+  nh_info,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NixVariant {
