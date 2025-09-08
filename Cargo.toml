@@ -59,7 +59,7 @@ tracing-subscriber = { features = [ "env-filter", "registry", "std" ], version =
 which = "8.0.0"
 
 [target.'cfg(target_os="macos")'.dependencies]
-brewdiff = "0.2.0"
+brewdiff             = "0.2.0"
 system-configuration = "0.6.1"
 
 [dev-dependencies]
