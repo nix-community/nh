@@ -14,13 +14,14 @@ use nix::{
   unistd::{AccessFlags, faccessat},
 };
 use regex::Regex;
-use tracing::{Level, debug, info, instrument, span, warn};
+use tracing::{Level, debug, instrument, span, warn};
 use yansi::{Color, Paint};
 
 use crate::{
   Result,
   commands::{Command, ElevationStrategy},
   interface,
+  nh_info,
 };
 
 // Nix impl:
@@ -504,7 +505,7 @@ fn cleanable_generations(
 }
 
 fn remove_path_nofail(path: &Path) {
-  info!("Removing {}", path.to_string_lossy());
+  nh_info!("Removing {}", path.to_string_lossy());
   if let Err(err) = std::fs::remove_file(path) {
     warn!(?path, ?err, "Failed to remove path");
   }
