@@ -5,7 +5,7 @@ use std::{
 };
 
 use color_eyre::eyre::{Context, Result, bail, eyre};
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use crate::{
   commands::{self, Command, ElevationStrategy},
@@ -21,6 +21,7 @@ use crate::{
     OsRollbackArgs,
     OsSubcommand::{self},
   },
+  nh_info,
   update::update,
   util::{ensure_ssh_key_login, get_hostname, print_dix_diff},
 };
@@ -419,7 +420,7 @@ impl OsRollbackArgs {
       find_previous_generation()?
     };
 
-    info!("Rolling back to generation {}", target_generation.number);
+    nh_info!("Rolling back to generation {}", target_generation.number);
 
     // Construct path to the generation
     let profile_dir = Path::new(SYSTEM_PROFILE).parent().unwrap_or_else(|| {
@@ -457,7 +458,7 @@ impl OsRollbackArgs {
     }
 
     if self.dry {
-      info!(
+      nh_info!(
         "Dry run: would roll back to generation {}",
         target_generation.number
       );
@@ -487,7 +488,7 @@ impl OsRollbackArgs {
     };
 
     // Set the system profile
-    info!("Setting system profile...");
+    nh_info!("Setting system profile...");
 
     // Instead of direct symlink operations, use a command with proper elevation
     Command::new("ln")
@@ -519,7 +520,7 @@ impl OsRollbackArgs {
     };
 
     // Activate the configuration
-    info!("Activating...");
+    nh_info!("Activating...");
 
     let switch_to_configuration =
       final_profile.join("bin").join("switch-to-configuration");
@@ -536,7 +537,7 @@ impl OsRollbackArgs {
       .run()
     {
       Ok(()) => {
-        info!(
+        nh_info!(
           "Successfully rolled back to generation {}",
           target_generation.number
         );
@@ -643,14 +644,14 @@ fn find_vm_script(out_path: &Path) -> Result<PathBuf> {
 fn print_vm_instructions(out_path: &Path) {
   match find_vm_script(out_path) {
     Ok(script) => {
-      info!(
+      nh_info!(
         "Done. The virtual machine can be started by running {}",
         script.display()
       );
     },
     Err(e) => {
       warn!("VM build completed, but could not find run script: {}", e);
-      info!(
+      nh_info!(
         "Done. The virtual machine script should be at {}/bin/run-*-vm",
         out_path.display()
       );
@@ -675,7 +676,7 @@ fn print_vm_instructions(out_path: &Path) {
 fn run_vm(out_path: &Path) -> Result<()> {
   let vm_script = find_vm_script(out_path)?;
 
-  info!(
+  nh_info!(
     "Running VM... Starting virtual machine with {}",
     vm_script.display()
   );

@@ -10,9 +10,9 @@ use std::{
 
 use color_eyre::{Result, eyre};
 use regex::Regex;
-use tracing::{debug, info};
+use tracing::debug;
 
-use crate::commands::{Command, ElevationStrategy};
+use crate::{commands::{Command, ElevationStrategy}, nh_info};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NixVariant {
@@ -333,7 +333,7 @@ pub fn print_dix_diff(
     })?
   {
     if size_old == size_new {
-      info!("No version or size changes.");
+      nh_info!("No version or size changes.");
     } else {
       if wrote > 0 {
         println!();

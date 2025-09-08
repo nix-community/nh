@@ -4,13 +4,14 @@ use color_eyre::{
   Result,
   eyre::{Context, bail, eyre},
 };
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use crate::{
   commands,
   commands::Command,
   installable::Installable,
   interface::{self, DiffType, HomeRebuildArgs, HomeReplArgs, HomeSubcommand},
+  nh_info,
   update::update,
   util::{get_hostname, print_dix_diff},
 };
@@ -167,7 +168,7 @@ impl HomeRebuildArgs {
     }
 
     if let Some(ext) = &self.backup_extension {
-      info!("Using {} as the backup extension", ext);
+      nh_info!("Using {} as the backup extension", ext);
       unsafe {
         env::set_var("HOME_MANAGER_BACKUP_EXT", ext);
       }
