@@ -13,7 +13,14 @@ issue is not necessary, but good to have. Otherwise, general-purpose changes can
 be put in the "Changed" section or, if it's just to remove code or
 functionality, under the "Removed" section.
 -->
+## Unreleased
 
+### Changed
+
+- `nh os info` now support `--fields` to select which field(s) to display; 
+  also add a per-generation "Closure Size" coloumn.
+  ([#375](https://github.com/nix-community/nh/issues/375))
+  
 ## 4.2.0
 
 ### Changed

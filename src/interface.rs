@@ -16,6 +16,7 @@ use crate::{
     OsReplFeatures,
   },
   commands::ElevationStrategy,
+  generations::Field,
   installable::Installable,
 };
 
@@ -345,6 +346,15 @@ pub struct OsGenerationsArgs {
   /// Path to Nix' profiles directory
   #[arg(long, short = 'P', default_value = "/nix/var/nix/profiles/system")]
   pub profile: Option<String>,
+
+  /// Specify which field(s) to show (comma-delimited).Defaults to show all
+  /// fields.
+  #[arg(
+    long,
+    value_delimiter = ',',
+    default_value = "id,date,nver,kernel,confRev,spec,size"
+  )]
+  pub fields: Vec<Field>,
 }
 
 #[derive(Args, Debug)]

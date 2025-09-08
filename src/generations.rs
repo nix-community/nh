@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fs, path::Path, process};
 
 use chrono::{DateTime, Local, TimeZone, Utc};
+use clap::ValueEnum;
 use color_eyre::eyre::{Result, bail};
 use tracing::debug;
 
@@ -27,8 +28,60 @@ pub struct GenerationInfo {
 
   /// Whether a given generation is the current one.
   pub current: bool,
+
+  /// Closure size of the generation.
+  pub closure_size: String,
 }
 
+#[derive(ValueEnum, Clone, Debug)]
+pub enum Field {
+  /// Generation Id
+  Id,
+
+  /// Build Date
+  Date,
+
+  /// Nixos Version
+  Nver,
+
+  /// Kernel Version
+  Kernel,
+
+  /// Configuration Revision
+  #[clap(name = "confRev")]
+  Confrev,
+
+  /// Specialisations
+  Spec,
+
+  /// Closure Size
+  Size,
+}
+
+#[derive(Clone, Copy)]
+struct ColumnWidths {
+  id:      usize,
+  date:    usize,
+  nver:    usize,
+  kernel:  usize,
+  confrev: usize,
+  spec:    usize,
+  size:    usize,
+}
+
+impl Field {
+  fn column_info(&self, width: ColumnWidths) -> (&'static str, usize) {
+    match self {
+      Field::Id => ("Generation No", width.id),
+      Field::Date => ("Build Date", width.date),
+      Field::Nver => ("NixOS Version", width.nver),
+      Field::Kernel => ("Kernel", width.kernel),
+      Field::Confrev => ("Configuration Revision", width.confrev),
+      Field::Spec => ("Specialisations", width.spec),
+      Field::Size => ("Closure Size", width.size),
+    }
+  }
+}
 #[must_use]
 pub fn from_dir(generation_dir: &Path) -> Option<u64> {
   generation_dir
@@ -42,9 +95,43 @@ pub fn from_dir(generation_dir: &Path) -> Option<u64> {
     })
 }
 
+#[must_use]
+pub fn get_closure_size(generation_dir: &Path) -> Option<String> {
+  let store_path = generation_dir
+    .read_link()
+    .unwrap_or_else(|_| generation_dir.to_path_buf());
+  match process::Command::new("nix")
+    .arg("path-info")
+    .arg(generation_dir)
+    .arg("-Sh")
+    .arg("--json")
+    .output()
+  {
+    Ok(output) => {
+      match serde_json::from_str::<serde_json::Value>(&String::from_utf8_lossy(
+        &output.stdout,
+      )) {
+        #[allow(clippy::cast_precision_loss)]
+        Ok(json) => {
+          Some(
+            json[store_path.to_string_lossy().to_string()]["closureSize"]
+              .as_u64()
+              .map_or_else(
+                || "Unknown".to_string(),
+                |bytes| format!("{:.1} GB", bytes as f64 / 1_073_741_824.0),
+              ),
+          )
+        },
+        Err(_) => Some("Unknown".to_string()),
+      }
+    },
+    Err(_) => Some("Unknown".to_string()),
+  }
+}
+
 pub fn describe(generation_dir: &Path) -> Option<GenerationInfo> {
   let generation_number = from_dir(generation_dir)?;
-
+  let closure_size = get_closure_size(generation_dir)?;
   // Get metadata once and reuse for both date and existence checks
   let metadata = fs::metadata(generation_dir).ok()?;
   let build_date = metadata
@@ -155,6 +242,7 @@ pub fn describe(generation_dir: &Path) -> Option<GenerationInfo> {
       configuration_revision,
       specialisations,
       current: false,
+      closure_size,
     });
   };
 
@@ -170,6 +258,7 @@ pub fn describe(generation_dir: &Path) -> Option<GenerationInfo> {
       configuration_revision,
       specialisations,
       current: false,
+      closure_size,
     });
   };
 
@@ -183,6 +272,7 @@ pub fn describe(generation_dir: &Path) -> Option<GenerationInfo> {
     configuration_revision,
     specialisations,
     current,
+    closure_size,
   })
 }
 
@@ -191,35 +281,10 @@ pub fn describe(generation_dir: &Path) -> Option<GenerationInfo> {
 /// # Errors
 ///
 /// Returns an error if output or formatting fails.
-pub fn print_info(mut generations: Vec<GenerationInfo>) -> Result<()> {
-  // Get path information for the current generation from /run/current-system
-  // By using `--json` we can avoid splitting whitespaces to get the correct
-  // closure size, which has created issues in the past.
-  let closure = match process::Command::new("nix")
-    .arg("path-info")
-    .arg("/run/current-system")
-    .arg("-Sh")
-    .arg("--json")
-    .output()
-  {
-    Ok(output) => {
-      debug!("Got the following output for nix path-info: {:#?}", &output);
-      match serde_json::from_str::<serde_json::Value>(&String::from_utf8_lossy(
-        &output.stdout,
-      )) {
-        #[allow(clippy::cast_precision_loss)]
-        Ok(json) => {
-          json[0]["closureSize"].as_u64().map_or_else(
-            || "Unknown".to_string(),
-            |bytes| format!("{:.1} GB", bytes as f64 / 1_073_741_824.0),
-          )
-        },
-        Err(_) => "Unknown".to_string(),
-      }
-    },
-    Err(_) => "Unknown".to_string(),
-  };
-
+pub fn print_info(
+  mut generations: Vec<GenerationInfo>,
+  fields: &[Field],
+) -> Result<()> {
   // Parse all dates at once and cache them
   let mut parsed_dates = HashMap::with_capacity(generations.len());
   for generation in &generations {
@@ -247,9 +312,6 @@ pub fn print_info(mut generations: Vec<GenerationInfo>) -> Result<()> {
     bail!("Error getting current generation!");
   }
 
-  println!("Closure Size: {closure}");
-  println!();
-
   // Determine column widths for pretty printing
   let max_nixos_version_len = generations
     .iter()
@@ -263,16 +325,25 @@ pub fn print_info(mut generations: Vec<GenerationInfo>) -> Result<()> {
     .max()
     .unwrap_or(12); // arbitrary value
 
-  println!(
-    "{:<13} {:<20} {:<width_nixos$} {:<width_kernel$} {:<22} Specialisations",
-    "Generation No",
-    "Build Date",
-    "NixOS Version",
-    "Kernel",
-    "Configuration Revision",
-    width_nixos = max_nixos_version_len,
-    width_kernel = max_kernel_len
-  );
+  let widths = ColumnWidths {
+    id:      13, // "Generation No"
+    date:    20, // "Build Date"
+    nver:    max_nixos_version_len,
+    kernel:  max_kernel_len,
+    confrev: 22, // "Configuration Revision"
+    spec:    15, // "Specialisations"
+    size:    12, // "Closure Size"
+  };
+
+  let header = fields
+    .iter()
+    .map(|f| {
+      let (name, width) = f.column_info(widths);
+      format!("{:<width$}", name)
+    })
+    .collect::<Vec<String>>()
+    .join(" ");
+  println!("{}", header);
 
   // Print generations in descending order
   for generation in generations.iter().rev() {
@@ -292,21 +363,31 @@ pub fn print_info(mut generations: Vec<GenerationInfo>) -> Result<()> {
         .join(" ")
     };
 
-    println!(
-      "{:<13} {:<20} {:<width_nixos$} {:<width_kernel$} {:<25} {}",
-      format!(
-        "{}{}",
-        generation.number,
-        if generation.current { " (current)" } else { "" }
-      ),
-      formatted_date,
-      generation.nixos_version,
-      generation.kernel_version,
-      generation.configuration_revision,
-      specialisations,
-      width_nixos = max_nixos_version_len,
-      width_kernel = max_kernel_len
-    );
+    let row: String = fields
+      .iter()
+      .map(|f| {
+        let (_, width) = f.column_info(widths);
+        let cell_content = match f {
+          Field::Id => {
+            format!(
+              "{}{}",
+              generation.number,
+              if generation.current { " (current)" } else { "" }
+            )
+          },
+          Field::Date => formatted_date.clone(),
+          Field::Nver => generation.nixos_version.clone(),
+          Field::Kernel => generation.kernel_version.clone(),
+          Field::Confrev => generation.configuration_revision.clone(),
+          Field::Spec => specialisations.clone(),
+          Field::Size => generation.closure_size.clone(),
+        };
+        format!("{:width$}", cell_content)
+      })
+      .collect::<Vec<String>>()
+      .join(" ");
+    println!("{}", row);
   }
+
   Ok(())
 }
