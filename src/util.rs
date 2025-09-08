@@ -399,7 +399,7 @@ pub fn print_homebrew_diff(
     brewdiff::write_homebrew_stats(&mut out, &diff_data)?;
     brewdiff::display::write_diff(&mut out, &diff_data)?;
   } else {
-    debug!("No Homebrew package changes detected");
+    info!("No Homebrew package changes.");
   }
 
   Ok(())
@@ -408,15 +408,7 @@ pub fn print_homebrew_diff(
 /// Checks if Homebrew is available on the system
 #[cfg(target_os = "macos")]
 fn homebrew_available() -> bool {
-  use std::process::Command as StdCommand;
-
-  StdCommand::new("which")
-    .arg("brew")
-    .stdout(Stdio::null())
-    .stderr(Stdio::null())
-    .status()
-    .map(|s| s.success())
-    .unwrap_or(false)
+  which::which("brew").is_ok()
 }
 
 /// Stub for non-macOS platforms
