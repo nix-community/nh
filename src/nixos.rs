@@ -82,6 +82,15 @@ impl OsRebuildArgs {
   ) -> Result<()> {
     use OsRebuildVariant::{Boot, Build, BuildVm, Switch, Test};
 
+    if let Some(profile) = self.profile.as_ref() {
+      if !std::path::Path::new(profile).exists() {
+        bail!(
+          "--profile path provided but does not exist: {}",
+          profile.display()
+        );
+      }
+    }
+
     if self.build_host.is_some() || self.target_host.is_some() {
       // if it fails its okay
       let _ = ensure_ssh_key_login();
@@ -330,10 +339,11 @@ impl OsRebuildArgs {
         .canonicalize()
         .context("Failed to resolve output path")?;
 
-      let system_profile_path = self.profile.as_ref().map_or_else(
-        || std::ffi::OsStr::new(SYSTEM_PROFILE),
-        |p| p.as_os_str(),
-      );
+      let system_profile_path = if let Some(profile) = self.profile.as_ref() {
+        profile.as_os_str()
+      } else {
+        std::ffi::OsStr::new(SYSTEM_PROFILE)
+      };
       Command::new("nix")
         .elevate(elevate.then_some(elevation.clone()))
         .args(["build", "--no-link", "--profile"])
@@ -406,10 +416,11 @@ impl OsRollbackArgs {
     info!("Rolling back to generation {}", target_generation.number);
 
     // Construct path to the generation
-    let system_profile_path = self
-      .profile
-      .as_deref()
-      .unwrap_or_else(|| Path::new(SYSTEM_PROFILE));
+    let system_profile_path = if let Some(profile) = self.profile.as_ref() {
+      profile.as_path()
+    } else {
+      Path::new(SYSTEM_PROFILE)
+    };
     let profile_dir = system_profile_path.parent().unwrap_or_else(|| {
       tracing::warn!(
         "SYSTEM_PROFILE has no parent, defaulting to /nix/var/nix/profiles"
@@ -478,10 +489,11 @@ impl OsRollbackArgs {
     info!("Setting system profile...");
 
     // Instead of direct symlink operations, use a command with proper elevation
-    let system_profile_path = self
-      .profile
-      .as_deref()
-      .unwrap_or_else(|| Path::new(SYSTEM_PROFILE));
+    let system_profile_path = if let Some(profile) = self.profile.as_ref() {
+      profile.as_path()
+    } else {
+      Path::new(SYSTEM_PROFILE)
+    };
     Command::new("ln")
             .arg("-sfn") // force, symbolic link
             .arg(&generation_link)
@@ -547,10 +559,12 @@ impl OsRollbackArgs {
           let current_gen_link =
             profile_dir.join(format!("system-{current_gen_number}-link"));
 
-          let system_profile_path = self
-            .profile
-            .as_deref()
-            .unwrap_or_else(|| Path::new(SYSTEM_PROFILE));
+          let system_profile_path = if let Some(profile) = self.profile.as_ref()
+          {
+            profile.as_path()
+          } else {
+            Path::new(SYSTEM_PROFILE)
+          };
           Command::new("ln")
                         .arg("-sfn") // Force, symbolic link
                         .arg(&current_gen_link)

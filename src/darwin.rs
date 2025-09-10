@@ -57,6 +57,15 @@ impl DarwinRebuildArgs {
   ) -> Result<()> {
     use DarwinRebuildVariant::{Build, Switch};
 
+    if let Some(profile) = self.profile.as_ref() {
+      if !std::path::Path::new(profile).exists() {
+        bail!(
+          "--profile path provided but does not exist: {}",
+          profile.display()
+        );
+      }
+    }
+
     if nix::unistd::Uid::effective().is_root() && !self.bypass_root_check {
       bail!("Don't run nh os as root. I will call sudo internally as needed");
     }
@@ -155,10 +164,11 @@ impl DarwinRebuildArgs {
     }
 
     if matches!(variant, Switch) {
-      let profile_path = self.profile.as_ref().map_or_else(
-        || std::ffi::OsStr::new(SYSTEM_PROFILE),
-        |p| p.as_os_str(),
-      );
+      let profile_path = if let Some(profile) = self.profile.as_ref() {
+        profile.as_os_str()
+      } else {
+        std::ffi::OsStr::new(SYSTEM_PROFILE)
+      };
       Command::new("nix")
         .args(["build", "--no-link", "--profile"])
         .arg(profile_path)

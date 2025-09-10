@@ -1,5 +1,8 @@
 use std::{env, ffi::OsString, path::PathBuf};
 
+const USER_PROFILE_PATH: &str = "/nix/var/nix/profiles/per-user";
+const HOME_PROFILE_PATH: &str = ".local/state/nix/profiles/home-manager";
+
 use color_eyre::{
   Result,
   eyre::{Context, bail, eyre},
@@ -99,27 +102,33 @@ impl HomeRebuildArgs {
       .run()
       .wrap_err("Failed to build Home-Manager configuration")?;
 
-    let prev_generation: Option<PathBuf> = if let Some(ref profile) =
-      self.profile
-    {
-      if profile.exists() {
-        Some(profile.clone())
-      } else {
-        None
+    if let Some(ref profile) = self.profile {
+      if !profile.exists() {
+        bail!(
+          "--profile path provided but does not exist: {}",
+          profile.display()
+        );
       }
-    } else {
-      [
-        PathBuf::from("/nix/var/nix/profiles/per-user")
+    }
+    let prev_generation: Option<PathBuf> =
+      if let Some(ref profile) = self.profile {
+        if profile.exists() {
+          Some(profile.clone())
+        } else {
+          None
+        }
+      } else {
+        let user_profile = PathBuf::from(USER_PROFILE_PATH)
           .join(env::var("USER").map_err(|_| eyre!("Couldn't get username"))?)
-          .join("home-manager"),
-        PathBuf::from(
+          .join("home-manager");
+        let home_profile = PathBuf::from(
           env::var("HOME").map_err(|_| eyre!("Couldn't get home directory"))?,
         )
-        .join(".local/state/nix/profiles/home-manager"),
-      ]
-      .into_iter()
-      .find(|next| next.exists())
-    };
+        .join(HOME_PROFILE_PATH);
+        [user_profile, home_profile]
+          .into_iter()
+          .find(|next| next.exists())
+      };
 
     debug!("Previous generation: {prev_generation:?}");
 
