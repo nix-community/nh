@@ -83,7 +83,7 @@ all with their extensive CLI flags for extensive configuration.
 
 ### Global Subcommands
 
-- `nh search` - a super-fast package searching tool (powered by a ElasticSearch
+- `nh search` - a super-fast package searching tool (powered by an Elasticsearch
   client) for Nix packages in supported Nixpkgs branches.
   <p align="center">
     <img
@@ -141,7 +141,7 @@ nix shell nixpkgs#nh # stable
 nix shell github:nix-community/nh # dev
 ```
 
-You can try NH today in a Nix shell today, no setup required!
+You can try NH in a Nix shell today, no setup required!
 
 ### NixOS
 
@@ -275,7 +275,7 @@ NH consists of two modules. The core of NH is found in the `src` directory, and
 is separated into different modules. Some of the critical modules that you may
 want to be aware of are `nh::commands` for command interfaces, `nh::checks` for
 pre-startup checks and `nh::util` to store shared logic. Platform-specific logic
-is placed in the appropriate platfom module, such as `nh::nixos` or `nh::darwin`
+is placed in the appropriate platform module, such as `nh::nixos` or `nh::darwin`
 with generic helpers placed in `nh::util`.
 
 The `xtask` directory contains the cargo-xtask tasks used by NH, used to
@@ -293,7 +293,7 @@ Lastly, update the [changelog](/CHANGELOG.md) and open your pull request.
 [nix-output-monitor]: https://github.com/maralorn/nix-output-monitor
 [dix]: https://github.com/bloxx12/dix
 
-NH would not be possible without all thee tools we run under the hood
+NH would not be possible without all the tools we run under the hood
 
 - Tree of builds with [nix-output-monitor].
 - Visualization of the upgrade diff with [dix].
