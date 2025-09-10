@@ -1,5 +1,8 @@
 use std::{env, ffi::OsString, path::PathBuf};
 
+const USER_PROFILE_PATH: &str = "/nix/var/nix/profiles/per-user";
+const HOME_PROFILE_PATH: &str = ".local/state/nix/profiles/home-manager";
+
 use color_eyre::{
   Result,
   eyre::{Context, bail, eyre},
@@ -99,17 +102,28 @@ impl HomeRebuildArgs {
       .run()
       .wrap_err("Failed to build Home-Manager configuration")?;
 
-    let prev_generation: Option<PathBuf> = [
-      PathBuf::from("/nix/var/nix/profiles/per-user")
+    let profile_path = if let Some(ref profile) = self.profile {
+      profile.clone()
+    } else {
+      let user_profile = PathBuf::from(USER_PROFILE_PATH)
         .join(env::var("USER").map_err(|_| eyre!("Couldn't get username"))?)
-        .join("home-manager"),
-      PathBuf::from(
+        .join("home-manager");
+      let home_profile = PathBuf::from(
         env::var("HOME").map_err(|_| eyre!("Couldn't get home directory"))?,
       )
-      .join(".local/state/nix/profiles/home-manager"),
-    ]
-    .into_iter()
-    .find(|next| next.exists());
+      .join(HOME_PROFILE_PATH);
+      if user_profile.exists() {
+        user_profile
+      } else {
+        home_profile
+      }
+    };
+
+    let prev_generation: Option<PathBuf> = if profile_path.exists() {
+      Some(profile_path.clone())
+    } else {
+      None
+    };
 
     debug!("Previous generation: {prev_generation:?}");
 
@@ -137,7 +151,7 @@ impl HomeRebuildArgs {
       out_path.clone()
     };
 
-    // just do nothing for None case (fresh installs)
+    // Just do nothing for None case (fresh installs)
     if let Some(generation) = prev_generation {
       match self.common.diff {
         DiffType::Never => {

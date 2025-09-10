@@ -22,13 +22,17 @@ static PASSWORD_CACHE: OnceLock<Mutex<HashMap<String, SecretString>>> =
 
 fn get_cached_password(host: &str) -> Option<SecretString> {
   let cache = PASSWORD_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-  let guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+  let guard = cache
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner);
   guard.get(host).cloned()
 }
 
 fn cache_password(host: &str, password: SecretString) {
   let cache = PASSWORD_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-  let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+  let mut guard = cache
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner);
   guard.insert(host.to_string(), password);
 }
 
@@ -449,7 +453,7 @@ impl Command {
         Some(cached_password)
       } else {
         let password =
-          inquire::Password::new(&format!("[sudo] password for {}:", host))
+          inquire::Password::new(&format!("[sudo] password for {host}:"))
             .without_confirmation()
             .prompt()
             .context("Failed to read sudo password")?;
@@ -492,11 +496,11 @@ impl Command {
       for (key, action) in &self.env_vars {
         match action {
           EnvAction::Set(value) => {
-            elev_cmd = elev_cmd.arg(format!("{}={}", key, value));
+            elev_cmd = elev_cmd.arg(format!("{key}={value}"));
           },
           EnvAction::Preserve => {
             if let Ok(value) = std::env::var(key) {
-              elev_cmd = elev_cmd.arg(format!("{}={}", key, value));
+              elev_cmd = elev_cmd.arg(format!("{key}={value}"));
             }
           },
           _ => {},
