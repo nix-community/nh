@@ -238,8 +238,13 @@ impl OsRebuildArgs {
 
     match self.common.diff {
       DiffType::Always => {
-        let _ =
-          print_dix_diff(&PathBuf::from(CURRENT_PROFILE), &target_profile);
+        let _ = print_dix_diff(
+          &self
+            .profile
+            .as_ref()
+            .map_or_else(|| PathBuf::from(CURRENT_PROFILE), PathBuf::from),
+          &target_profile,
+        );
       },
       DiffType::Never => {
         debug!("Not running dix as the --diff flag is set to never.");
@@ -253,8 +258,13 @@ impl OsRebuildArgs {
             "Comparing with target profile: {}",
             target_profile.display()
           );
-          let _ =
-            print_dix_diff(&PathBuf::from(CURRENT_PROFILE), &target_profile);
+          let _ = print_dix_diff(
+            &self
+              .profile
+              .as_ref()
+              .map_or_else(|| PathBuf::from(CURRENT_PROFILE), PathBuf::from),
+            &target_profile,
+          );
         } else {
           debug!(
             "Not running dix as the target hostname is different from the \
@@ -452,7 +462,13 @@ impl OsRollbackArgs {
         "Comparing with target profile: {}",
         generation_link.display()
       );
-      let _ = print_dix_diff(&PathBuf::from(CURRENT_PROFILE), &generation_link);
+      let _ = print_dix_diff(
+        &self
+          .profile
+          .as_ref()
+          .map_or_else(|| PathBuf::from(CURRENT_PROFILE), PathBuf::from),
+        &generation_link,
+      );
     }
 
     if self.dry {

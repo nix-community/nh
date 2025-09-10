@@ -23,6 +23,24 @@ use crate::{
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
 const CURRENT_PROFILE: &str = "/run/current-system";
 
+fn get_system_profile(
+  profile: &Option<std::path::PathBuf>,
+) -> &std::ffi::OsStr {
+  profile
+    .as_ref()
+    .map_or_else(|| std::ffi::OsStr::new(SYSTEM_PROFILE), |p| p.as_os_str())
+}
+
+fn get_current_profile_pathbuf(
+  profile: &Option<std::path::PathBuf>,
+) -> PathBuf {
+  // XXX: For Darwin, `CURRENT_PROFILE` is only used for diffing, so fallback to
+  // default if not set
+  profile
+    .clone()
+    .unwrap_or_else(|| PathBuf::from(CURRENT_PROFILE))
+}
+
 impl DarwinArgs {
   /// Run the `darwin` subcommand.
   ///
@@ -150,7 +168,10 @@ impl DarwinRebuildArgs {
         "Comparing with target profile: {}",
         target_profile.display()
       );
-      let _ = print_dix_diff(&PathBuf::from(CURRENT_PROFILE), &target_profile);
+      let _ = print_dix_diff(
+        &get_current_profile_pathbuf(&self.profile),
+        &target_profile,
+      );
     }
 
     if self.common.ask && !self.common.dry && !matches!(variant, Build) {
@@ -164,11 +185,7 @@ impl DarwinRebuildArgs {
     }
 
     if matches!(variant, Switch) {
-      let profile_path = if let Some(profile) = self.profile.as_ref() {
-        profile.as_os_str()
-      } else {
-        std::ffi::OsStr::new(SYSTEM_PROFILE)
-      };
+      let profile_path = get_system_profile(&self.profile);
       Command::new("nix")
         .args(["build", "--no-link", "--profile"])
         .arg(profile_path)

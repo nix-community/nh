@@ -110,25 +110,28 @@ impl HomeRebuildArgs {
         );
       }
     }
-    let prev_generation: Option<PathBuf> =
-      if let Some(ref profile) = self.profile {
-        if profile.exists() {
-          Some(profile.clone())
-        } else {
-          None
-        }
+    let profile_path = if let Some(ref profile) = self.profile {
+      profile.clone()
+    } else {
+      let user_profile = PathBuf::from(USER_PROFILE_PATH)
+        .join(env::var("USER").map_err(|_| eyre!("Couldn't get username"))?)
+        .join("home-manager");
+      let home_profile = PathBuf::from(
+        env::var("HOME").map_err(|_| eyre!("Couldn't get home directory"))?,
+      )
+      .join(HOME_PROFILE_PATH);
+      if user_profile.exists() {
+        user_profile
       } else {
-        let user_profile = PathBuf::from(USER_PROFILE_PATH)
-          .join(env::var("USER").map_err(|_| eyre!("Couldn't get username"))?)
-          .join("home-manager");
-        let home_profile = PathBuf::from(
-          env::var("HOME").map_err(|_| eyre!("Couldn't get home directory"))?,
-        )
-        .join(HOME_PROFILE_PATH);
-        [user_profile, home_profile]
-          .into_iter()
-          .find(|next| next.exists())
-      };
+        home_profile
+      }
+    };
+
+    let prev_generation: Option<PathBuf> = if profile_path.exists() {
+      Some(profile_path.clone())
+    } else {
+      None
+    };
 
     debug!("Previous generation: {prev_generation:?}");
 
