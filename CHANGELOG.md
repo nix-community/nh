@@ -14,6 +14,14 @@ be put in the "Changed" section or, if it's just to remove code or
 functionality, under the "Removed" section.
 -->
 
+## Unreleased
+
+### Added
+
+- `os`, `home` and `darwin` subcommands now accept a `--profile` flag. 
+  - For `nh os` subcommands, `--profile` allows you to override the default system profile path for all system operations, including builds, rollbacks, and generation queries. If the flag is not set, the default system profile is used. If the path does not exist, nh will error out.
+  - For `nh home` and `nh darwin`, `--profile` similarly overrides the default profile path for home-manager and nix-darwin operations, with the same fallback and error behavior.
+
 ## 4.2.0
 
 ### Changed
