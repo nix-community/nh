@@ -82,8 +82,10 @@ impl OsRebuildArgs {
   ) -> Result<()> {
     use OsRebuildVariant::{Boot, Build, BuildVm, Switch, Test};
 
-    if let Some(profile) = self.profile.as_ref() {
-      if !std::path::Path::new(profile).exists() {
+    if let (Some(profile), None) =
+      (self.profile.as_ref(), self.target_host.as_ref())
+    {
+      if !profile.exists() {
         bail!(
           "--profile path provided but does not exist: {}",
           profile.display()
