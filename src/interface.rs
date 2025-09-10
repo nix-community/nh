@@ -230,7 +230,7 @@ pub struct OsRebuildArgs {
   pub build_host: Option<String>,
 
   /// Path to Nix' system profile
-  #[arg(long, short = 'P')]
+  #[arg(long, short = 'P', value_hint = clap::ValueHint::FilePath)]
   pub profile: Option<std::path::PathBuf>,
 }
 
@@ -291,7 +291,7 @@ pub struct OsRollbackArgs {
   pub diff: DiffType,
 
   /// Path to Nix' system profile for rollback
-  #[arg(long, short = 'P')]
+  #[arg(long, short = 'P', value_hint = clap::ValueHint::FilePath)]
   pub profile: Option<std::path::PathBuf>,
 }
 
@@ -524,7 +524,7 @@ pub struct HomeRebuildArgs {
   pub backup_extension: Option<String>,
 
   /// Path to Home-Manager profile
-  #[arg(long, short = 'P')]
+  #[arg(long, short = 'P', value_hint = clap::ValueHint::FilePath)]
   pub profile: Option<std::path::PathBuf>,
 }
 
@@ -637,7 +637,7 @@ pub struct DarwinRebuildArgs {
   pub bypass_root_check: bool,
 
   /// Path to Darwin system profile
-  #[arg(long, short = 'P')]
+  #[arg(long, short = 'P', value_hint = clap::ValueHint::FilePath)]
   pub profile: Option<std::path::PathBuf>,
 }
 
