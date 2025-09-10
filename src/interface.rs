@@ -228,6 +228,10 @@ pub struct OsRebuildArgs {
   /// Build the configuration to a different host over ssh
   #[arg(long)]
   pub build_host: Option<String>,
+
+  /// Path to Nix' system profile
+  #[arg(long, short = 'P')]
+  pub profile: Option<std::path::PathBuf>,
 }
 
 impl OsRebuildArgs {
@@ -285,6 +289,10 @@ pub struct OsRollbackArgs {
   /// Whether to display a package diff
   #[arg(long, short, value_enum, default_value_t = DiffType::Auto)]
   pub diff: DiffType,
+
+  /// Path to Nix' system profile for rollback
+  #[arg(long, short = 'P')]
+  pub profile: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -514,6 +522,10 @@ pub struct HomeRebuildArgs {
   /// Move existing files by backing up with this file extension
   #[arg(long, short = 'b')]
   pub backup_extension: Option<String>,
+
+  /// Path to Home-Manager profile
+  #[arg(long, short = 'P')]
+  pub profile: Option<std::path::PathBuf>,
 }
 
 impl HomeRebuildArgs {
@@ -623,6 +635,10 @@ pub struct DarwinRebuildArgs {
   /// Don't panic if calling nh as root
   #[arg(short = 'R', long, env = "NH_BYPASS_ROOT_CHECK")]
   pub bypass_root_check: bool,
+
+  /// Path to Darwin system profile
+  #[arg(long, short = 'P')]
+  pub profile: Option<std::path::PathBuf>,
 }
 
 impl DarwinRebuildArgs {

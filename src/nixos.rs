@@ -330,9 +330,14 @@ impl OsRebuildArgs {
         .canonicalize()
         .context("Failed to resolve output path")?;
 
+      let system_profile_path = self.profile.as_ref().map_or_else(
+        || std::ffi::OsStr::new(SYSTEM_PROFILE),
+        |p| p.as_os_str(),
+      );
       Command::new("nix")
         .elevate(elevate.then_some(elevation.clone()))
-        .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
+        .args(["build", "--no-link", "--profile"])
+        .arg(system_profile_path)
         .arg(&canonical_out_path)
         .ssh(self.target_host.clone())
         .with_required_env()
@@ -401,7 +406,11 @@ impl OsRollbackArgs {
     info!("Rolling back to generation {}", target_generation.number);
 
     // Construct path to the generation
-    let profile_dir = Path::new(SYSTEM_PROFILE).parent().unwrap_or_else(|| {
+    let system_profile_path = self
+      .profile
+      .as_deref()
+      .unwrap_or_else(|| Path::new(SYSTEM_PROFILE));
+    let profile_dir = system_profile_path.parent().unwrap_or_else(|| {
       tracing::warn!(
         "SYSTEM_PROFILE has no parent, defaulting to /nix/var/nix/profiles"
       );
@@ -469,10 +478,14 @@ impl OsRollbackArgs {
     info!("Setting system profile...");
 
     // Instead of direct symlink operations, use a command with proper elevation
+    let system_profile_path = self
+      .profile
+      .as_deref()
+      .unwrap_or_else(|| Path::new(SYSTEM_PROFILE));
     Command::new("ln")
             .arg("-sfn") // force, symbolic link
             .arg(&generation_link)
-            .arg(SYSTEM_PROFILE)
+            .arg(system_profile_path)
             .elevate(elevate.then_some(elevation.clone()))
             .message("Setting system profile")
             .with_required_env()
@@ -534,10 +547,14 @@ impl OsRollbackArgs {
           let current_gen_link =
             profile_dir.join(format!("system-{current_gen_number}-link"));
 
+          let system_profile_path = self
+            .profile
+            .as_deref()
+            .unwrap_or_else(|| Path::new(SYSTEM_PROFILE));
           Command::new("ln")
                         .arg("-sfn") // Force, symbolic link
                         .arg(&current_gen_link)
-                        .arg(SYSTEM_PROFILE)
+                        .arg(system_profile_path)
                         .elevate(elevate.then_some(elevation))
                         .message("Rolling back system profile")
                         .with_required_env()

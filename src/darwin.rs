@@ -155,8 +155,13 @@ impl DarwinRebuildArgs {
     }
 
     if matches!(variant, Switch) {
+      let profile_path = self.profile.as_ref().map_or_else(
+        || std::ffi::OsStr::new(SYSTEM_PROFILE),
+        |p| p.as_os_str(),
+      );
       Command::new("nix")
-        .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
+        .args(["build", "--no-link", "--profile"])
+        .arg(profile_path)
         .arg(&out_path)
         .elevate(Some(elevation.clone()))
         .dry(self.common.dry)

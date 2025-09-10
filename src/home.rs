@@ -99,17 +99,27 @@ impl HomeRebuildArgs {
       .run()
       .wrap_err("Failed to build Home-Manager configuration")?;
 
-    let prev_generation: Option<PathBuf> = [
-      PathBuf::from("/nix/var/nix/profiles/per-user")
-        .join(env::var("USER").map_err(|_| eyre!("Couldn't get username"))?)
-        .join("home-manager"),
-      PathBuf::from(
-        env::var("HOME").map_err(|_| eyre!("Couldn't get home directory"))?,
-      )
-      .join(".local/state/nix/profiles/home-manager"),
-    ]
-    .into_iter()
-    .find(|next| next.exists());
+    let prev_generation: Option<PathBuf> = if let Some(ref profile) =
+      self.profile
+    {
+      if profile.exists() {
+        Some(profile.clone())
+      } else {
+        None
+      }
+    } else {
+      [
+        PathBuf::from("/nix/var/nix/profiles/per-user")
+          .join(env::var("USER").map_err(|_| eyre!("Couldn't get username"))?)
+          .join("home-manager"),
+        PathBuf::from(
+          env::var("HOME").map_err(|_| eyre!("Couldn't get home directory"))?,
+        )
+        .join(".local/state/nix/profiles/home-manager"),
+      ]
+      .into_iter()
+      .find(|next| next.exists())
+    };
 
     debug!("Previous generation: {prev_generation:?}");
 
