@@ -102,14 +102,6 @@ impl HomeRebuildArgs {
       .run()
       .wrap_err("Failed to build Home-Manager configuration")?;
 
-    if let Some(ref profile) = self.profile {
-      if !profile.exists() {
-        bail!(
-          "--profile path provided but does not exist: {}",
-          profile.display()
-        );
-      }
-    }
     let profile_path = if let Some(ref profile) = self.profile {
       profile.clone()
     } else {
@@ -159,7 +151,7 @@ impl HomeRebuildArgs {
       out_path.clone()
     };
 
-    // just do nothing for None case (fresh installs)
+    // Just do nothing for None case (fresh installs)
     if let Some(generation) = prev_generation {
       match self.common.diff {
         DiffType::Never => {

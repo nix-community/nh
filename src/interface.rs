@@ -1,8 +1,52 @@
-use std::{env, path::PathBuf};
+use std::{
+  env,
+  path::{Path, PathBuf},
+};
 
 use anstyle::Style;
 use clap::{Args, Parser, Subcommand, ValueEnum, builder::Styles};
 use clap_verbosity_flag::InfoLevel;
+use color_eyre::eyre::eyre;
+
+/// Validates that the provided path exists and is a symbolic link. This is done
+/// in order to handle the error consistently with the rest of our crate instead
+/// of letting Nix perform the validation and throw its own error kind.
+///
+/// # Parameters
+///
+/// - `s`: The string representation of the path to validate.
+///
+/// # Returns
+///
+/// - `Ok(PathBuf)`: If the path exists and is a symlink, returns the
+///   canonicalized `PathBuf`.
+/// - `Err(String)`: If the path does not exist or is not a symlink, returns a
+///   descriptive error message suitable for display to the user.
+///
+/// # Errors
+///
+/// Returns an error if the path does not exist or is not a symbolic link.
+fn symlink_path_validator(s: &str) -> Result<PathBuf, String> {
+  let path = Path::new(s);
+
+  // `bail!` is for early returns in functions that return `Result<T, E>`, i.e.,
+  // it immediately returns from the function with an error. Since this is a
+  // value parser and we need to return `Err(String)` `eyre!` is more
+  // appropriate.
+  if !path.exists() {
+    return Err(
+      eyre!("--profile path provided but does not exist: {}", s).to_string(),
+    );
+  }
+
+  if !path.is_symlink() {
+    return Err(
+      eyre!("--profile path exists but is not a symlink: {}", s).to_string(),
+    );
+  }
+
+  Ok(path.to_path_buf())
+}
 
 use crate::{
   Result,
@@ -230,7 +274,7 @@ pub struct OsRebuildArgs {
   pub build_host: Option<String>,
 
   /// Path to Nix' system profile
-  #[arg(long, short = 'P', value_hint = clap::ValueHint::FilePath)]
+  #[arg(long, short = 'P', value_hint = clap::ValueHint::FilePath, value_parser = symlink_path_validator)]
   pub profile: Option<std::path::PathBuf>,
 }
 
@@ -291,7 +335,7 @@ pub struct OsRollbackArgs {
   pub diff: DiffType,
 
   /// Path to Nix' system profile for rollback
-  #[arg(long, short = 'P', value_hint = clap::ValueHint::FilePath)]
+  #[arg(long, short = 'P', value_hint = clap::ValueHint::FilePath, value_parser = symlink_path_validator)]
   pub profile: Option<std::path::PathBuf>,
 }
 
@@ -524,7 +568,7 @@ pub struct HomeRebuildArgs {
   pub backup_extension: Option<String>,
 
   /// Path to Home-Manager profile
-  #[arg(long, short = 'P', value_hint = clap::ValueHint::FilePath)]
+  #[arg(long, short = 'P', value_hint = clap::ValueHint::FilePath, value_parser = symlink_path_validator)]
   pub profile: Option<std::path::PathBuf>,
 }
 
@@ -637,7 +681,7 @@ pub struct DarwinRebuildArgs {
   pub bypass_root_check: bool,
 
   /// Path to Darwin system profile
-  #[arg(long, short = 'P', value_hint = clap::ValueHint::FilePath)]
+  #[arg(long, short = 'P', value_hint = clap::ValueHint::FilePath, value_parser = symlink_path_validator)]
   pub profile: Option<std::path::PathBuf>,
 }
 

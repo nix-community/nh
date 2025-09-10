@@ -82,17 +82,6 @@ impl OsRebuildArgs {
   ) -> Result<()> {
     use OsRebuildVariant::{Boot, Build, BuildVm, Switch, Test};
 
-    if let (Some(profile), None) =
-      (self.profile.as_ref(), self.target_host.as_ref())
-    {
-      if !profile.exists() {
-        bail!(
-          "--profile path provided but does not exist: {}",
-          profile.display()
-        );
-      }
-    }
-
     if self.build_host.is_some() || self.target_host.is_some() {
       // if it fails its okay
       let _ = ensure_ssh_key_login();
