@@ -14,6 +14,13 @@ be put in the "Changed" section or, if it's just to remove code or
 functionality, under the "Removed" section.
 -->
 
+## Unreleased
+
+### Fixed
+
+- Darwin: fall back to directly executing `activate` (and `activate-user` if
+  applicable) if `darwin-rebuild` does not exist.
+
 ## 4.2.0
 
 ### Changed

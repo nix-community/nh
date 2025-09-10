@@ -167,24 +167,46 @@ impl DarwinRebuildArgs {
       let darwin_rebuild = out_path.join("sw/bin/darwin-rebuild");
       let activate_user = out_path.join("activate-user");
 
-      // Determine if we need to elevate privileges
-      let needs_elevation = !activate_user
+      // Determine if darwin-rebuild is present, and if so, use it
+      let has_darwin_rebuild = darwin_rebuild
+        .try_exists()
+        .context("Failed to check if darwin-rebuild file exists")?;
+
+      // Determine if we need to elevate privileges and/or run the deprecated
+      // activate-user script
+      let uses_new_activation = !activate_user
         .try_exists()
         .context("Failed to check if activate-user file exists")?
         || std::fs::read_to_string(&activate_user)
           .context("Failed to read activate-user file")?
           .contains("# nix-darwin: deprecated");
 
-      // Create and run the activation command with or without elevation
-      Command::new(darwin_rebuild)
-        .arg("activate")
+      let activation = if has_darwin_rebuild {
+        Command::new(darwin_rebuild).arg("activate")
+      } else {
+        Command::new(out_path.join("activate"))
+      };
+
+      let should_elevate = uses_new_activation || !has_darwin_rebuild;
+
+      activation
         .message("Activating configuration")
-        .elevate(needs_elevation.then_some(elevation))
+        .elevate(should_elevate.then_some(elevation))
         .dry(self.common.dry)
         .show_output(true)
         .with_required_env()
         .run()
         .wrap_err("Darwin activation failed")?;
+
+      if !has_darwin_rebuild && !uses_new_activation {
+        Command::new(activate_user)
+          .message("Activating configuration for user")
+          .dry(self.common.dry)
+          .show_output(true)
+          .with_required_env()
+          .run()
+          .wrap_err("Darwin user activation failed")?;
+      }
     }
 
     debug!("Completed operation with output path: {out_path:?}");
