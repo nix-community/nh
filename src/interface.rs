@@ -347,8 +347,7 @@ pub struct OsGenerationsArgs {
   #[arg(long, short = 'P', default_value = "/nix/var/nix/profiles/system")]
   pub profile: Option<String>,
 
-  /// Specify which field(s) to show (comma-delimited).Defaults to show all
-  /// fields.
+  /// Comma-delimited list of field(s) to display
   #[arg(
     long,
     value_delimiter = ',',
