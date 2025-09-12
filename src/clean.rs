@@ -19,7 +19,8 @@ use tracing::{Level, debug, info, instrument, span, warn};
 use crate::{
   Result,
   commands::{Command, ElevationStrategy},
-  interface,
+  interface::{self, NotifyAskMode},
+  notify::NotificationSender,
 };
 
 // Nix impl:
@@ -306,12 +307,33 @@ impl interface::CleanMode {
     }
 
     // Clean the paths
-    if args.ask
-      && !Confirm::new("Confirm the cleanup plan?")
-        .with_default(false)
-        .prompt()?
-    {
-      bail!("User rejected the cleanup plan");
+    if let Some(ask) = args.ask.as_ref() {
+      let confirmation = match ask {
+        NotifyAskMode::Prompt => {
+          Confirm::new("Confirm the cleanup plan?")
+            .with_default(false)
+            .prompt()?
+        },
+        NotifyAskMode::Notify => {
+          let clean_mode = match self {
+            Self::Profile(_) => "profile",
+            Self::All(_) => "all",
+            Self::User(_) => "user",
+          };
+
+          NotificationSender::new(
+            &format!("nh clean {clean_mode}"),
+            "Confirm the cleanup plan?",
+          )
+          .ask()
+          .unwrap()
+        },
+        NotifyAskMode::Both => unimplemented!(),
+      };
+
+      if !confirmation {
+        bail!("User rejected the cleanup plan");
+      }
     }
 
     if !args.dry {

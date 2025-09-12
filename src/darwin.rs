@@ -1,12 +1,11 @@
-use std::{env, path::PathBuf};
+use std::{env, fmt, path::PathBuf};
 
 use color_eyre::eyre::{Context, bail, eyre};
 use tracing::{debug, warn};
 
 use crate::{
   Result,
-  commands,
-  commands::{Command, ElevationStrategy},
+  commands::{self, Command, ElevationStrategy},
   installable::Installable,
   interface::{
     DarwinArgs,
@@ -14,8 +13,10 @@ use crate::{
     DarwinReplArgs,
     DarwinSubcommand,
     DiffType,
+    NotifyAskMode,
   },
   nixos::toplevel_for,
+  notify::NotificationSender,
   update::update,
   util::{get_hostname, print_dix_diff},
 };
@@ -34,7 +35,7 @@ impl DarwinArgs {
     match self.subcommand {
       DarwinSubcommand::Switch(args) => args.rebuild(&Switch, elevation),
       DarwinSubcommand::Build(args) => {
-        if args.common.ask || args.common.dry {
+        if args.common.ask.is_some() || args.common.dry {
           warn!("`--ask` and `--dry` have no effect for `nh darwin build`");
         }
         args.rebuild(&Build, elevation)
@@ -47,6 +48,16 @@ impl DarwinArgs {
 enum DarwinRebuildVariant {
   Switch,
   Build,
+}
+
+impl fmt::Display for DarwinRebuildVariant {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    let s = match self {
+      DarwinRebuildVariant::Build => "build",
+      DarwinRebuildVariant::Switch => "switch",
+    };
+    write!(f, "{s}")
+  }
 }
 
 impl DarwinRebuildArgs {
@@ -144,13 +155,29 @@ impl DarwinRebuildArgs {
       let _ = print_dix_diff(&PathBuf::from(CURRENT_PROFILE), &target_profile);
     }
 
-    if self.common.ask && !self.common.dry && !matches!(variant, Build) {
-      let confirmation = inquire::Confirm::new("Apply the config?")
-        .with_default(false)
-        .prompt()?;
+    if !self.common.dry && !matches!(variant, Build) {
+      if let Some(ask) = self.common.ask {
+        let confirmation = match ask {
+          NotifyAskMode::Prompt => {
+            inquire::Confirm::new("Apply the config?")
+              .with_default(false)
+              .prompt()?
+          },
+          // MacOS doesn't support notification actions
+          NotifyAskMode::Notify | NotifyAskMode::Both => {
+            NotificationSender::new(&format!("nh darwin {variant}"), "testing")
+              .send()
+              .unwrap();
 
-      if !confirmation {
-        bail!("User rejected the new config");
+            inquire::Confirm::new("Apply the config?")
+              .with_default(false)
+              .prompt()?
+          },
+        };
+
+        if !confirmation {
+          bail!("User rejected the new config");
+        }
       }
     }
 

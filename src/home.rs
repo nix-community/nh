@@ -1,4 +1,4 @@
-use std::{env, ffi::OsString, path::PathBuf};
+use std::{env, ffi::OsString, fmt, path::PathBuf};
 
 use color_eyre::{
   Result,
@@ -7,10 +7,17 @@ use color_eyre::{
 use tracing::{debug, info, warn};
 
 use crate::{
-  commands,
-  commands::Command,
+  commands::{self, Command},
   installable::Installable,
-  interface::{self, DiffType, HomeRebuildArgs, HomeReplArgs, HomeSubcommand},
+  interface::{
+    self,
+    DiffType,
+    HomeRebuildArgs,
+    HomeReplArgs,
+    HomeSubcommand,
+    NotifyAskMode,
+  },
+  notify::NotificationSender,
   update::update,
   util::{get_hostname, print_dix_diff},
 };
@@ -26,7 +33,7 @@ impl interface::HomeArgs {
     match self.subcommand {
       HomeSubcommand::Switch(args) => args.rebuild(&Switch),
       HomeSubcommand::Build(args) => {
-        if args.common.ask || args.common.dry {
+        if args.common.ask.is_some() || args.common.dry {
           warn!("`--ask` and `--dry` have no effect for `nh home build`");
         }
         args.rebuild(&Build)
@@ -40,6 +47,16 @@ impl interface::HomeArgs {
 enum HomeRebuildVariant {
   Build,
   Switch,
+}
+
+impl fmt::Display for HomeRebuildVariant {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    let s = match self {
+      HomeRebuildVariant::Build => "build",
+      HomeRebuildVariant::Switch => "switch",
+    };
+    write!(f, "{s}")
+  }
 }
 
 impl HomeRebuildArgs {
@@ -150,16 +167,26 @@ impl HomeRebuildArgs {
     }
 
     if self.common.dry || matches!(variant, Build) {
-      if self.common.ask {
+      if self.common.ask.is_some() {
         warn!("--ask has no effect as dry run was requested");
       }
       return Ok(());
     }
 
-    if self.common.ask {
-      let confirmation = inquire::Confirm::new("Apply the config?")
-        .with_default(false)
-        .prompt()?;
+    if let Some(ask) = self.common.ask {
+      let confirmation = match ask {
+        NotifyAskMode::Prompt => {
+          inquire::Confirm::new("Apply the config?")
+            .with_default(false)
+            .prompt()?
+        },
+        NotifyAskMode::Notify => {
+          NotificationSender::new("nh os rollback", "testing")
+            .ask()
+            .unwrap()
+        },
+        NotifyAskMode::Both => unimplemented!(),
+      };
 
       if !confirmation {
         bail!("User rejected the new config");
