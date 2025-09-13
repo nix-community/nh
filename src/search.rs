@@ -133,7 +133,7 @@ impl SearchArgs {
             // this file and the corresponding workflow called
             // nixos-search.yaml have to be updated accordingly.
             .post(format!(
-                "https://search.nixos.org/backend/latest-43-{channel}/_search"
+                "https://search.nixos.org/backend/latest-44-{channel}/_search"
             ))
             .json(&query)
             .header("User-Agent", format!("nh/{}", crate::NH_VERSION))

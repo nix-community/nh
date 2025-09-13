@@ -15,7 +15,7 @@ jobs:
           VERSION_CONTENT=$(curl --silent "https://raw.githubusercontent.com/nixos/nixos-search/main/VERSION" | tr -d '[:space:]')
           # NOTE: this number and the version number in src/search.rs have
           # to be updated when nixos-search updates it's version number.
-          VERSION_NUMBER=43
+          VERSION_NUMBER=44
 
           echo "Found VERSION: $VERSION_CONTENT"
 
