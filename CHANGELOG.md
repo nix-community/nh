@@ -17,10 +17,17 @@ functionality, under the "Removed" section.
 
 ### Changed
 
-- `nh os info` now support `--fields` to select which field(s) to display; 
+- `nh os info` now support `--fields` to select which field(s) to display;
   also add a per-generation "Closure Size" coloumn.
   ([#375](https://github.com/nix-community/nh/issues/375))
-  
+
+### Fixed
+
+- Correctly handle spaces and quoted arguments when constructing elevated commands.
+  Previously command lines were split on whitespace, which broke arguments containing spaces.
+  `shlex` is now used to parse the command line, ensuring quotes and escapes are
+  preserved when building `std::process::Command` via `Command::self_elevate_cmd`.
+
 ## 4.2.0
 
 ### Changed
