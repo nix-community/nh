@@ -414,15 +414,20 @@ impl Command {
 
     // Convert Exec to std::process::Command by parsing the command line
     let cmdline = final_exec.to_cmdline_lossy();
-    let parts: Vec<&str> = cmdline.split_whitespace().collect();
+    let parts = match shlex::split(&cmdline) {
+      Some(tokens) => tokens,
+      None => {
+        bail!("Failed to parse sudo command")
+      },
+    };
 
     if parts.is_empty() {
       bail!("Failed to build sudo command");
     }
 
-    let mut std_cmd = std::process::Command::new(parts[0]);
+    let mut std_cmd = std::process::Command::new(&parts[0]);
     if parts.len() > 1 {
-      std_cmd.args(&parts[1..]);
+      std_cmd.args(parts.iter().skip(1).map(|s| s.as_str()));
     }
 
     Ok(std_cmd)
@@ -965,7 +970,12 @@ mod tests {
     // injected (e.g., NH_SUDO_ASKPASS). Accept any command line where
     // 'sudo' is present as a token.
     let cmdline = sudo_exec.to_cmdline_lossy();
-    assert!(cmdline.split_whitespace().any(|tok| tok == "sudo"));
+    assert!(
+      shlex::split(&cmdline)
+        .unwrap_or_default()
+        .iter()
+        .any(|tok| tok == "sudo")
+    );
   }
 
   #[test]
