@@ -427,7 +427,7 @@ impl Command {
 
     let mut std_cmd = std::process::Command::new(&parts[0]);
     if parts.len() > 1 {
-      std_cmd.args(parts.iter().skip(1).map(|s| s.as_str()));
+      std_cmd.args(&parts[1..]);
     }
 
     Ok(std_cmd)
