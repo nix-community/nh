@@ -1,5 +1,6 @@
 use std::{
   env,
+  fmt,
   fs,
   path::{Path, PathBuf},
 };
@@ -8,13 +9,13 @@ use color_eyre::eyre::{Context, Result, bail, eyre};
 use tracing::{debug, info, warn};
 
 use crate::{
-  commands,
-  commands::{Command, ElevationStrategy},
+  commands::{self, Command, ElevationStrategy},
   generations,
   installable::Installable,
   interface::{
     self,
     DiffType,
+    NotifyAskMode,
     OsBuildVmArgs,
     OsGenerationsArgs,
     OsRebuildArgs,
@@ -22,6 +23,8 @@ use crate::{
     OsRollbackArgs,
     OsSubcommand::{self},
   },
+  nh_debug,
+  notify::NotificationSender,
   update::update,
   util::{ensure_ssh_key_login, get_hostname, print_dix_diff},
 };
@@ -39,7 +42,7 @@ impl interface::OsArgs {
       OsSubcommand::Test(args) => args.rebuild(&Test, None, elevation),
       OsSubcommand::Switch(args) => args.rebuild(&Switch, None, elevation),
       OsSubcommand::Build(args) => {
-        if args.common.ask || args.common.dry {
+        if args.common.ask.is_some() || args.common.dry {
           warn!("`--ask` and `--dry` have no effect for `nh os build`");
         }
         args.rebuild(&Build, None, elevation)
@@ -59,6 +62,19 @@ enum OsRebuildVariant {
   Boot,
   Test,
   BuildVm,
+}
+
+impl fmt::Display for OsRebuildVariant {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    let s = match self {
+      OsRebuildVariant::Build => "build",
+      OsRebuildVariant::Switch => "switch",
+      OsRebuildVariant::Boot => "boot",
+      OsRebuildVariant::Test => "test",
+      OsRebuildVariant::BuildVm => "build-vm",
+    };
+    write!(f, "{s}")
+  }
 }
 
 impl OsBuildVmArgs {
@@ -258,16 +274,28 @@ impl OsRebuildArgs {
     }
 
     if self.common.dry || matches!(variant, Build | BuildVm) {
-      if self.common.ask {
+      if self.common.ask.is_some() {
         warn!("--ask has no effect as dry run was requested");
       }
       return Ok(());
     }
 
-    if self.common.ask {
-      let confirmation = inquire::Confirm::new("Apply the config?")
-        .with_default(false)
-        .prompt()?;
+    if let Some(ask) = self.common.ask {
+      let confirmation = match ask {
+        NotifyAskMode::Prompt => {
+          inquire::Confirm::new("Apply the config?")
+            .with_default(false)
+            .prompt()?
+        },
+        NotifyAskMode::Notify => {
+          NotificationSender::new(
+            &format!("nh os {variant}"),
+            "Apply the config?",
+          )
+          .ask()
+        },
+        NotifyAskMode::Both => unimplemented!(),
+      };
 
       if !confirmation {
         bail!("User rejected the new config");
@@ -340,7 +368,7 @@ impl OsRebuildArgs {
         .wrap_err("Failed to set system profile")?;
     }
 
-    debug!("Completed operation with output path: {out_path:?}");
+    nh_debug!("Completed operation with output path: {out_path:?}");
 
     Ok(())
   }
@@ -411,13 +439,25 @@ impl OsRollbackArgs {
       return Ok(());
     }
 
-    if self.ask {
-      let confirmation = inquire::Confirm::new(&format!(
-        "Roll back to generation {}?",
-        target_generation.number
-      ))
-      .with_default(false)
-      .prompt()?;
+    if let Some(ask) = self.ask.as_ref() {
+      let confirmation = match ask {
+        NotifyAskMode::Prompt => {
+          inquire::Confirm::new(&format!(
+            "Roll back to generation {}?",
+            target_generation.number
+          ))
+          .with_default(false)
+          .prompt()?
+        },
+        NotifyAskMode::Notify => {
+          NotificationSender::new(
+            "nh os rollback",
+            &format!("Roll back to generation {}?", target_generation.number),
+          )
+          .ask()
+        },
+        NotifyAskMode::Both => unimplemented!(),
+      };
 
       if !confirmation {
         bail!("User rejected the rollback");

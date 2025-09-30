@@ -339,11 +339,11 @@ pub fn print_info(
     .iter()
     .map(|f| {
       let (name, width) = f.column_info(widths);
-      format!("{:<width$}", name)
+      format!("{name:<width$}")
     })
     .collect::<Vec<String>>()
     .join(" ");
-  println!("{}", header);
+  println!("{header}");
 
   // Print generations in descending order
   for generation in generations.iter().rev() {
@@ -382,11 +382,11 @@ pub fn print_info(
           Field::Spec => specialisations.clone(),
           Field::Size => generation.closure_size.clone(),
         };
-        format!("{:width$}", cell_content)
+        format!("{cell_content:width$}")
       })
       .collect::<Vec<String>>()
       .join(" ");
-    println!("{}", row);
+    println!("{row}");
   }
 
   Ok(())
