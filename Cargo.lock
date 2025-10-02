@@ -1243,6 +1243,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
+ "shlex",
  "subprocess",
  "supports-hyperlinks",
  "system-configuration",
