@@ -214,6 +214,10 @@ pub struct OsRebuildArgs {
   #[arg(long, short = 'S')]
   pub no_specialisation: bool,
 
+  /// Install bootloader for switch and boot commands
+  #[arg(long)]
+  pub install_bootloader: bool,
+
   /// Extra arguments passed to nix build
   #[arg(last = true)]
   pub extra_args: Vec<String>,

@@ -179,7 +179,9 @@ impl OsRebuildArgs {
     let toplevel = toplevel_for(
       &target_hostname,
       installable,
-      final_attr.unwrap_or(String::from("toplevel")).as_str(),
+      final_attr
+        .unwrap_or_else(|| String::from("toplevel"))
+        .as_str(),
     );
 
     let message = match variant {
@@ -208,10 +210,10 @@ impl OsRebuildArgs {
 
     debug!("Target specialisation: {target_specialisation:?}");
 
-    let target_profile = match &target_specialisation {
-      None => out_path.clone(),
-      Some(spec) => out_path.join("specialisation").join(spec),
-    };
+    let target_profile = target_specialisation.as_ref().map_or_else(
+      || out_path.clone(),
+      |spec| out_path.join("specialisation").join(spec),
+    );
 
     debug!("Output path: {out_path:?}");
     debug!("Target profile path: {}", target_profile.display());
@@ -290,31 +292,33 @@ impl OsRebuildArgs {
         .run()?;
     }
 
+    let switch_to_configuration = target_profile
+      .canonicalize()
+      .context("Failed to resolve output path")?
+      .join("bin")
+      .join("switch-to-configuration")
+      .canonicalize()
+      .context("Failed to resolve switch-to-configuration path")?;
+
+    if !switch_to_configuration.exists() {
+      return Err(eyre!(
+        "The 'switch-to-configuration' binary is missing from the built \
+         configuration.\n\nThis typically happens when 'system.switch.enable' \
+         is set to false in your\nNixOS configuration. To fix this, please \
+         either:\n1. Remove 'system.switch.enable = false' from your \
+         configuration, or\n2. Set 'system.switch.enable = true' \
+         explicitly\n\nIf the problem persists, please open an issue on our \
+         issue tracker!"
+      ));
+    }
+
+    let canonical_out_path =
+      switch_to_configuration.to_str().ok_or_else(|| {
+        eyre!("switch-to-configuration path contains invalid UTF-8")
+      })?;
+
     if let Test | Switch = variant {
-      let switch_to_configuration =
-        target_profile.join("bin").join("switch-to-configuration");
-
-      if !switch_to_configuration.exists() {
-        return Err(eyre!(
-          "The 'switch-to-configuration' binary is missing from the built \
-           configuration.\n\nThis typically happens when \
-           'system.switch.enable' is set to false in your\nNixOS \
-           configuration. To fix this, please either:\n1. Remove \
-           'system.switch.enable = false' from your configuration, or\n2. Set \
-           'system.switch.enable = true' explicitly\n\nIf the problem \
-           persists, please open an issue on our issue tracker!"
-        ));
-      }
-
-      let switch_to_configuration = switch_to_configuration
-        .canonicalize()
-        .context("Failed to resolve switch-to-configuration path")?;
-      let switch_to_configuration =
-        switch_to_configuration.to_str().ok_or_else(|| {
-          eyre!("switch-to-configuration path contains invalid UTF-8")
-        })?;
-
-      Command::new(switch_to_configuration)
+      Command::new(canonical_out_path)
         .arg("test")
         .ssh(self.target_host.clone())
         .message("Activating configuration")
@@ -323,63 +327,45 @@ impl OsRebuildArgs {
         .with_required_env()
         .run()
         .wrap_err("Activation (test) failed")?;
+
+      debug!("Completed {variant:?} operation with output path: {out_path:?}");
     }
 
     if let Boot | Switch = variant {
-      let canonical_out_path = out_path
-        .canonicalize()
-        .context("Failed to resolve output path")?;
-
       Command::new("nix")
         .elevate(elevate.then_some(elevation.clone()))
         .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
-        .arg(&canonical_out_path)
+        .arg(canonical_out_path)
         .ssh(self.target_host.clone())
         .with_required_env()
         .run()
         .wrap_err("Failed to set system profile")?;
 
-      let switch_to_configuration =
-        out_path.join("bin").join("switch-to-configuration");
-
-      if !switch_to_configuration.exists() {
-        return Err(eyre!(
-          "The 'switch-to-configuration' binary is missing from the built \
-           configuration.\n\nThis typically happens when \
-           'system.switch.enable' is set to false in your\nNixOS \
-           configuration. To fix this, please either:\n1. Remove \
-           'system.switch.enable = false' from your configuration, or\n2. Set \
-           'system.switch.enable = true' explicitly\n\nIf the problem \
-           persists, please open an issue on our issue tracker!"
-        ));
-      }
-
-      let switch_to_configuration = switch_to_configuration
-        .canonicalize()
-        .context("Failed to resolve switch-to-configuration path")?;
-      let switch_to_configuration =
-        switch_to_configuration.to_str().ok_or_else(|| {
-          eyre!("switch-to-configuration path contains invalid UTF-8")
-        })?;
-
-      Command::new(switch_to_configuration)
+      let mut cmd = Command::new(switch_to_configuration)
         .arg("boot")
         .ssh(self.target_host)
         .elevate(elevate.then_some(elevation))
         .message("Adding configuration to bootloader")
-        .preserve_envs(["NIXOS_INSTALL_BOOTLOADER"])
+        .preserve_envs(["NIXOS_INSTALL_BOOTLOADER"]);
+
+      if self.install_bootloader {
+        cmd = cmd.set_env("NIXOS_INSTALL_BOOTLOADER", "1");
+      }
+
+      cmd
         .with_required_env()
         .run()
         .wrap_err("Bootloader activation failed")?;
     }
 
-    debug!("Completed operation with output path: {out_path:?}");
+    debug!("Completed {variant:?} operation with output path: {out_path:?}");
 
     Ok(())
   }
 }
 
 impl OsRollbackArgs {
+  #[expect(clippy::too_many_lines)]
   fn rollback(&self, elevation: ElevationStrategy) -> Result<()> {
     let elevate = if self.bypass_root_check {
       warn!("Bypassing root check, now running nix as root");
@@ -560,7 +546,7 @@ fn find_previous_generation() -> Result<generations::GenerationInfo> {
   let mut generations: Vec<generations::GenerationInfo> = fs::read_dir(
     profile_path
       .parent()
-      .unwrap_or(Path::new("/nix/var/nix/profiles")),
+      .unwrap_or_else(|| Path::new("/nix/var/nix/profiles")),
   )?
   .filter_map(|entry| {
     entry.ok().and_then(|e| {
@@ -608,7 +594,7 @@ fn find_generation_by_number(
   let generations: Vec<generations::GenerationInfo> = fs::read_dir(
     profile_path
       .parent()
-      .unwrap_or(Path::new("/nix/var/nix/profiles")),
+      .unwrap_or_else(|| Path::new("/nix/var/nix/profiles")),
   )?
   .filter_map(|entry| {
     entry.ok().and_then(|e| {
@@ -639,7 +625,7 @@ fn get_current_generation_number() -> Result<u64> {
   let generations: Vec<generations::GenerationInfo> = fs::read_dir(
     profile_path
       .parent()
-      .unwrap_or(Path::new("/nix/var/nix/profiles")),
+      .unwrap_or_else(|| Path::new("/nix/var/nix/profiles")),
   )?
   .filter_map(|entry| entry.ok().and_then(|e| generations::describe(&e.path())))
   .collect();
@@ -693,14 +679,11 @@ pub fn toplevel_for<S: AsRef<str>>(
     },
     Installable::File {
       ref mut attribute, ..
-    } => {
-      attribute.extend(toplevel);
-    },
-    Installable::Expression {
+    }
+    | Installable::Expression {
       ref mut attribute, ..
-    } => {
-      attribute.extend(toplevel);
-    },
+    } => attribute.extend(toplevel),
+
     Installable::Store { .. } => {},
   }
 

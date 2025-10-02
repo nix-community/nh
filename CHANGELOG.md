@@ -13,13 +13,21 @@ issue is not necessary, but good to have. Otherwise, general-purpose changes can
 be put in the "Changed" section or, if it's just to remove code or
 functionality, under the "Removed" section.
 -->
+
 ## Unreleased
 
 ### Changed
 
-- `nh os info` now support `--fields` to select which field(s) to display;
-  also add a per-generation "Closure Size" coloumn.
+- `nh os info` now support `--fields` to select which field(s) to display; also
+  add a per-generation "Closure Size" coloumn.
   ([#375](https://github.com/nix-community/nh/issues/375))
+
+- `nh os switch` and `nh os boot` now support the `--install-bootloader` flag,
+  which will explicitly set `NIXOS_INSTALL_BOOTLOADER` for
+  `switch-to-configuration`. Bootloader behaviour was previously supported by
+  explicitly passing the variable to `nh` commands, which has now been made
+  explicit through the `--install-bootloader` flag.
+  ([#424](https://github.com/nix-community/nh/issues/424))
 
 ### Fixed
 

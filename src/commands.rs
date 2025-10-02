@@ -235,6 +235,20 @@ impl Command {
     self
   }
 
+  /// Set an environment variable to a specific value
+  #[must_use]
+  pub fn set_env<K, V>(mut self, key: K, value: V) -> Self
+  where
+    K: AsRef<str>,
+    V: AsRef<str>,
+  {
+    self.env_vars.insert(
+      key.as_ref().to_string(),
+      EnvAction::Set(value.as_ref().to_string()),
+    );
+    self
+  }
+
   /// Configure environment for Nix and NH operations
   #[must_use]
   pub fn with_required_env(mut self) -> Self {
