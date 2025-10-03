@@ -22,13 +22,17 @@ static PASSWORD_CACHE: OnceLock<Mutex<HashMap<String, SecretString>>> =
 
 fn get_cached_password(host: &str) -> Option<SecretString> {
   let cache = PASSWORD_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-  let guard = cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+  let guard = cache
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner);
   guard.get(host).cloned()
 }
 
 fn cache_password(host: &str, password: SecretString) {
   let cache = PASSWORD_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-  let mut guard = cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+  let mut guard = cache
+    .lock()
+    .unwrap_or_else(std::sync::PoisonError::into_inner);
   guard.insert(host.to_string(), password);
 }
 
@@ -284,12 +288,20 @@ impl Command {
     }
 
     // Only propagate HOME for non-elevated commands
-    if self.elevate.is_none() {
+    if self.elevate.is_none() && cfg!(not(target_os = "macos")) {
       if let Ok(home) = std::env::var("HOME") {
         self
           .env_vars
           .insert("HOME".to_string(), EnvAction::Set(home));
       }
+    }
+
+    // INFO: Setting HOME to "" for macos
+    // ref: https://github.com/NixOS/nix/blob/d5d7ca01b3dcf48f43819012c580cfb57cb08e47/src/libutil/unix/users.cc#L52
+    if cfg!(target_os = "macos") {
+      self
+        .env_vars
+        .insert("HOME".to_string(), EnvAction::Set("".to_string()));
     }
 
     // Preserve all variables in PRESERVE_ENV if present
@@ -401,6 +413,52 @@ impl Command {
     Ok(cmd)
   }
 
+  fn build_sudo_parts(&self) -> Result<Vec<String>> {
+    let elevation_program = self
+      .elevate
+      .as_ref()
+      .ok_or_else(|| eyre::eyre!("Command not found for elevation"))?
+      .resolve()
+      .context("Failed to resolve elevation program")?;
+
+    let mut parts = vec![elevation_program.to_string_lossy().to_string()];
+
+    let program_name = elevation_program
+      .file_name()
+      .and_then(|name| name.to_str())
+      .ok_or_else(|| {
+        eyre::eyre!("Failed to determine elevation program name")
+      })?;
+    if program_name == "sudo" {
+      if let Ok(_askpass) = std::env::var("NH_SUDO_ASKPASS") {
+        parts.push("-A".to_string());
+      }
+    }
+
+    let preserve_env = std::env::var("NH_PRESERVE_ENV")
+      .as_deref()
+      .map(|x| !matches!(x, "0"))
+      .unwrap_or(true);
+
+    parts.push("env".to_string());
+    for env_arg in self.env_vars.iter().filter_map(|(key, action)| {
+      match action {
+        EnvAction::Set(value) => Some(format!("{key}={value}")),
+        EnvAction::Preserve if preserve_env => {
+          match std::env::var(key) {
+            Ok(value) => Some(format!("{key}={value}")),
+            Err(_) => None,
+          }
+        },
+        _ => None,
+      }
+    }) {
+      parts.push(env_arg);
+    }
+
+    Ok(parts)
+  }
+
   /// Create a sudo command for self-elevation with proper environment handling
   ///
   /// # Errors
@@ -419,24 +477,23 @@ impl Command {
       .elevate(Some(strategy))
       .with_required_env();
 
-    let sudo_exec = cmd_builder.build_sudo_cmd()?;
+    let mut sudo_parts = cmd_builder.build_sudo_parts()?;
 
-    // Add the target executable and arguments to the sudo command
-    let exec_with_args = sudo_exec.arg(&current_exe);
+    // Add the target executable and arguments
+    sudo_parts.push(current_exe.to_string_lossy().to_string());
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let final_exec = exec_with_args.args(&args);
+    sudo_parts.extend(args);
 
-    // Convert Exec to std::process::Command by parsing the command line
-    let cmdline = final_exec.to_cmdline_lossy();
-    let parts: Vec<&str> = cmdline.split_whitespace().collect();
-
-    if parts.is_empty() {
-      bail!("Failed to build sudo command");
+    let mut std_cmd = std::process::Command::new(&sudo_parts[0]);
+    if sudo_parts.len() > 1 {
+      std_cmd.args(&sudo_parts[1..]);
     }
 
-    let mut std_cmd = std::process::Command::new(parts[0]);
-    if parts.len() > 1 {
-      std_cmd.args(&parts[1..]);
+    if let Some(ElevationStrategy::Force("sudo")) = cmd_builder.elevate.as_ref()
+    {
+      if let Ok(askpass) = std::env::var("NH_SUDO_ASKPASS") {
+        std_cmd.env("SUDO_ASKPASS", askpass);
+      }
     }
 
     Ok(std_cmd)
@@ -834,9 +891,17 @@ mod tests {
     let cmd = Command::new("test").with_required_env();
 
     // Should preserve HOME and USER as Set actions
-    assert!(
-      matches!(cmd.env_vars.get("HOME"), Some(EnvAction::Set(val)) if val == "/test/home")
-    );
+    if cfg!(target_os = "macos") {
+      // macOS sets HOME to "" in Nix environment
+      assert!(
+        matches!(cmd.env_vars.get("HOME"), Some(EnvAction::Set(val)) if val.is_empty())
+      );
+    } else {
+      // Other OSes should have the actual HOME value
+      assert!(
+        matches!(cmd.env_vars.get("HOME"), Some(EnvAction::Set(val)) if val == "/test/home")
+      );
+    }
     assert!(
       matches!(cmd.env_vars.get("USER"), Some(EnvAction::Set(val)) if val == "testuser")
     );
@@ -871,7 +936,15 @@ mod tests {
     let cmd = Command::new("test").with_required_env();
 
     // Should not have HOME or USER in env_vars if they're not set
-    assert!(!cmd.env_vars.contains_key("HOME"));
+    if cfg!(target_os = "macos") {
+      // macOS sets HOME to "" in Nix environment
+      assert!(
+        matches!(cmd.env_vars.get("HOME"), Some(EnvAction::Set(val)) if val.is_empty())
+      );
+    } else {
+      // Other OSes should not have HOME set
+      assert!(!cmd.env_vars.contains_key("HOME"));
+    }
     assert!(!cmd.env_vars.contains_key("USER"));
 
     // Should preserve Nix-related variables if present
@@ -924,10 +997,17 @@ mod tests {
       .preserve_envs(["EXTRA_VAR"]);
 
     // Should have HOME from with_nix_env
-    assert!(
-      matches!(cmd.env_vars.get("HOME"), Some(EnvAction::Set(val)) if val == "/test/home")
-    );
-
+    if cfg!(target_os = "macos") {
+      // macOS sets HOME to "" in Nix environment
+      assert!(
+        matches!(cmd.env_vars.get("HOME"), Some(EnvAction::Set(val)) if val.is_empty())
+      );
+    } else {
+      // Other OSes should have the actual HOME value
+      assert!(
+        matches!(cmd.env_vars.get("HOME"), Some(EnvAction::Set(val)) if val == "/test/home")
+      );
+    }
     // Should have NH variables from with_nh_env
     assert!(
       matches!(cmd.env_vars.get("NH_TEST"), Some(EnvAction::Set(val)) if val == "nh_value")

@@ -117,7 +117,8 @@ pub fn get_closure_size(generation_dir: &Path) -> Option<String> {
           let closure_size = json.as_array().and_then(|arr| {
             arr.iter().find_map(|entry| {
               let path = entry.get("path").and_then(|v| v.as_str());
-              let size = entry.get("closureSize").and_then(serde_json::Value::as_u64);
+              let size =
+                entry.get("closureSize").and_then(serde_json::Value::as_u64);
               if let (Some(path), Some(size)) = (path, size) {
                 if path == store_path_str {
                   return Some(size);
@@ -133,9 +134,9 @@ pub fn get_closure_size(generation_dir: &Path) -> Option<String> {
                 arr
                   .iter()
                   .filter_map(|entry| {
-                    entry
-                      .get("path")
-                      .and_then(|v| v.as_str().map(std::string::ToString::to_string))
+                    entry.get("path").and_then(|v| {
+                      v.as_str().map(std::string::ToString::to_string)
+                    })
                   })
                   .collect()
               })
