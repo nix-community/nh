@@ -106,18 +106,7 @@ impl OsRebuildArgs {
       let _ = ensure_ssh_key_login();
     }
 
-    let elevate = if self.bypass_root_check {
-      warn!("Bypassing root check, now running nix as root");
-      false
-    } else {
-      if nix::unistd::Uid::effective().is_root() {
-        bail!(
-          "Don't run nh os as root. It will escalate its privileges \
-           internally as needed"
-        );
-      }
-      true
-    };
+    let elevate = check_and_get_elevation_status(self.bypass_root_check)?;
 
     if self.update_args.update_all || self.update_args.update_input.is_some() {
       update(&self.common.installable, self.update_args.update_input)?;
@@ -381,15 +370,7 @@ impl OsRebuildArgs {
 impl OsRollbackArgs {
   #[expect(clippy::too_many_lines)]
   fn rollback(&self, elevation: ElevationStrategy) -> Result<()> {
-    let elevate = if self.bypass_root_check {
-      warn!("Bypassing root check, now running nix as root");
-      false
-    } else {
-      if nix::unistd::Uid::effective().is_root() {
-        bail!("Don't run nh os as root. I will call sudo internally as needed");
-      }
-      true
-    };
+    let elevate = check_and_get_elevation_status(self.bypass_root_check)?;
 
     // Find previous generation or specific generation
     let target_generation = if let Some(gen_number) = self.to {
@@ -707,6 +688,34 @@ fn parse_nh_os_flake_env() -> Result<Option<Installable>> {
     }))
   } else {
     Ok(None)
+  }
+}
+
+/// Checks if the current user is root and returns whether elevation is needed.
+///
+/// Returns `true` if elevation is required (not root and `bypass_root_check` is
+/// false). Returns `false` if elevation is not required (root or
+/// `bypass_root_check` is true).
+///
+/// # Arguments
+/// * `bypass_root_check` - If true, bypasses the root check and assumes no
+///   elevation is needed.
+///
+/// # Errors
+/// Returns an error if `bypass_root_check` is false and the user is root,
+/// as `nh os` subcommands should not be run directly as root.
+fn check_and_get_elevation_status(bypass_root_check: bool) -> Result<bool> {
+  if bypass_root_check {
+    warn!("Bypassing root check, now running nix as root");
+    Ok(false)
+  } else {
+    if nix::unistd::Uid::effective().is_root() {
+      bail!(
+        "Don't run nh os as root. It will escalate its privileges internally \
+         as needed."
+      );
+    }
+    Ok(true)
   }
 }
 
