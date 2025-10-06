@@ -129,21 +129,110 @@ impl OsRebuildArgs {
       );
     }
 
-    let (out_path, _tempdir_guard): (PathBuf, Option<tempfile::TempDir>) =
-      match self.common.out_link {
-        Some(ref p) => (p.clone(), None),
-        None => {
-          match variant {
-            BuildVm | Build => (PathBuf::from("result"), None),
-            _ => {
-              let dir = tempfile::Builder::new().prefix("nh-os").tempdir()?;
-              (dir.as_ref().join("result"), Some(dir))
-            },
-          }
-        },
-      };
+<<<<<<< Conflict 1 of 1
++++++++ Contents of side #1
+    let (out_path, _tempdir_guard) = match self.common.out_link {
+      Some(p) => (p, None),
+      None => {
+        let (path, guard) = if matches!(variant, BuildVm | Build) {
+          (PathBuf::from("result"), None)
+        } else {
+          let dir = tempfile::Builder::new().prefix("nh-os").tempdir()?;
+          (dir.as_ref().join("result"), Some(dir))
+        };
+        (path, guard)
+      },
+    };
+%%%%%%% Changes from base to side #2
+     let (out_path, _tempdir_guard) = self.determine_output_path(variant)?;
 
-    debug!("Output path: {out_path:?}");
+     let toplevel =
+       self.resolve_installable_and_toplevel(&target_hostname, final_attr)?;
+
+     let message = match variant {
+       BuildVm => "Building NixOS VM image",
+       _ => "Building NixOS configuration",
+     };
+
+     self.execute_build_command(toplevel, &out_path, message)?;
+
+     let target_profile = self.resolve_specialisation_and_profile(&out_path)?;
+
+     self.handle_dix_diff(&target_profile)?;
+
+     if self.common.dry || matches!(variant, Build | BuildVm) {
+       if self.common.ask {
+         warn!("--ask has no effect as dry run was requested");
+       }
+
+       // For VM builds, print instructions on how to run the VM
+       if matches!(variant, BuildVm) && !self.common.dry {
+         print_vm_instructions(&out_path)?;
+       }
+
+       return Ok(());
+     }
+
+     self.activate_rebuilt_config(
+       variant,
+       &out_path,
+       &target_profile,
+       elevate,
+       elevation,
+     )?;
+
+     Ok(())
+   }
+
+   /// Performs initial setup and gathers context for an OS rebuild operation.
+   ///
+   /// This includes:
+   /// - Ensuring SSH key login if a remote build/target host is involved.
+   /// - Checking and determining elevation status.
+   /// - Performing updates to Nix inputs if specified.
+   /// - Resolving the target hostname for the build.
+   ///
+   /// # Returns
+   /// A `Result` containing a tuple:
+   /// - `bool`: `true` if elevation is required, `false` otherwise.
+   /// - `String`: The resolved target hostname.
+   fn setup_build_context(&self) -> Result<(bool, String)> {
+     if self.build_host.is_some() || self.target_host.is_some() {
+       // This can fail, we only care about prompting the user
+       // for ssh key login beforehand.
+       let _ = ensure_ssh_key_login();
+     }
+
+     let elevate = check_and_get_elevation_status(self.bypass_root_check)?;
+
+     if self.update_args.update_all || self.update_args.update_input.is_some() {
+       update(
+         &self.common.installable,
+         self.update_args.update_input.clone(),
+       )?;
+     }
+
+     let target_hostname = get_resolved_hostname(self.hostname.clone())?;
+     Ok((elevate, target_hostname))
+   }
+
+   fn determine_output_path(
+     &self,
+     variant: &OsRebuildVariant,
+   ) -> Result<(PathBuf, Option<tempfile::TempDir>)> {
+     use OsRebuildVariant::{Build, BuildVm};
+    if let Some(p) = self.common.out_link.clone() {
+      Ok((p, None))
+    } else {
+      let (path, guard) = if matches!(variant, BuildVm | Build) {
+        (PathBuf::from("result"), None)
+      } else {
+        let dir = tempfile::Builder::new().prefix("nh-os").tempdir()?;
+        (dir.as_ref().join("result"), Some(dir))
+      };
+      Ok((path, guard))
+     }
+   }
 
     // Use NH_OS_FLAKE if available, otherwise use the provided installable
     let installable = if let Some(flake_installable) = parse_nh_os_flake_env()?
