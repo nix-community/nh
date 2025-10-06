@@ -375,15 +375,7 @@ impl OsRebuildArgs {
       .context("Failed to resolve switch-to-configuration path")?;
 
     if !switch_to_configuration.exists() {
-      return Err(eyre!(
-        "The 'switch-to-configuration' binary is missing from the built \
-         configuration.\n\nThis typically happens when 'system.switch.enable' \
-         is set to false in your\nNixOS configuration. To fix this, please \
-         either:\n1. Remove 'system.switch.enable = false' from your \
-         configuration, or\n2. Set 'system.switch.enable = true' \
-         explicitly\n\nIf the problem persists, please open an issue on our \
-         issue tracker!"
-      ));
+      return Err(missing_switch_to_configuration_error());
     }
 
     let canonical_out_path =
@@ -556,15 +548,7 @@ impl OsRollbackArgs {
       final_profile.join("bin").join("switch-to-configuration");
 
     if !switch_to_configuration.exists() {
-      return Err(eyre!(
-        "The 'switch-to-configuration' binary is missing from the built \
-         configuration.\n\nThis typically happens when 'system.switch.enable' \
-         is set to false in your\nNixOS configuration. To fix this, please \
-         either:\n1. Remove 'system.switch.enable = false' from your \
-         configuration, or\n2. Set 'system.switch.enable = true' \
-         explicitly\n\nIf the problem persists, please open an issue on our \
-         issue tracker!"
-      ));
+      return Err(missing_switch_to_configuration_error());
     }
 
     match Command::new(&switch_to_configuration)
@@ -733,6 +717,19 @@ fn run_vm(out_path: &Path) -> Result<()> {
     })?;
 
   Ok(())
+}
+
+/// Returns an error indicating that the 'switch-to-configuration' binary is
+/// missing, along with common reasons and solutions.
+fn missing_switch_to_configuration_error() -> color_eyre::eyre::Report {
+  eyre!(
+    "The 'switch-to-configuration' binary is missing from the built \
+     configuration.\n\nThis typically happens when 'system.switch.enable' is \
+     set to false in your\nNixOS configuration. To fix this, please \
+     either:\n1. Remove 'system.switch.enable = false' from your \
+     configuration, or\n2. Set 'system.switch.enable = true' explicitly\n\nIf \
+     the problem persists, please open an issue on our issue tracker!"
+  )
 }
 
 /// Parses the `NH_OS_FLAKE` environment variable into an `Installable::Flake`.
