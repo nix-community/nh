@@ -63,8 +63,11 @@ enum OsRebuildVariant {
 
 impl OsBuildVmArgs {
   fn build_vm(self, elevation: ElevationStrategy) -> Result<()> {
-    let final_attr = get_final_attr(true, self.with_bootloader);
-    let should_run = self.run;
+    let attr = if self.with_bootloader {
+      "vmWithBootLoader".to_owned()
+    } else {
+      "vm".to_owned()
+    };
     let out_path = self
       .common
       .common
@@ -72,15 +75,13 @@ impl OsBuildVmArgs {
       .clone()
       .unwrap_or_else(|| PathBuf::from("result"));
 
-    debug!("Building VM with attribute: {}", final_attr);
-    self.common.rebuild(
-      &OsRebuildVariant::BuildVm,
-      Some(final_attr),
-      elevation,
-    )?;
+    debug!("Building VM with attribute: {}", attr);
+    self
+      .common
+      .rebuild(&OsRebuildVariant::BuildVm, Some(attr), elevation)?;
 
     // If --run flag is set, execute the VM
-    if should_run {
+    if self.run {
       run_vm(&out_path)?;
     }
 
@@ -791,18 +792,6 @@ fn get_current_generation_number() -> Result<u64> {
     .number
     .parse::<u64>()
     .wrap_err("Invalid generation number")
-}
-
-#[must_use]
-pub fn get_final_attr(build_vm: bool, with_bootloader: bool) -> String {
-  let attr = if build_vm && with_bootloader {
-    "vmWithBootLoader"
-  } else if build_vm {
-    "vm"
-  } else {
-    "toplevel"
-  };
-  String::from(attr)
 }
 
 pub fn toplevel_for<S: AsRef<str>>(
