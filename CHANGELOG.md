@@ -18,6 +18,8 @@ functionality, under the "Removed" section.
 
 ### Changed
 
+- `nh os info` now hides empty columns.
+
 - `nh os info` now support `--fields` to select which field(s) to display; also
   add a per-generation "Closure Size" coloumn.
   ([#375](https://github.com/nix-community/nh/issues/375))
