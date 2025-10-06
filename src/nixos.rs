@@ -101,7 +101,8 @@ impl OsRebuildArgs {
     use OsRebuildVariant::{Boot, Build, BuildVm, Switch, Test};
 
     if self.build_host.is_some() || self.target_host.is_some() {
-      // if it fails its okay
+      // This can fail, we only care about prompting the user
+      // for ssh key login beforehand.
       let _ = ensure_ssh_key_login();
     }
 
@@ -110,7 +111,10 @@ impl OsRebuildArgs {
       false
     } else {
       if nix::unistd::Uid::effective().is_root() {
-        bail!("Don't run nh os as root. I will call sudo internally as needed");
+        bail!(
+          "Don't run nh os as root. It will escalate its privileges \
+           internally as needed"
+        );
       }
       true
     };
@@ -694,43 +698,12 @@ fn run_vm(out_path: &Path) -> Result<()> {
 }
 
 fn find_previous_generation() -> Result<generations::GenerationInfo> {
-  let profile_path = PathBuf::from(SYSTEM_PROFILE);
-
-  let mut generations: Vec<generations::GenerationInfo> = fs::read_dir(
-    profile_path
-      .parent()
-      .unwrap_or_else(|| Path::new("/nix/var/nix/profiles")),
-  )?
-  .filter_map(|entry| {
-    entry.ok().and_then(|e| {
-      let path = e.path();
-      if let Some(filename) = path.file_name() {
-        if let Some(name) = filename.to_str() {
-          if name.starts_with("system-") && name.ends_with("-link") {
-            return generations::describe(&path);
-          }
-        }
-      }
-      None
-    })
-  })
-  .collect();
-
+  let generations = list_generations()?;
   if generations.is_empty() {
     bail!("No generations found");
   }
 
-  generations.sort_by(|a, b| {
-    a.number
-      .parse::<u64>()
-      .unwrap_or(0)
-      .cmp(&b.number.parse::<u64>().unwrap_or(0))
-  });
-
-  let current_idx = generations
-    .iter()
-    .position(|g| g.current)
-    .ok_or_else(|| eyre!("Current generation not found"))?;
+  let current_idx = get_current_generation_number()? as usize;
 
   if current_idx == 0 {
     bail!("No generation older than the current one exists");
@@ -742,47 +715,15 @@ fn find_previous_generation() -> Result<generations::GenerationInfo> {
 fn find_generation_by_number(
   number: u64,
 ) -> Result<generations::GenerationInfo> {
-  let profile_path = PathBuf::from(SYSTEM_PROFILE);
-
-  let generations: Vec<generations::GenerationInfo> = fs::read_dir(
-    profile_path
-      .parent()
-      .unwrap_or_else(|| Path::new("/nix/var/nix/profiles")),
-  )?
-  .filter_map(|entry| {
-    entry.ok().and_then(|e| {
-      let path = e.path();
-      if let Some(filename) = path.file_name() {
-        if let Some(name) = filename.to_str() {
-          if name.starts_with("system-") && name.ends_with("-link") {
-            return generations::describe(&path);
-          }
-        }
-      }
-      None
-    })
-  })
-  .filter(|generation| generation.number == number.to_string())
-  .collect();
-
-  if generations.is_empty() {
-    bail!("Generation {} not found", number);
-  }
-
-  Ok(generations[0].clone())
+  let generations = list_generations()?;
+  generations
+    .into_iter()
+    .find(|g| g.number == number.to_string())
+    .ok_or_else(|| eyre!("Generation {} not found", number))
 }
 
 fn get_current_generation_number() -> Result<u64> {
-  let profile_path = PathBuf::from(SYSTEM_PROFILE);
-
-  let generations: Vec<generations::GenerationInfo> = fs::read_dir(
-    profile_path
-      .parent()
-      .unwrap_or_else(|| Path::new("/nix/var/nix/profiles")),
-  )?
-  .filter_map(|entry| entry.ok().and_then(|e| generations::describe(&e.path())))
-  .collect();
-
+  let generations = list_generations()?;
   let current_gen = generations
     .iter()
     .find(|g| g.current)
@@ -792,6 +733,41 @@ fn get_current_generation_number() -> Result<u64> {
     .number
     .parse::<u64>()
     .wrap_err("Invalid generation number")
+}
+
+fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
+  let profile_path = PathBuf::from(SYSTEM_PROFILE);
+  let profiles_dir = profile_path
+    .parent()
+    .unwrap_or_else(|| Path::new("/nix/var/nix/profiles"));
+
+  let mut generations = Vec::new();
+  for entry in fs::read_dir(profiles_dir)? {
+    let entry = match entry {
+      Ok(e) => e,
+      Err(e) => {
+        warn!("Failed to read entry in profile directory: {}", e);
+        continue;
+      },
+    };
+
+    let path = entry.path();
+    if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
+      if name.starts_with("system-") && name.ends_with("-link") {
+        if let Some(gen_info) = generations::describe(&path) {
+          generations.push(gen_info);
+        }
+      }
+    }
+  }
+
+  if generations.is_empty() {
+    bail!("No generations found");
+  }
+
+  generations.sort_by_key(|g| g.number.parse::<u64>().unwrap_or(0));
+
+  Ok(generations)
 }
 
 pub fn toplevel_for<S: AsRef<str>>(
