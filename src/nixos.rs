@@ -245,9 +245,7 @@ impl OsRebuildArgs {
     let toplevel = toplevel_for(
       &target_hostname,
       installable,
-      final_attr
-        .unwrap_or_else(|| String::from("toplevel"))
-        .as_str(),
+      final_attr.as_deref().unwrap_or("toplevel"),
     );
 
     let message = match variant {
@@ -866,7 +864,7 @@ pub fn toplevel_for<S: AsRef<str>>(
   final_attr: &str,
 ) -> Installable {
   let mut res = installable;
-  let hostname = hostname.as_ref().to_owned();
+  let hostname_str = hostname.as_ref();
 
   let toplevel = ["config", "system", "build", final_attr]
     .into_iter()
@@ -880,7 +878,7 @@ pub fn toplevel_for<S: AsRef<str>>(
       // nixosConfigurations
       if attribute.is_empty() {
         attribute.push(String::from("nixosConfigurations"));
-        attribute.push(hostname);
+        attribute.push(hostname_str.to_owned());
       }
       attribute.extend(toplevel);
     },
