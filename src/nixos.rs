@@ -177,23 +177,9 @@ impl OsRebuildArgs {
     debug!("Output path: {out_path:?}");
 
     // Use NH_OS_FLAKE if available, otherwise use the provided installable
-    let installable = if let Ok(os_flake) = env::var("NH_OS_FLAKE") {
-      debug!("Using NH_OS_FLAKE: {}", os_flake);
-
-      let mut elems = os_flake.splitn(2, '#');
-      let reference = elems
-        .next()
-        .ok_or_else(|| eyre!("NH_OS_FLAKE missing reference part"))?
-        .to_owned();
-      let attribute = elems
-        .next()
-        .map(crate::installable::parse_attribute)
-        .unwrap_or_default();
-
-      Installable::Flake {
-        reference,
-        attribute,
-      }
+    let installable = if let Some(flake_installable) = parse_nh_os_flake_env()?
+    {
+      flake_installable
     } else {
       self.common.installable.clone()
     };
@@ -697,6 +683,33 @@ fn run_vm(out_path: &Path) -> Result<()> {
   Ok(())
 }
 
+/// Parses the `NH_OS_FLAKE` environment variable into an `Installable::Flake`.
+///
+/// If `NH_OS_FLAKE` is not set, it returns `Ok(None)`.
+/// If `NH_OS_FLAKE` is set but invalid, it returns an `Err`.
+fn parse_nh_os_flake_env() -> Result<Option<Installable>> {
+  if let Ok(os_flake) = env::var("NH_OS_FLAKE") {
+    debug!("Using NH_OS_FLAKE: {}", os_flake);
+
+    let mut elems = os_flake.splitn(2, '#');
+    let reference = elems
+      .next()
+      .ok_or_else(|| eyre!("NH_OS_FLAKE missing reference part"))?
+      .to_owned();
+    let attribute = elems
+      .next()
+      .map(crate::installable::parse_attribute)
+      .unwrap_or_default();
+
+    Ok(Some(Installable::Flake {
+      reference,
+      attribute,
+    }))
+  } else {
+    Ok(None)
+  }
+}
+
 fn find_previous_generation() -> Result<generations::GenerationInfo> {
   let generations = list_generations()?;
   if generations.is_empty() {
@@ -810,26 +823,12 @@ pub fn toplevel_for<S: AsRef<str>>(
 impl OsReplArgs {
   fn run(self) -> Result<()> {
     // Use NH_OS_FLAKE if available, otherwise use the provided installable
-    let mut target_installable = if let Ok(os_flake) = env::var("NH_OS_FLAKE") {
-      debug!("Using NH_OS_FLAKE: {}", os_flake);
-
-      let mut elems = os_flake.splitn(2, '#');
-      let reference = match elems.next() {
-        Some(r) => r.to_owned(),
-        None => return Err(eyre!("NH_OS_FLAKE missing reference part")),
+    let mut target_installable =
+      if let Some(flake_installable) = parse_nh_os_flake_env()? {
+        flake_installable
+      } else {
+        self.installable
       };
-      let attribute = elems
-        .next()
-        .map(crate::installable::parse_attribute)
-        .unwrap_or_default();
-
-      Installable::Flake {
-        reference,
-        attribute,
-      }
-    } else {
-      self.installable
-    };
 
     if matches!(target_installable, Installable::Store { .. }) {
       bail!("Nix doesn't support nix store installables.");
