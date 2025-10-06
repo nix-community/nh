@@ -213,6 +213,27 @@ pub fn get_hostname() -> Result<String> {
   }
 }
 
+/// Resolves the hostname, preferring the supplied hostname, otherwise falling
+/// back to the system's hostname.
+///
+/// # Arguments
+/// * `supplied_hostname` - An optional hostname provided by the user.
+///
+/// # Returns
+/// * `Ok(String)` with the resolved hostname.
+/// * `Err` if no hostname is supplied and fetching the system hostname fails.
+pub fn get_resolved_hostname(
+  supplied_hostname: Option<String>,
+) -> Result<String> {
+  use color_eyre::eyre::Context;
+  if let Some(h) = supplied_hostname {
+    Ok(h)
+  } else {
+    get_hostname()
+      .context("Unable to fetch hostname, and no hostname supplied.")
+  }
+}
+
 /// Retrieves all enabled experimental features in Nix.
 ///
 /// This function executes the `nix config show experimental-features` command

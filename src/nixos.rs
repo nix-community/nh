@@ -23,7 +23,7 @@ use crate::{
     OsSubcommand::{self},
   },
   update::update,
-  util::{ensure_ssh_key_login, get_hostname, print_dix_diff},
+  util::{ensure_ssh_key_login, get_resolved_hostname, print_dix_diff},
 };
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
@@ -112,42 +112,22 @@ impl OsRebuildArgs {
       update(&self.common.installable, self.update_args.update_input)?;
     }
 
-    let system_hostname = match get_hostname() {
-      Ok(hostname) => Some(hostname),
-      Err(err) => {
-        tracing::warn!("{}", err.to_string());
-        None
-      },
-    };
+    let target_hostname = get_resolved_hostname(self.hostname.clone())?;
 
-    let target_hostname = match &self.hostname {
-      Some(h) => h.to_owned(),
-      None => {
-        match &system_hostname {
-          Some(hostname) => {
-            // Only show the warning if we're explicitly building a VM
-            // by directly calling build_vm(), not when the BuildVm variant
-            // is used internally via other code paths
-            if matches!(variant, OsRebuildVariant::BuildVm)
-              && final_attr
-                .as_deref()
-                .is_some_and(|attr| attr == "vm" || attr == "vmWithBootLoader")
-            {
-              tracing::warn!(
-                "Guessing system is {hostname} for a VM image. If this isn't \
-                 intended, use --hostname to change."
-              );
-            }
-            hostname.clone()
-          },
-          None => {
-            return Err(eyre!(
-              "Unable to fetch hostname, and no hostname supplied."
-            ));
-          },
-        }
-      },
-    };
+    // Only show the warning if we're explicitly building a VM
+    // and no hostname was explicitly provided (--hostname was None)
+    if self.hostname.is_none()
+      && matches!(variant, OsRebuildVariant::BuildVm)
+      && final_attr
+        .as_deref()
+        .is_some_and(|attr| attr == "vm" || attr == "vmWithBootLoader")
+    {
+      tracing::warn!(
+        "Guessing system is {} for a VM image. If this isn't intended, use \
+         --hostname to change.",
+        target_hostname
+      );
+    }
 
     let (out_path, _tempdir_guard): (PathBuf, Option<tempfile::TempDir>) =
       match self.common.out_link {
@@ -235,7 +215,9 @@ impl OsRebuildArgs {
         debug!("Not running dix as the --diff flag is set to never.");
       },
       DiffType::Auto => {
-        if system_hostname.is_none_or(|h| h == target_hostname)
+        // Only run dix if no explicit hostname was provided and no remote
+        // build/target host is specified, implying a local system build.
+        if self.hostname.is_none()
           && self.target_host.is_none()
           && self.build_host.is_none()
         {
@@ -247,8 +229,8 @@ impl OsRebuildArgs {
             print_dix_diff(&PathBuf::from(CURRENT_PROFILE), &target_profile);
         } else {
           debug!(
-            "Not running dix as the target hostname is different from the \
-             system hostname."
+            "Not running dix as a remote host is involved or an explicit \
+             hostname was provided."
           );
         }
       },
@@ -843,7 +825,7 @@ impl OsReplArgs {
       bail!("Nix doesn't support nix store installables.");
     }
 
-    let hostname = self.hostname.ok_or(()).or_else(|()| get_hostname())?;
+    let hostname = get_resolved_hostname(self.hostname)?;
 
     if let Installable::Flake {
       ref mut attribute, ..
