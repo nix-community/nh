@@ -288,7 +288,7 @@ impl Command {
     }
 
     // Only propagate HOME for non-elevated commands
-    if self.elevate.is_none() && cfg!(not(target_os = "macos")) {
+    if self.elevate.is_none() {
       if let Ok(home) = std::env::var("HOME") {
         self
           .env_vars
@@ -298,7 +298,7 @@ impl Command {
 
     // INFO: Setting HOME to "" for macos
     // ref: https://github.com/NixOS/nix/blob/d5d7ca01b3dcf48f43819012c580cfb57cb08e47/src/libutil/unix/users.cc#L52
-    if cfg!(target_os = "macos") {
+    if self.elevate.is_some() && cfg!(target_os = "macos") {
       self
         .env_vars
         .insert("HOME".to_string(), EnvAction::Set("".to_string()));
@@ -489,13 +489,12 @@ impl Command {
       std_cmd.args(&sudo_parts[1..]);
     }
 
-    if let Some(ElevationStrategy::Force("sudo")) = cmd_builder.elevate.as_ref()
-    {
+    // check if using SUDO_ASKPASS
+    if sudo_parts[1] == "-A" {
       if let Ok(askpass) = std::env::var("NH_SUDO_ASKPASS") {
         std_cmd.env("SUDO_ASKPASS", askpass);
       }
     }
-
     Ok(std_cmd)
   }
 
@@ -891,17 +890,9 @@ mod tests {
     let cmd = Command::new("test").with_required_env();
 
     // Should preserve HOME and USER as Set actions
-    if cfg!(target_os = "macos") {
-      // macOS sets HOME to "" in Nix environment
-      assert!(
-        matches!(cmd.env_vars.get("HOME"), Some(EnvAction::Set(val)) if val.is_empty())
-      );
-    } else {
-      // Other OSes should have the actual HOME value
-      assert!(
-        matches!(cmd.env_vars.get("HOME"), Some(EnvAction::Set(val)) if val == "/test/home")
-      );
-    }
+    assert!(
+      matches!(cmd.env_vars.get("HOME"), Some(EnvAction::Set(val)) if val == "/test/home")
+    );
     assert!(
       matches!(cmd.env_vars.get("USER"), Some(EnvAction::Set(val)) if val == "testuser")
     );
@@ -936,15 +927,7 @@ mod tests {
     let cmd = Command::new("test").with_required_env();
 
     // Should not have HOME or USER in env_vars if they're not set
-    if cfg!(target_os = "macos") {
-      // macOS sets HOME to "" in Nix environment
-      assert!(
-        matches!(cmd.env_vars.get("HOME"), Some(EnvAction::Set(val)) if val.is_empty())
-      );
-    } else {
-      // Other OSes should not have HOME set
-      assert!(!cmd.env_vars.contains_key("HOME"));
-    }
+    assert!(!cmd.env_vars.contains_key("HOME"));
     assert!(!cmd.env_vars.contains_key("USER"));
 
     // Should preserve Nix-related variables if present
@@ -997,17 +980,10 @@ mod tests {
       .preserve_envs(["EXTRA_VAR"]);
 
     // Should have HOME from with_nix_env
-    if cfg!(target_os = "macos") {
-      // macOS sets HOME to "" in Nix environment
-      assert!(
-        matches!(cmd.env_vars.get("HOME"), Some(EnvAction::Set(val)) if val.is_empty())
-      );
-    } else {
-      // Other OSes should have the actual HOME value
-      assert!(
-        matches!(cmd.env_vars.get("HOME"), Some(EnvAction::Set(val)) if val == "/test/home")
-      );
-    }
+    assert!(
+      matches!(cmd.env_vars.get("HOME"), Some(EnvAction::Set(val)) if val == "/test/home")
+    );
+
     // Should have NH variables from with_nh_env
     assert!(
       matches!(cmd.env_vars.get("NH_TEST"), Some(EnvAction::Set(val)) if val == "nh_value")
