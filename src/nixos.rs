@@ -8,8 +8,7 @@ use color_eyre::eyre::{Context, Result, bail, eyre};
 use tracing::{debug, info, warn};
 
 use crate::{
-  commands,
-  commands::{Command, ElevationStrategy},
+  commands::{self, Command, ElevationStrategy},
   generations,
   installable::Installable,
   interface::{
@@ -23,7 +22,7 @@ use crate::{
     OsSubcommand::{self},
   },
   update::update,
-  util::{ensure_ssh_key_login, get_resolved_hostname, print_dix_diff},
+  util::{ensure_ssh_key_login, get_hostname, print_dix_diff},
 };
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
@@ -174,7 +173,7 @@ impl OsRebuildArgs {
       let _ = ensure_ssh_key_login();
     }
 
-    let elevate = check_and_get_elevation_status(self.bypass_root_check)?;
+    let elevate = has_elevation_status(self.bypass_root_check)?;
 
     if self.update_args.update_all || self.update_args.update_input.is_some() {
       update(
@@ -183,7 +182,7 @@ impl OsRebuildArgs {
       )?;
     }
 
-    let target_hostname = get_resolved_hostname(self.hostname.clone())?;
+    let target_hostname = get_hostname(self.hostname.clone())?;
     Ok((elevate, target_hostname))
   }
 
@@ -210,7 +209,7 @@ impl OsRebuildArgs {
     target_hostname: &str,
     final_attr: Option<&String>,
   ) -> Result<Installable> {
-    let installable = (parse_nh_os_flake_env()?).map_or_else(
+    let installable = (get_nh_os_flake_env()?).map_or_else(
       || self.common.installable.clone(),
       |flake_installable| flake_installable,
     );
@@ -411,7 +410,7 @@ impl OsRebuildArgs {
 impl OsRollbackArgs {
   #[expect(clippy::too_many_lines)]
   fn rollback(&self, elevation: ElevationStrategy) -> Result<()> {
-    let elevate = check_and_get_elevation_status(self.bypass_root_check)?;
+    let elevate = has_elevation_status(self.bypass_root_check)?;
 
     // Find previous generation or specific generation
     let target_generation = if let Some(gen_number) = self.to {
@@ -710,7 +709,7 @@ fn missing_switch_to_configuration_error() -> color_eyre::eyre::Report {
 ///
 /// If `NH_OS_FLAKE` is not set, it returns `Ok(None)`.
 /// If `NH_OS_FLAKE` is set but invalid, it returns an `Err`.
-fn parse_nh_os_flake_env() -> Result<Option<Installable>> {
+fn get_nh_os_flake_env() -> Result<Option<Installable>> {
   if let Ok(os_flake) = env::var("NH_OS_FLAKE") {
     debug!("Using NH_OS_FLAKE: {}", os_flake);
 
@@ -746,7 +745,7 @@ fn parse_nh_os_flake_env() -> Result<Option<Installable>> {
 /// # Errors
 /// Returns an error if `bypass_root_check` is false and the user is root,
 /// as `nh os` subcommands should not be run directly as root.
-fn check_and_get_elevation_status(bypass_root_check: bool) -> Result<bool> {
+fn has_elevation_status(bypass_root_check: bool) -> Result<bool> {
   if bypass_root_check {
     warn!("Bypassing root check, now running nix as root");
     Ok(false)
@@ -779,8 +778,7 @@ fn find_previous_generation() -> Result<generations::GenerationInfo> {
 fn find_generation_by_number(
   number: u64,
 ) -> Result<generations::GenerationInfo> {
-  let generations = list_generations()?;
-  generations
+  list_generations()?
     .into_iter()
     .find(|g| g.number == number.to_string())
     .ok_or_else(|| eyre!("Generation {} not found", number))
@@ -875,7 +873,7 @@ impl OsReplArgs {
   fn run(self) -> Result<()> {
     // Use NH_OS_FLAKE if available, otherwise use the provided installable
     let mut target_installable =
-      if let Some(flake_installable) = parse_nh_os_flake_env()? {
+      if let Some(flake_installable) = get_nh_os_flake_env()? {
         flake_installable
       } else {
         self.installable
@@ -885,7 +883,7 @@ impl OsReplArgs {
       bail!("Nix doesn't support nix store installables.");
     }
 
-    let hostname = get_resolved_hostname(self.hostname)?;
+    let hostname = get_hostname(self.hostname)?;
 
     if let Installable::Flake {
       ref mut attribute, ..

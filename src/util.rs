@@ -178,16 +178,23 @@ pub fn ensure_ssh_key_login() -> Result<()> {
 
 /// Gets the hostname of the current system
 ///
+/// # Arguments
+/// * `supplied_hostname` - An optional hostname provided by the user.
+///
 /// # Returns
 ///
-/// * `Result<String>` - The hostname as a string or an error
-pub fn get_hostname() -> Result<String> {
+/// * `Ok(String)` with the resolved hostname.
+/// * `Err` if no hostname is supplied and fetching the system hostname fails.
+pub fn get_hostname(supplied_hostname: Option<String>) -> Result<String> {
+  if let Some(h) = supplied_hostname {
+    return Ok(h);
+  }
   #[cfg(not(target_os = "macos"))]
   {
     use color_eyre::eyre::Context;
     Ok(
       hostname::get()
-        .context("Failed to get hostname")?
+        .context("Failed to get hostname, and no hostname supplied")?
         .to_str()
         .map_or_else(
           || String::from("unknown-hostname"),
@@ -205,32 +212,11 @@ pub fn get_hostname() -> Result<String> {
 
     let ptr = unsafe { SCDynamicStoreCopyLocalHostName(std::ptr::null()) };
     if ptr.is_null() {
-      bail!("Failed to get hostname");
+      bail!("Failed to get hostname, and no hostname supplied");
     }
     let name = unsafe { CFString::wrap_under_get_rule(ptr) };
 
     Ok(name.to_string())
-  }
-}
-
-/// Resolves the hostname, preferring the supplied hostname, otherwise falling
-/// back to the system's hostname.
-///
-/// # Arguments
-/// * `supplied_hostname` - An optional hostname provided by the user.
-///
-/// # Returns
-/// * `Ok(String)` with the resolved hostname.
-/// * `Err` if no hostname is supplied and fetching the system hostname fails.
-pub fn get_resolved_hostname(
-  supplied_hostname: Option<String>,
-) -> Result<String> {
-  use color_eyre::eyre::Context;
-  if let Some(h) = supplied_hostname {
-    Ok(h)
-  } else {
-    get_hostname()
-      .context("Unable to fetch hostname, and no hostname supplied.")
   }
 }
 
