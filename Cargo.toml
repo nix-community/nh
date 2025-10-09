@@ -38,7 +38,7 @@ hostname = "0.4.1"
 humantime = "2.3.0"
 inquire = { default-features = false, version = "0.9.1", features = [ "crossterm" ] }
 nix = { default-features = false, features = [ "fs", "user" ], version = "0.30.1" }
-owo-colors = "4.2.3"
+yansi = "1.0.1"
 regex = "1.11.3"
 reqwest = { default-features = false, features = [
   "rustls-tls-native-roots",

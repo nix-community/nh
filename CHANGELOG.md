@@ -21,13 +21,18 @@ functionality, under the "Removed" section.
 - `nh os info` now support `--fields` to select which field(s) to display; also
   add a per-generation "Closure Size" coloumn.
   ([#375](https://github.com/nix-community/nh/issues/375))
-
 - `nh os switch` and `nh os boot` now support the `--install-bootloader` flag,
   which will explicitly set `NIXOS_INSTALL_BOOTLOADER` for
   `switch-to-configuration`. Bootloader behaviour was previously supported by
   explicitly passing the variable to `nh` commands, which has now been made
   explicit through the `--install-bootloader` flag.
   ([#424](https://github.com/nix-community/nh/issues/424))
+- A `--run` flag was added to `nh os build-vm`, which allows immediately
+  starting a built VM after the build is complete. This can be chained with
+  other `build-vm` flags such as `--with-bootloader`.
+- Switched from owo-colors to Yansi as the internal coloring library. This
+  should not affect end-users, but please create an issue if you notice anything
+  different.
 
 ## 4.2.0
 

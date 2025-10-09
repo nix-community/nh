@@ -12,6 +12,7 @@ use interface::SearchArgs;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace, warn};
+use yansi::{Color, Paint};
 
 use crate::{Result, interface};
 
@@ -46,7 +47,7 @@ struct SearchResult {
 macro_rules! print_hyperlink {
   ($text:expr, $link:expr) => {
     print!("\x1b]8;;{}\x07", $link);
-    print!("{}", $text.underline());
+    print!("{}", Paint::new($text).underline());
     println!("\x1b]8;;\x07");
   };
 }
@@ -210,13 +211,12 @@ impl SearchArgs {
 
     for elem in documents.iter().rev() {
       println!();
-      use owo_colors::OwoColorize;
       trace!("{elem:#?}");
 
-      print!("{}", elem.package_attr_name.blue());
+      print!("{}", Paint::new(&elem.package_attr_name).fg(Color::Blue));
       let v = &elem.package_pversion;
       if !v.is_empty() {
-        print!(" ({})", v.green());
+        print!(" ({})", Paint::new(v).fg(Color::Green));
       }
 
       println!();

@@ -191,6 +191,10 @@ pub struct OsBuildVmArgs {
   /// Build with bootloader. Bootloader is bypassed by default.
   #[arg(long, short = 'B')]
   pub with_bootloader: bool,
+
+  /// Run the VM immediately after building
+  #[arg(long, short = 'r')]
+  pub run: bool,
 }
 
 #[derive(Debug, Args)]

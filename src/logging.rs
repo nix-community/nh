@@ -1,5 +1,4 @@
 use clap_verbosity_flag::InfoLevel;
-use owo_colors::OwoColorize;
 use tracing::{Event, Level, Subscriber};
 use tracing_subscriber::{
   EnvFilter,
@@ -8,6 +7,7 @@ use tracing_subscriber::{
   prelude::*,
   registry::LookupSpan,
 };
+use yansi::{Color, Paint};
 
 use crate::Result;
 
@@ -30,11 +30,17 @@ where
     let level = metadata.level();
 
     match *level {
-      Level::ERROR => write!(writer, "{} ", "ERROR".red())?,
-      Level::WARN => write!(writer, "{} ", "!".yellow())?,
-      Level::INFO => write!(writer, "{} ", ">".green())?,
-      Level::DEBUG => write!(writer, "{} ", "DEBUG".blue())?,
-      Level::TRACE => write!(writer, "{} ", "TRACE".bright_blue())?,
+      Level::ERROR => {
+        write!(writer, "{} ", Paint::new("ERROR").fg(Color::Red))?
+      },
+      Level::WARN => write!(writer, "{} ", Paint::new("!").fg(Color::Yellow))?,
+      Level::INFO => write!(writer, "{} ", Paint::new(">").fg(Color::Green))?,
+      Level::DEBUG => {
+        write!(writer, "{} ", Paint::new("DEBUG").fg(Color::Blue))?
+      },
+      Level::TRACE => {
+        write!(writer, "{} ", Paint::new("TRACE").fg(Color::Cyan))?
+      },
     }
 
     ctx.field_format().format_fields(writer.by_ref(), event)?;

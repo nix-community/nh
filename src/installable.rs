@@ -1,8 +1,8 @@
 use std::{env, fs, path::PathBuf};
 
 use clap::{Arg, ArgAction, Args, FromArgMatches, error::ErrorKind};
-use color_eyre::owo_colors::OwoColorize;
 use tracing::debug;
+use yansi::{Color, Paint};
 
 // Reference: https://nix.dev/manual/nix/2.18/command-ref/new-cli/nix
 
@@ -188,12 +188,12 @@ Nix accepts various kinds of installables:
             env::var("NH_OS_FLAKE").unwrap_or_default(),
             env::var("NH_HOME_FLAKE").unwrap_or_default(),
             env::var("NH_DARWIN_FLAKE").unwrap_or_default(),
-            "-f".yellow(),
-            "--file".yellow(),
+            Paint::new("-f").fg(Color::Yellow),
+            Paint::new("--file").fg(Color::Yellow),
             env::var("NH_FILE").unwrap_or_default(),
             env::var("NH_ATTR").unwrap_or_default(),
-            "-e".yellow(),
-            "--expr".yellow(),
+            Paint::new("-e").fg(Color::Yellow),
+            Paint::new("--expr").fg(Color::Yellow),
           )),
       )
   }

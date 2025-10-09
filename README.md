@@ -43,6 +43,8 @@ that reimplements well known Nix commands.
   Darwin workflows.
 - **Rich Interface**: Each major function (`os`, `home`, `darwin`, `search`,
   `clean`) exposes granular subcommands and flags for fine-tuned control.
+- **Eye Candy**: It looks great, without any compromise. I mean who does not
+  love some cool looking UIs?
 - **Enhanced Garbage Collection**: `nh clean` extends `nix-collect-garbage` with
   gcroot cleanup, profile targeting, and time-based retention.
 - **Build-tree Visualization**: `nh os` and similar commands display build trees
@@ -220,6 +222,17 @@ The config would look like this:
 NH supports several environment variables to control command behaviour. Some of
 the common variables that you may encounter or choose to employ are as follows:
 
+### Global
+
+- `NIXOS_INSTALL_BOOTLOADER`
+  - This is a variable accepted by `switch-to-configuration`, which handles the
+    system switching behind the scenes. If `true`, `swith-to-configuration` will
+    call the necessary script to force and installation of your bootloader. This
+    behaviour can also be replicated by passing `--install-bootloader` to
+    `nh os switch` and `nh os boot` commands.
+
+### NH Specific
+
 - `NH_NO_CHECKS`
   - When set (any non-empty value), skips startup checks such as Nix version and
     experimental feature validation. Useful for generating completions or
@@ -275,8 +288,8 @@ NH consists of two modules. The core of NH is found in the `src` directory, and
 is separated into different modules. Some of the critical modules that you may
 want to be aware of are `nh::commands` for command interfaces, `nh::checks` for
 pre-startup checks and `nh::util` to store shared logic. Platform-specific logic
-is placed in the appropriate platform module, such as `nh::nixos` or `nh::darwin`
-with generic helpers placed in `nh::util`.
+is placed in the appropriate platform module, such as `nh::nixos` or
+`nh::darwin` with generic helpers placed in `nh::util`.
 
 The `xtask` directory contains the cargo-xtask tasks used by NH, used to
 generate manpages and possibly more in the future. Some of the

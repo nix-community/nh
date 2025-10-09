@@ -64,10 +64,27 @@ enum OsRebuildVariant {
 impl OsBuildVmArgs {
   fn build_vm(self, elevation: ElevationStrategy) -> Result<()> {
     let final_attr = get_final_attr(true, self.with_bootloader);
-    debug!("Building VM with attribute: {}", final_attr);
-    self
+    let should_run = self.run;
+    let out_path = self
       .common
-      .rebuild(&OsRebuildVariant::BuildVm, Some(final_attr), elevation)
+      .common
+      .out_link
+      .clone()
+      .unwrap_or_else(|| PathBuf::from("result"));
+
+    debug!("Building VM with attribute: {}", final_attr);
+    self.common.rebuild(
+      &OsRebuildVariant::BuildVm,
+      Some(final_attr),
+      elevation,
+    )?;
+
+    // If --run flag is set, execute the VM
+    if should_run {
+      run_vm(&out_path)?;
+    }
+
+    Ok(())
   }
 }
 
@@ -261,6 +278,12 @@ impl OsRebuildArgs {
       if self.common.ask {
         warn!("--ask has no effect as dry run was requested");
       }
+
+      // For VM builds, print instructions on how to run the VM
+      if matches!(variant, BuildVm) && !self.common.dry {
+        print_vm_instructions(&out_path)?;
+      }
+
       return Ok(());
     }
 
@@ -538,6 +561,135 @@ impl OsRollbackArgs {
 
     Ok(())
   }
+}
+
+/// Finds the VM runner script in the given build output directory.
+///
+/// Searches for a file matching `run-*-vm` in the `bin` subdirectory of
+/// `out_path`.
+///
+/// # Arguments
+///
+/// * `out_path` - The path to the build output directory (usually `result`).
+///
+/// # Returns
+///
+/// * `Ok(PathBuf)` with the path to the VM runner script if found.
+/// * `Err` if the script cannot be found or the bin directory is missing.
+///
+/// # Errors
+///
+/// Returns an error if the bin directory does not exist or if no matching
+/// script is found.
+fn find_vm_script(out_path: &Path) -> Result<PathBuf> {
+  let bin_dir = out_path.join("bin");
+
+  if !bin_dir.exists() {
+    bail!(
+      "VM build output missing bin directory at {}",
+      bin_dir.display()
+    );
+  }
+
+  let entries = fs::read_dir(&bin_dir).wrap_err_with(|| {
+    format!("Failed to read bin directory at {}", bin_dir.display())
+  })?;
+
+  let mut vm_script: Option<PathBuf> = None;
+  for entry_result in entries {
+    match entry_result {
+      Ok(entry) => {
+        let fname = entry.file_name();
+        if fname
+          .to_str()
+          .is_some_and(|name| name.starts_with("run-") && name.ends_with("-vm"))
+        {
+          vm_script = Some(entry.path());
+          break;
+        }
+      },
+      Err(e) => {
+        warn!(
+          "Error reading entry in VM bin directory ({}): {}",
+          bin_dir.display(),
+          e
+        );
+      },
+    }
+  }
+  let vm_script = vm_script.ok_or_else(|| {
+    eyre!("Could not find VM runner script in {}", bin_dir.display())
+  })?;
+
+  Ok(vm_script)
+}
+
+/// Prints instructions for running the built VM to the user.
+///
+/// Attempts to locate the VM runner script in the build output directory and
+/// prints a message with the path to the script. If the script cannot be found,
+/// prints a warning and a generic path pattern.
+///
+/// # Arguments
+///
+/// * `out_path` - The path to the build output directory (usually `result`).
+///
+/// # Returns
+///
+/// * `Ok(())` on success.
+/// * `Err` if there is an error searching for the VM script.
+fn print_vm_instructions(out_path: &Path) -> Result<()> {
+  match find_vm_script(out_path) {
+    Ok(script) => {
+      info!(
+        "Done. The virtual machine can be started by running {}",
+        script.display()
+      );
+    },
+    Err(e) => {
+      warn!("VM build completed, but could not find run script: {}", e);
+      info!(
+        "Done. The virtual machine script should be at {}/bin/run-*-vm",
+        out_path.display()
+      );
+    },
+  }
+
+  Ok(())
+}
+
+/// Runs the built NixOS VM by executing the VM runner script.
+///
+/// Locates the VM runner script in the build output directory and executes it,
+/// streaming its output to the user. Returns an error if the script cannot be
+/// found or if execution fails.
+///
+/// # Arguments
+///
+/// * `out_path` - The path to the build output directory (usually `result`).
+///
+/// # Returns
+///
+/// * `Ok(())` if the VM was started successfully.
+/// * `Err` if the script cannot be found or execution fails.
+fn run_vm(out_path: &Path) -> Result<()> {
+  let vm_script = find_vm_script(out_path)?;
+
+  info!(
+    "Running VM... Starting virtual machine with {}",
+    vm_script.display()
+  );
+
+  Command::new(&vm_script)
+    .message("Running VM")
+    .show_output(true)
+    .with_required_env()
+    .run()
+    .wrap_err_with(|| {
+      format!("Failed to run VM script at {}", vm_script.display())
+    })?;
+
+  Ok(())
 }
 
 fn find_previous_generation() -> Result<generations::GenerationInfo> {

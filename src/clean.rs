@@ -15,6 +15,7 @@ use nix::{
 };
 use regex::Regex;
 use tracing::{Level, debug, info, instrument, span, warn};
+use yansi::{Color, Paint};
 
 use crate::{
   Result,
@@ -77,8 +78,6 @@ impl interface::CleanMode {
   /// Panics if the current user's UID cannot be resolved to a user. For
   /// example, if  `User::from_uid(uid)` returns `None`.
   pub fn run(&self, elevate: ElevationStrategy) -> Result<()> {
-    use owo_colors::OwoColorize;
-
     let mut profiles = Vec::new();
     let mut gcroots_tagged: HashMap<PathBuf, ToBeRemoved> = HashMap::new();
     let now = SystemTime::now();
@@ -265,41 +264,69 @@ impl interface::CleanMode {
 
     // Present the user the information about the paths to clean
     println!();
-    println!("{}", "Welcome to nh clean".bold());
-    println!("Keeping {} generation(s)", args.keep.green());
-    println!("Keeping paths newer than {}", args.keep_since.green());
+    println!("{}", Paint::new("Welcome to nh clean").bold());
+    println!(
+      "Keeping {} generation(s)",
+      Paint::new(args.keep).fg(Color::Green)
+    );
+    println!(
+      "Keeping paths newer than {}",
+      Paint::new(args.keep_since).fg(Color::Green)
+    );
     println!();
     println!("legend:");
-    println!("{}: path regular expression to be matched", "RE".purple());
-    println!("{}: path to be kept", "OK".green());
-    println!("{}: path to be removed", "DEL".red());
+    println!(
+      "{}: path regular expression to be matched",
+      Paint::new("RE").fg(Color::Magenta)
+    );
+    println!("{}: path to be kept", Paint::new("OK").fg(Color::Green));
+    println!("{}: path to be removed", Paint::new("DEL").fg(Color::Red));
     println!();
     if !gcroots_tagged.is_empty() {
       println!(
         "{}",
-        "gcroots (matching the following regex patterns)"
-          .blue()
+        Paint::new("gcroots (matching the following regex patterns)")
+          .fg(Color::Blue)
           .bold()
       );
       for re in regexes {
-        println!("- {}  {}", "RE".purple(), re.as_str());
+        println!("- {}  {}", Paint::new("RE").fg(Color::Magenta), re.as_str());
       }
       for (path, tbr) in &gcroots_tagged {
         if *tbr {
-          println!("- {} {}", "DEL".red(), path.to_string_lossy());
+          println!(
+            "- {} {}",
+            Paint::new("DEL").fg(Color::Red),
+            path.to_string_lossy()
+          );
         } else {
-          println!("- {} {}", "OK ".green(), path.to_string_lossy());
+          println!(
+            "- {} {}",
+            Paint::new("OK ").fg(Color::Green),
+            path.to_string_lossy()
+          );
         }
       }
       println!();
     }
     for (profile, generations_tagged) in &profiles_tagged {
-      println!("{}", profile.to_string_lossy().blue().bold());
+      println!(
+        "{}",
+        Paint::new(profile.to_string_lossy()).fg(Color::Blue).bold()
+      );
       for (generation, tbr) in generations_tagged.iter().rev() {
         if *tbr {
-          println!("- {} {}", "DEL".red(), generation.path.to_string_lossy());
+          println!(
+            "- {} {}",
+            Paint::new("DEL").fg(Color::Red),
+            generation.path.to_string_lossy()
+          );
         } else {
-          println!("- {} {}", "OK ".green(), generation.path.to_string_lossy());
+          println!(
+            "- {} {}",
+            Paint::new("OK ").fg(Color::Green),
+            generation.path.to_string_lossy()
+          );
         }
       }
       println!();
