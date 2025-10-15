@@ -283,7 +283,7 @@ where
       if !found_config {
         let username =
           std::env::var("USER").map_err(|_| eyre!("Couldn't get username"))?;
-        let hostname = get_hostname()?;
+        let hostname = get_hostname(None)?;
         let mut tried = vec![];
 
         for attr_name in [format!("{username}@{hostname}"), username] {

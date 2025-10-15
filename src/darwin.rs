@@ -65,7 +65,7 @@ impl DarwinRebuildArgs {
       update(&self.common.installable, self.update_args.update_input)?;
     }
 
-    let hostname = self.hostname.ok_or(()).or_else(|()| get_hostname())?;
+    let hostname = get_hostname(self.hostname)?;
 
     let (out_path, _tempdir_guard): (PathBuf, Option<tempfile::TempDir>) =
       if let Some(ref p) = self.common.out_link {
@@ -222,7 +222,7 @@ impl DarwinReplArgs {
       bail!("Nix doesn't support nix store installables.");
     }
 
-    let hostname = self.hostname.ok_or(()).or_else(|()| get_hostname())?;
+    let hostname = get_hostname(self.hostname)?;
 
     if let Installable::Flake {
       ref mut attribute, ..
