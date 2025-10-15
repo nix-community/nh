@@ -65,7 +65,7 @@ impl DarwinRebuildArgs {
       update(&self.common.installable, self.update_args.update_input)?;
     }
 
-    let hostname = self.hostname.ok_or(()).or_else(|()| get_hostname())?;
+    let hostname = get_hostname(self.hostname)?;
 
     let (out_path, _tempdir_guard): (PathBuf, Option<tempfile::TempDir>) =
       if let Some(ref p) = self.common.out_link {
@@ -86,10 +86,7 @@ impl DarwinRebuildArgs {
         Some(r) => r.to_owned(),
         None => return Err(eyre!("NH_DARWIN_FLAKE missing reference part")),
       };
-      let attribute = elems
-        .next()
-        .map(crate::installable::parse_attribute)
-        .unwrap_or_default();
+      let attribute = elems.next().unwrap_or_default().to_string();
 
       Installable::Flake {
         reference,
@@ -107,8 +104,7 @@ impl DarwinRebuildArgs {
       // If user explicitly selects some other attribute, don't push
       // darwinConfigurations
       if attribute.is_empty() {
-        attribute.push(String::from("darwinConfigurations"));
-        attribute.push(hostname.clone());
+        *attribute = format!("darwinConfigurations.{hostname}");
       }
     }
 
@@ -205,10 +201,7 @@ impl DarwinReplArgs {
           Some(r) => r.to_owned(),
           None => return Err(eyre!("NH_DARWIN_FLAKE missing reference part")),
         };
-        let attribute = elems
-          .next()
-          .map(crate::installable::parse_attribute)
-          .unwrap_or_default();
+        let attribute = elems.next().unwrap_or_default().to_string();
 
         Installable::Flake {
           reference,
@@ -222,15 +215,14 @@ impl DarwinReplArgs {
       bail!("Nix doesn't support nix store installables.");
     }
 
-    let hostname = self.hostname.ok_or(()).or_else(|()| get_hostname())?;
+    let hostname = get_hostname(self.hostname)?;
 
     if let Installable::Flake {
       ref mut attribute, ..
     } = target_installable
     {
       if attribute.is_empty() {
-        attribute.push(String::from("darwinConfigurations"));
-        attribute.push(hostname);
+        *attribute = format!("darwinConfigurations.{hostname}");
       }
     }
 
