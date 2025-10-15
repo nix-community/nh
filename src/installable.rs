@@ -141,6 +141,41 @@ impl FromArgMatches for Installable {
 
 impl Args for Installable {
   fn augment_args(cmd: clap::Command) -> clap::Command {
+    let nh_flake = env::var("NH_FLAKE").unwrap_or_default();
+    let nh_os_flake = env::var("NH_OS_FLAKE").unwrap_or_default();
+    let nh_home_flake = env::var("NH_HOME_FLAKE").unwrap_or_default();
+    let nh_darwin_flake = env::var("NH_DARWIN_FLAKE").unwrap_or_default();
+    let nh_file = env::var("NH_FILE").unwrap_or_default();
+    let nh_attr = env::var("NH_ATTR").unwrap_or_default();
+
+    let long_help = format!(
+      r"Which installable to use.
+Nix accepts various kinds of installables:
+
+[FLAKEREF[#ATTRPATH]]
+    Flake reference with an optional attribute path.
+    [env: NH_FLAKE={nh_flake}]
+    [env: NH_OS_FLAKE={nh_os_flake}]
+    [env: NH_HOME_FLAKE={nh_home_flake}]
+    [env: NH_DARWIN_FLAKE={nh_darwin_flake}]
+
+{f_short}, {f_long} <FILE> [ATTRPATH]
+    Path to file with an optional attribute path.
+    [env: NH_FILE={nh_file}]
+    [env: NH_ATTRP={nh_attr}]
+
+{e_short}, {e_long} <EXPR> [ATTRPATH]
+    Nix expression with an optional attribute path.
+
+[PATH]
+    Path or symlink to a /nix/store path
+",
+      f_short = "-f".yellow(),
+      f_long = "--file".yellow(),
+      e_short = "-e".yellow(),
+      e_long = "--expr".yellow(),
+    );
+
     cmd
       .arg(
         Arg::new("file")
@@ -153,48 +188,16 @@ impl Args for Installable {
         Arg::new("expr")
           .short('E')
           .long("expr")
-          .conflicts_with("file")
+          .action(ArgAction::Set)
           .hide(true)
-          .action(ArgAction::Set),
+          .conflicts_with("file"),
       )
       .arg(
         Arg::new("installable")
           .action(ArgAction::Set)
           .value_name("INSTALLABLE")
           .help("Which installable to use")
-          .long_help(format!(
-            r"Which installable to use.
-Nix accepts various kinds of installables:
-
-[FLAKEREF[#ATTRPATH]]
-    Flake reference with an optional attribute path.
-    [env: NH_FLAKE={}]
-    [env: NH_OS_FLAKE={}]
-    [env: NH_HOME_FLAKE={}]
-    [env: NH_DARWIN_FLAKE={}]
-
-{}, {} <FILE> [ATTRPATH]
-    Path to file with an optional attribute path.
-    [env: NH_FILE={}]
-    [env: NH_ATTRP={}]
-
-{}, {} <EXPR> [ATTRPATH]
-    Nix expression with an optional attribute path.
-
-[PATH]
-    Path or symlink to a /nix/store path
-",
-            env::var("NH_FLAKE").unwrap_or_default(),
-            env::var("NH_OS_FLAKE").unwrap_or_default(),
-            env::var("NH_HOME_FLAKE").unwrap_or_default(),
-            env::var("NH_DARWIN_FLAKE").unwrap_or_default(),
-            Paint::new("-f").fg(Color::Yellow),
-            Paint::new("--file").fg(Color::Yellow),
-            env::var("NH_FILE").unwrap_or_default(),
-            env::var("NH_ATTR").unwrap_or_default(),
-            Paint::new("-e").fg(Color::Yellow),
-            Paint::new("--expr").fg(Color::Yellow),
-          )),
+          .long_help(long_help),
       )
   }
 
