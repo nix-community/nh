@@ -14,6 +14,7 @@ use crate::{
   commands,
   installable::Installable,
   interface::NixBuildPassthroughArgs,
+  util::get_hostname,
 };
 
 /// Resolves an Installable from an environment variable.
@@ -51,10 +52,6 @@ pub fn extend_installable_for_platform(
   push_drv: bool,
   extra_args: &[OsString],
 ) -> Result<Installable> {
-  use tracing::debug;
-
-  use crate::util::get_hostname;
-
   match &mut installable {
     Installable::Flake {
       reference,
@@ -62,10 +59,7 @@ pub fn extend_installable_for_platform(
     } => {
       // If attribute path is already specified, use it as-is
       if !attribute.is_empty() {
-        debug!(
-          "Using explicit attribute path from installable: {:?}",
-          attribute
-        );
+        debug!("Using explicit attribute path from installable: {attribute}");
         return Ok(installable);
       }
 
@@ -136,7 +130,7 @@ fn find_config_in_flake(
   extra_args: &[OsString],
   push_drv: bool,
   extra_path: &[&str],
-) -> Result<bool> {
+) -> bool {
   let func = format!(r#"x: x ? "{config_name}""#);
   let check_res = commands::Command::new("nix")
     .arg("eval")
@@ -161,11 +155,11 @@ fn find_config_in_flake(
         attribute.extend(extra_path.iter().map(|s| (*s).to_string()));
       }
 
-      return Ok(true);
+      return true;
     }
   }
 
-  Ok(false)
+  false
 }
 
 /// Handles common specialisation logic for all platforms
