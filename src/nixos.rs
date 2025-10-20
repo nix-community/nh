@@ -718,10 +718,7 @@ fn get_nh_os_flake_env() -> Result<Option<Installable>> {
       .next()
       .ok_or_else(|| eyre!("NH_OS_FLAKE missing reference part"))?
       .to_owned();
-    let attribute = elems
-      .next()
-      .map(crate::installable::parse_attribute)
-      .unwrap_or_default();
+    let attribute = elems.next().unwrap_or_default().to_string();
 
     Ok(Some(Installable::Flake {
       reference,
@@ -840,9 +837,7 @@ pub fn toplevel_for<S: AsRef<str>>(
   let mut res = installable;
   let hostname_str = hostname.as_ref();
 
-  let toplevel = ["config", "system", "build", final_attr]
-    .into_iter()
-    .map(String::from);
+  let toplevel = format!(".config.system.build.{final_attr}");
 
   match res {
     Installable::Flake {
@@ -851,17 +846,16 @@ pub fn toplevel_for<S: AsRef<str>>(
       // If user explicitly selects some other attribute, don't push
       // nixosConfigurations
       if attribute.is_empty() {
-        attribute.push(String::from("nixosConfigurations"));
-        attribute.push(hostname_str.to_owned());
+        *attribute = format!("nixosConfigurations.{hostname_str}");
       }
-      attribute.extend(toplevel);
+      attribute.push_str(&toplevel);
     },
     Installable::File {
       ref mut attribute, ..
     }
     | Installable::Expression {
       ref mut attribute, ..
-    } => attribute.extend(toplevel),
+    } => attribute.push_str(&toplevel),
 
     Installable::Store { .. } => {},
   }
@@ -890,8 +884,7 @@ impl OsReplArgs {
     } = target_installable
     {
       if attribute.is_empty() {
-        attribute.push(String::from("nixosConfigurations"));
-        attribute.push(hostname);
+        *attribute = format!("nixosConfigurations.{hostname}");
       }
     }
 
