@@ -14,13 +14,15 @@ use nix::{
   unistd::{AccessFlags, faccessat},
 };
 use regex::Regex;
-use tracing::{Level, debug, info, instrument, span, warn};
+use tracing::{Level, debug, instrument, span, warn};
 use yansi::{Color, Paint};
 
 use crate::{
   Result,
   commands::{Command, ElevationStrategy},
-  interface,
+  interface::{self, NotifyAskMode},
+  nh_info,
+  notify::NotificationSender,
 };
 
 // Nix impl:
@@ -249,7 +251,7 @@ impl interface::CleanMode {
             Err(err) => {
               warn!(?err, ?now, "Failed to compare time!");
             },
-            Ok(val) if val <= args.keep_since.into() => {
+            Ok(val) if val <= std::time::Duration::from(args.keep_since) => {
               gcroots_tagged.insert(dst, false);
             },
             Ok(_) => {
@@ -333,12 +335,26 @@ impl interface::CleanMode {
     }
 
     // Clean the paths
-    if args.ask
-      && !Confirm::new("Confirm the cleanup plan?")
-        .with_default(false)
-        .prompt()?
-    {
-      bail!("User rejected the cleanup plan");
+    if let Some(ask) = &args.ask {
+      let confirmation = match ask {
+        NotifyAskMode::Prompt => {
+          Confirm::new("Confirm the cleanup plan?")
+            .with_default(false)
+            .prompt()?
+        },
+        #[cfg(all(unix, not(target_os = "macos")))]
+        NotifyAskMode::Notify => {
+          NotificationSender::new(
+            "nh clean",
+            "Do you want to confirm the cleanup plan?",
+          )
+          .ask()
+        },
+      };
+
+      if !confirmation {
+        bail!("User rejected the cleanup plan");
+      }
     }
 
     if !args.dry {
@@ -488,7 +504,7 @@ fn cleanable_generations(
       Err(err) => {
         warn!(?err, ?now, ?generation, "Failed to compare time!");
       },
-      Ok(val) if val <= keep_since.into() => {
+      Ok(val) if val <= std::time::Duration::from(keep_since) => {
         *tbr = false;
       },
       Ok(_) => {},
@@ -504,7 +520,7 @@ fn cleanable_generations(
 }
 
 fn remove_path_nofail(path: &Path) {
-  info!("Removing {}", path.to_string_lossy());
+  nh_info!("Removing {}", path.to_string_lossy());
   if let Err(err) = std::fs::remove_file(path) {
     warn!(?path, ?err, "Failed to remove path");
   }
