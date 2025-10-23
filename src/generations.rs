@@ -21,10 +21,10 @@ pub struct GenerationInfo {
 
   /// Revision for a configuration. This will be the value
   /// set in `config.system.configurationRevision`
-  pub configuration_revision: String,
+  pub configuration_revision: Option<String>,
 
   /// Specialisations, if any.
-  pub specialisations: Vec<String>,
+  pub specialisations: Option<Vec<String>>,
 
   /// Whether a given generation is the current one.
   pub current: bool,
@@ -72,13 +72,13 @@ struct ColumnWidths {
 impl Field {
   fn column_info(&self, width: ColumnWidths) -> (&'static str, usize) {
     match self {
-      Field::Id => ("Generation No", width.id),
-      Field::Date => ("Build Date", width.date),
-      Field::Nver => ("NixOS Version", width.nver),
-      Field::Kernel => ("Kernel", width.kernel),
-      Field::Confrev => ("Configuration Revision", width.confrev),
-      Field::Spec => ("Specialisations", width.spec),
-      Field::Size => ("Closure Size", width.size),
+      Self::Id => ("Generation No", width.id),
+      Self::Date => ("Build Date", width.date),
+      Self::Nver => ("NixOS Version", width.nver),
+      Self::Kernel => ("Kernel", width.kernel),
+      Self::Confrev => ("Configuration Revision", width.confrev),
+      Self::Spec => ("Specialisations", width.spec),
+      Self::Size => ("Closure Size", width.size),
     }
   }
 }
@@ -96,7 +96,7 @@ pub fn from_dir(generation_dir: &Path) -> Option<u64> {
 }
 
 #[must_use]
-pub fn get_closure_size(generation_dir: &Path) -> Option<String> {
+pub fn get_closure_size(generation_dir: &Path) -> String {
   let store_path = generation_dir
     .read_link()
     .unwrap_or_else(|_| generation_dir.to_path_buf());
@@ -147,29 +147,29 @@ pub fn get_closure_size(generation_dir: &Path) -> Option<String> {
               paths, output_str
             );
           }
-          Some(closure_size.map_or_else(
+          closure_size.map_or_else(
             || "Unknown".to_string(),
             |bytes| format!("{:.1} GB", bytes as f64 / 1_073_741_824.0),
-          ))
+          )
         },
         Err(e) => {
           debug!(
             "get_closure_size: failed to parse JSON: {e} output: {output_str}"
           );
-          Some("Unknown".to_string())
+          "Unknown".to_string()
         },
       }
     },
     Err(e) => {
       debug!("get_closure_size: failed to run nix path-info: {e:?}");
-      Some("Unknown".to_string())
+      "Unknown".to_string()
     },
   }
 }
 
 pub fn describe(generation_dir: &Path) -> Option<GenerationInfo> {
   let generation_number = from_dir(generation_dir)?;
-  let closure_size = get_closure_size(generation_dir)?;
+  let closure_size = get_closure_size(generation_dir);
   // Get metadata once and reuse for both date and existence checks
   let metadata = fs::metadata(generation_dir).ok()?;
   let build_date = metadata
@@ -203,8 +203,9 @@ pub fn describe(generation_dir: &Path) -> Option<GenerationInfo> {
     .join("lib/modules");
 
   let kernel_version = if kernel_modules_dir_new.exists() {
-    match fs::read_dir(&kernel_modules_dir_new) {
-      Ok(entries) => {
+    fs::read_dir(&kernel_modules_dir_new).map_or_else(
+      |_| "Unknown".to_string(),
+      |entries| {
         let mut versions = Vec::with_capacity(4);
         for entry in entries.filter_map(Result::ok) {
           if let Some(name) = entry.file_name().to_str() {
@@ -213,11 +214,11 @@ pub fn describe(generation_dir: &Path) -> Option<GenerationInfo> {
         }
         versions.join(", ")
       },
-      Err(_) => "Unknown".to_string(),
-    }
+    )
   } else if kernel_modules_dir_old.exists() {
-    match fs::read_dir(&kernel_modules_dir_old) {
-      Ok(entries) => {
+    fs::read_dir(&kernel_modules_dir_old).map_or_else(
+      |_| "Unknown".to_string(),
+      |entries| {
         let mut versions = Vec::with_capacity(4);
         for entry in entries.filter_map(Result::ok) {
           if let Some(name) = entry.file_name().to_str() {
@@ -226,8 +227,7 @@ pub fn describe(generation_dir: &Path) -> Option<GenerationInfo> {
         }
         versions.join(", ")
       },
-      Err(_) => "Unknown".to_string(),
-    }
+    )
   } else {
     "Unknown".to_string()
   };
@@ -240,30 +240,27 @@ pub fn describe(generation_dir: &Path) -> Option<GenerationInfo> {
         .output()
         .ok()
         .and_then(|output| String::from_utf8(output.stdout).ok())
-        .unwrap_or_default()
-        .trim()
-        .to_string()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
     } else {
-      String::new()
+      None
     }
   };
 
   let specialisations = {
     let specialisation_path = generation_dir.join("specialisation");
     if specialisation_path.exists() {
-      fs::read_dir(specialisation_path)
+      let specs = fs::read_dir(specialisation_path)
         .map(|entries| {
-          let mut specs = Vec::with_capacity(5);
-          for entry in entries.filter_map(Result::ok) {
-            if let Some(name) = entry.file_name().to_str() {
-              specs.push(name.to_string());
-            }
-          }
-          specs
+          entries
+            .filter_map(Result::ok)
+            .filter_map(|e| e.file_name().into_string().ok())
+            .collect::<Vec<String>>()
         })
-        .unwrap_or_default()
+        .unwrap_or_default();
+      if specs.is_empty() { None } else { Some(specs) }
     } else {
-      Vec::new()
+      None
     }
   };
 
@@ -319,6 +316,7 @@ pub fn describe(generation_dir: &Path) -> Option<GenerationInfo> {
 /// # Errors
 ///
 /// Returns an error if output or formatting fails.
+#[expect(clippy::too_many_lines)]
 pub fn print_info(
   mut generations: Vec<GenerationInfo>,
   fields: &[Field],
@@ -350,6 +348,23 @@ pub fn print_info(
     bail!("Error getting current generation!");
   }
 
+  // Conditionally hide columns if they are empty for all generations
+  let has_confrev = generations
+    .iter()
+    .any(|g| g.configuration_revision.is_some());
+  let has_spec = generations.iter().any(|g| g.specialisations.is_some());
+
+  let visible_fields: Vec<&Field> = fields
+    .iter()
+    .filter(|f| {
+      match f {
+        Field::Confrev => has_confrev,
+        Field::Spec => has_spec,
+        _ => true,
+      }
+    })
+    .collect();
+
   // Determine column widths for pretty printing
   let max_nixos_version_len = generations
     .iter()
@@ -363,9 +378,15 @@ pub fn print_info(
     .max()
     .unwrap_or(12); // arbitrary value
 
+  let max_generation_no = generations
+    .iter()
+    .map(|g| g.number.len())
+    .max()
+    .unwrap_or(5);
+
   let widths = ColumnWidths {
-    id:      13, // "Generation No"
-    date:    20, // "Build Date"
+    id:      max_generation_no + 10, // "Generation No"
+    date:    20,                     // "Build Date"
     nver:    max_nixos_version_len,
     kernel:  max_kernel_len,
     confrev: 22, // "Configuration Revision"
@@ -373,7 +394,7 @@ pub fn print_info(
     size:    12, // "Closure Size"
   };
 
-  let header = fields
+  let header = visible_fields
     .iter()
     .map(|f| {
       let (name, width) = f.column_info(widths);
@@ -390,18 +411,15 @@ pub fn print_info(
       .cloned()
       .unwrap_or_else(|| "Unknown".to_string());
 
-    let specialisations = if generation.specialisations.is_empty() {
-      String::new()
-    } else {
-      generation
-        .specialisations
+    let specialisations = generation.specialisations.as_ref().map(|specs| {
+      specs
         .iter()
         .map(|s| format!("*{s}"))
         .collect::<Vec<String>>()
         .join(" ")
-    };
+    });
 
-    let row: String = fields
+    let row: String = visible_fields
       .iter()
       .map(|f| {
         let (_, width) = f.column_info(widths);
@@ -416,8 +434,13 @@ pub fn print_info(
           Field::Date => formatted_date.clone(),
           Field::Nver => generation.nixos_version.clone(),
           Field::Kernel => generation.kernel_version.clone(),
-          Field::Confrev => generation.configuration_revision.clone(),
-          Field::Spec => specialisations.clone(),
+          Field::Confrev => {
+            generation
+              .configuration_revision
+              .clone()
+              .unwrap_or_default()
+          },
+          Field::Spec => specialisations.clone().unwrap_or_default(),
           Field::Size => generation.closure_size.clone(),
         };
         format!("{cell_content:width$}")
