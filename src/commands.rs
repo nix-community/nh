@@ -12,10 +12,14 @@ use color_eyre::{
 use secrecy::{ExposeSecret, SecretString};
 use subprocess::{Exec, ExitStatus, Redirection};
 use thiserror::Error;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 use which::which;
 
-use crate::{installable::Installable, interface::NixBuildPassthroughArgs};
+use crate::{
+  installable::Installable,
+  interface::NixBuildPassthroughArgs,
+  nh_info,
+};
 
 static PASSWORD_CACHE: OnceLock<Mutex<HashMap<String, SecretString>>> =
   OnceLock::new();
@@ -539,7 +543,7 @@ impl Command {
     );
 
     if let Some(m) = &self.message {
-      info!("{m}");
+      nh_info!("{m}");
     }
 
     debug!(?cmd);
@@ -589,7 +593,7 @@ impl Command {
     );
 
     if let Some(m) = &self.message {
-      info!("{m}");
+      nh_info!("{m}");
     }
 
     debug!(?cmd);
@@ -670,7 +674,7 @@ impl Build {
   /// Returns an error if the build command fails to execute.
   pub fn run(&self) -> Result<()> {
     if let Some(m) = &self.message {
-      info!("{m}");
+      nh_info!("{m}");
     }
 
     let installable_args = self.installable.to_args();

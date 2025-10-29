@@ -264,6 +264,15 @@ pub enum DiffType {
   Never,
 }
 
+#[derive(Debug, Clone, ValueEnum, PartialEq)]
+pub enum NotifyAskMode {
+  /// Ask in the terminal (stdin prompt)
+  Prompt,
+  /// Ask via a desktop notification action
+  #[cfg(all(unix, not(target_os = "macos")))]
+  Notify,
+}
+
 #[derive(Debug, Args)]
 pub struct OsRollbackArgs {
   /// Only print actions, without performing them
@@ -271,8 +280,8 @@ pub struct OsRollbackArgs {
   pub dry: bool,
 
   /// Ask for confirmation
-  #[arg(long, short)]
-  pub ask: bool,
+  #[arg(long, short, value_enum, default_missing_value = "prompt", num_args = 0..=1)]
+  pub ask: Option<NotifyAskMode>,
 
   /// Explicitly select some specialisation
   #[arg(long, short)]
@@ -303,8 +312,8 @@ pub struct CommonRebuildArgs {
   pub dry: bool,
 
   /// Ask for confirmation
-  #[arg(long, short)]
-  pub ask: bool,
+  #[arg(long, short, default_missing_value = "prompt", num_args = 0..=1)]
+  pub ask: Option<NotifyAskMode>,
 
   #[command(flatten)]
   pub installable: Installable,
@@ -431,8 +440,8 @@ pub struct CleanArgs {
   pub dry: bool,
 
   /// Ask for confirmation
-  #[arg(long, short)]
-  pub ask: bool,
+  #[arg(long, short, default_missing_value = "prompt", num_args = 0..=1)]
+  pub ask: Option<NotifyAskMode>,
 
   /// Don't run nix store --gc
   #[arg(long = "no-gc", alias = "nogc")]

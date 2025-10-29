@@ -5,7 +5,7 @@ use std::{
 };
 
 use color_eyre::eyre::{Context, Result, bail, eyre};
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use crate::{
   commands::{self, Command, ElevationStrategy},
@@ -14,6 +14,7 @@ use crate::{
   interface::{
     self,
     DiffType,
+    NotifyAskMode,
     OsBuildVmArgs,
     OsGenerationsArgs,
     OsRebuildArgs,
@@ -21,6 +22,8 @@ use crate::{
     OsRollbackArgs,
     OsSubcommand::{self},
   },
+  nh_info,
+  notify::NotificationSender,
   update::update,
   util::{ensure_ssh_key_login, get_hostname, print_dix_diff},
 };
@@ -38,7 +41,7 @@ impl interface::OsArgs {
       OsSubcommand::Test(args) => args.rebuild(&Test, None, elevation),
       OsSubcommand::Switch(args) => args.rebuild(&Switch, None, elevation),
       OsSubcommand::Build(args) => {
-        if args.common.ask || args.common.dry {
+        if args.common.ask.is_some() || args.common.dry {
           warn!("`--ask` and `--dry` have no effect for `nh os build`");
         }
         args.rebuild(&Build, None, elevation)
@@ -131,7 +134,7 @@ impl OsRebuildArgs {
     self.handle_dix_diff(&target_profile);
 
     if self.common.dry || matches!(variant, Build | BuildVm) {
-      if self.common.ask {
+      if self.common.ask.is_some() {
         warn!("--ask has no effect as dry run was requested");
       }
 
@@ -316,10 +319,22 @@ impl OsRebuildArgs {
   ) -> Result<()> {
     use OsRebuildVariant::{Boot, Switch, Test};
 
-    if self.common.ask {
-      let confirmation = inquire::Confirm::new("Apply the config?")
-        .with_default(false)
-        .prompt()?;
+    if let Some(ask) = &self.common.ask {
+      let confirmation = match ask {
+        NotifyAskMode::Prompt => {
+          inquire::Confirm::new("Apply the config?")
+            .with_default(false)
+            .prompt()?
+        },
+        #[cfg(all(unix, not(target_os = "macos")))]
+        NotifyAskMode::Notify => {
+          NotificationSender::new(
+            "nh os switch",
+            "Do you want to apply the NixOS configuration?",
+          )
+          .ask()
+        },
+      };
 
       if !confirmation {
         bail!("User rejected the new config");
@@ -419,7 +434,7 @@ impl OsRollbackArgs {
       find_previous_generation()?
     };
 
-    info!("Rolling back to generation {}", target_generation.number);
+    nh_info!("Rolling back to generation {}", target_generation.number);
 
     // Construct path to the generation
     let profile_dir = Path::new(SYSTEM_PROFILE).parent().unwrap_or_else(|| {
@@ -457,20 +472,32 @@ impl OsRollbackArgs {
     }
 
     if self.dry {
-      info!(
+      nh_info!(
         "Dry run: would roll back to generation {}",
         target_generation.number
       );
       return Ok(());
     }
 
-    if self.ask {
-      let confirmation = inquire::Confirm::new(&format!(
-        "Roll back to generation {}?",
-        target_generation.number
-      ))
-      .with_default(false)
-      .prompt()?;
+    if let Some(ask) = &self.ask {
+      let confirmation = match ask {
+        NotifyAskMode::Prompt => {
+          inquire::Confirm::new(&format!(
+            "Roll back to generation {}?",
+            target_generation.number
+          ))
+          .with_default(false)
+          .prompt()?
+        },
+        #[cfg(all(unix, not(target_os = "macos")))]
+        NotifyAskMode::Notify => {
+          NotificationSender::new(
+            "nh os rollback",
+            &format!("Roll back to generation {}?", target_generation.number),
+          )
+          .ask()
+        },
+      };
 
       if !confirmation {
         bail!("User rejected the rollback");
@@ -487,7 +514,7 @@ impl OsRollbackArgs {
     };
 
     // Set the system profile
-    info!("Setting system profile...");
+    nh_info!("Setting system profile...");
 
     // Instead of direct symlink operations, use a command with proper elevation
     Command::new("ln")
@@ -519,7 +546,7 @@ impl OsRollbackArgs {
     };
 
     // Activate the configuration
-    info!("Activating...");
+    nh_info!("Activating...");
 
     let switch_to_configuration =
       final_profile.join("bin").join("switch-to-configuration");
@@ -536,7 +563,7 @@ impl OsRollbackArgs {
       .run()
     {
       Ok(()) => {
-        info!(
+        nh_info!(
           "Successfully rolled back to generation {}",
           target_generation.number
         );
@@ -643,14 +670,14 @@ fn find_vm_script(out_path: &Path) -> Result<PathBuf> {
 fn print_vm_instructions(out_path: &Path) {
   match find_vm_script(out_path) {
     Ok(script) => {
-      info!(
+      nh_info!(
         "Done. The virtual machine can be started by running {}",
         script.display()
       );
     },
     Err(e) => {
       warn!("VM build completed, but could not find run script: {}", e);
-      info!(
+      nh_info!(
         "Done. The virtual machine script should be at {}/bin/run-*-vm",
         out_path.display()
       );
@@ -658,7 +685,7 @@ fn print_vm_instructions(out_path: &Path) {
   }
 }
 
-/// Runs the built NixOS VM by executing the VM runner script.
+/// Runs the built `NixOS` VM by executing the VM runner script.
 ///
 /// Locates the VM runner script in the build output directory and executes it,
 /// streaming its output to the user. Returns an error if the script cannot be
@@ -675,7 +702,7 @@ fn print_vm_instructions(out_path: &Path) {
 fn run_vm(out_path: &Path) -> Result<()> {
   let vm_script = find_vm_script(out_path)?;
 
-  info!(
+  nh_info!(
     "Running VM... Starting virtual machine with {}",
     vm_script.display()
   );
