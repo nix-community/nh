@@ -2,6 +2,7 @@ use tracing::warn;
 
 use crate::{Result, commands::Command, installable::Installable};
 
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn update(
   installable: &Installable,
   inputs: Option<Vec<String>>,
