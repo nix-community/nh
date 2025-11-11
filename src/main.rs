@@ -10,6 +10,7 @@ mod interface;
 mod json;
 mod logging;
 mod nixos;
+mod notify;
 mod search;
 mod update;
 mod util;

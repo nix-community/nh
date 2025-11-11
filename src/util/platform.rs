@@ -10,6 +10,7 @@ use tracing::{debug, info, warn};
 use crate::commands;
 use crate::installable::Installable;
 use crate::interface::NixBuildPassthroughArgs;
+use crate::nh_info;
 
 /// Resolves an Installable from an environment variable.
 ///
@@ -186,7 +187,7 @@ pub fn confirm_action(ask: bool, dry: bool) -> Result<bool> {
     }
 
     if ask {
-        info!("Apply the config?");
+        nh_info!("Apply the config?");
         let confirmation = Confirm::new("Apply the config?")
             .with_default(false)
             .prompt()?;
