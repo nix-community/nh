@@ -106,7 +106,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: profile
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v6
         with:
           name: profile-metrics
           path: /tmp/metrics/
