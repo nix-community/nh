@@ -237,6 +237,10 @@ pub struct OsRebuildArgs {
   /// Build the configuration to a different host over ssh
   #[arg(long)]
   pub build_host: Option<String>,
+
+  /// Show systemctl debugging hints when systemd services fail
+  #[arg(long, env = "NH_SHOW_SYSTEMCTL_HINTS")]
+  pub show_systemctl_hints: bool,
 }
 
 impl OsRebuildArgs {

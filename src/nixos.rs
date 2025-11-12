@@ -369,8 +369,21 @@ impl OsRebuildArgs {
         .elevate(elevate.then_some(elevation.clone()))
         .preserve_envs(["NIXOS_INSTALL_BOOTLOADER"])
         .with_required_env()
+        .show_output(true)
         .run()
-        .wrap_err("Activation (test) failed")?;
+        .map_err(|e| {
+          let error_str = e.to_string();
+          let mut enhanced =
+            format!("Activation (test) failed\n\nError: {}", error_str);
+
+          if error_str.contains("units failed") && self.show_systemctl_hints {
+            enhanced.push_str("\n\nTo investigate failed services:");
+            enhanced.push_str("\n  systemctl --failed");
+            enhanced.push_str("\n  journalctl -xe -u <service-name>");
+          }
+
+          eyre!(enhanced)
+        })?;
 
       debug!("Completed {variant:?} operation with output path: {out_path:?}");
     }
