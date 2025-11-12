@@ -77,6 +77,7 @@ impl interface::CleanMode {
   ///
   /// Panics if the current user's UID cannot be resolved to a user. For
   /// example, if  `User::from_uid(uid)` returns `None`.
+  #[cfg_attr(feature = "hotpath", hotpath::measure)]
   pub fn run(&self, elevate: ElevationStrategy) -> Result<()> {
     let mut profiles = Vec::new();
     let mut gcroots_tagged: HashMap<PathBuf, ToBeRemoved> = HashMap::new();

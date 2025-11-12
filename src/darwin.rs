@@ -29,6 +29,7 @@ impl DarwinArgs {
   /// # Errors
   ///
   /// Returns an error if the operation fails.
+  #[cfg_attr(feature = "hotpath", hotpath::measure)]
   pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
     use DarwinRebuildVariant::{Build, Switch};
     match self.subcommand {

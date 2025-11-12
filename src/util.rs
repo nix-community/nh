@@ -141,6 +141,7 @@ pub fn normalize_version_string(version: &str) -> String {
 ///
 /// * `Result<String>` - The Nix version string or an error if the version
 ///   cannot be retrieved.
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn get_nix_version() -> Result<String> {
   let output = Command::new("nix")
     .arg("--version")
@@ -229,6 +230,7 @@ pub fn get_hostname(supplied_hostname: Option<String>) -> Result<String> {
 ///
 /// * `Result<HashSet<String>>` - A `HashSet` of enabled experimental features
 ///   or an error.
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn get_nix_experimental_features() -> Result<HashSet<String>> {
   let output = Command::new("nix")
     .args(["config", "show", "experimental-features"])

@@ -36,6 +36,51 @@ fn cache_password(host: &str, password: SecretString) {
   guard.insert(host.to_string(), password);
 }
 
+/// Parse a command line string respecting quoted arguments.
+///
+/// Splits the command line by whitespace while preserving spaces within
+/// single or double quoted strings. Quote characters are removed from
+/// the resulting tokens.
+fn parse_cmdline_with_quotes(cmdline: &str) -> Vec<String> {
+  let mut parts = Vec::default();
+  let mut current = String::new();
+  let mut quoted = None;
+
+  for c in cmdline.chars() {
+    match c {
+      // Opening quote - enter quoted mode
+      '\'' | '"' if quoted.is_none() => {
+        quoted = Some(c);
+      },
+      // Closing quote - exit quoted mode
+      '\'' | '"' if quoted.is_some_and(|q| q == c) => {
+        quoted = None;
+      },
+      // Different quote type while already quoted - treat as literal
+      '\'' | '"' => {
+        current.push(c);
+      },
+      // Whitespace outside quotes - end of current token
+      s if s.is_whitespace() && quoted.is_none() => {
+        if !current.is_empty() {
+          parts.push(current.clone());
+          current.clear();
+        }
+      },
+      // Any char, add to current token
+      _ => {
+        current.push(c);
+      },
+    }
+  }
+
+  if !current.is_empty() {
+    parts.push(current);
+  }
+
+  parts
+}
+
 fn ssh_wrap(
   cmd: Exec,
   ssh: Option<&str>,
@@ -432,13 +477,13 @@ impl Command {
 
     // Convert Exec to std::process::Command by parsing the command line
     let cmdline = final_exec.to_cmdline_lossy();
-    let parts: Vec<&str> = cmdline.split_whitespace().collect();
+    let parts = parse_cmdline_with_quotes(&cmdline);
 
     if parts.is_empty() {
       bail!("Failed to build sudo command");
     }
 
-    let mut std_cmd = std::process::Command::new(parts[0]);
+    let mut std_cmd = std::process::Command::new(&parts[0]);
     if parts.len() > 1 {
       std_cmd.args(&parts[1..]);
     }
@@ -456,6 +501,7 @@ impl Command {
   /// # Panics
   ///
   /// Panics if the command result is unexpectedly None.
+  #[cfg_attr(feature = "hotpath", hotpath::measure)]
   pub fn run(&self) -> Result<()> {
     // Prompt for sudo password if needed for remote deployment
     // FIXME: this implementation only covers Sudo. I *think* doas and run0 are
@@ -668,6 +714,7 @@ impl Build {
   /// # Errors
   ///
   /// Returns an error if the build command fails to execute.
+  #[cfg_attr(feature = "hotpath", hotpath::measure)]
   pub fn run(&self) -> Result<()> {
     if let Some(m) = &self.message {
       info!("{m}");
@@ -1191,6 +1238,88 @@ mod tests {
     assert!(cmdline.starts_with("ssh"));
     assert!(cmdline.contains("-T"));
     assert!(cmdline.contains("user@host"));
+  }
+
+  #[test]
+  fn test_parse_cmdline_simple() {
+    let result = parse_cmdline_with_quotes("cmd arg1 arg2 arg3");
+    assert_eq!(result, vec!["cmd", "arg1", "arg2", "arg3"]);
+  }
+
+  #[test]
+  fn test_parse_cmdline_with_single_quotes() {
+    let result = parse_cmdline_with_quotes("cmd 'arg with spaces' arg2");
+    assert_eq!(result, vec!["cmd", "arg with spaces", "arg2"]);
+  }
+
+  #[test]
+  fn test_parse_cmdline_with_double_quotes() {
+    let result = parse_cmdline_with_quotes(r#"cmd "arg with spaces" arg2"#);
+    assert_eq!(result, vec!["cmd", "arg with spaces", "arg2"]);
+  }
+
+  #[test]
+  fn test_parse_cmdline_mixed_quotes() {
+    let result = parse_cmdline_with_quotes(
+      r#"cmd 'single quoted' "double quoted" normal"#,
+    );
+    assert_eq!(result, vec![
+      "cmd",
+      "single quoted",
+      "double quoted",
+      "normal"
+    ]);
+  }
+
+  #[test]
+  fn test_parse_cmdline_with_equals_in_quotes() {
+    let result =
+      parse_cmdline_with_quotes("sudo env 'PATH=/path/with spaces' /bin/cmd");
+    assert_eq!(result, vec![
+      "sudo",
+      "env",
+      "PATH=/path/with spaces",
+      "/bin/cmd"
+    ]);
+  }
+
+  #[test]
+  fn test_parse_cmdline_multiple_spaces() {
+    let result = parse_cmdline_with_quotes("cmd    arg1     arg2");
+    assert_eq!(result, vec!["cmd", "arg1", "arg2"]);
+  }
+
+  #[test]
+  fn test_parse_cmdline_leading_trailing_spaces() {
+    let result = parse_cmdline_with_quotes("  cmd arg1 arg2  ");
+    assert_eq!(result, vec!["cmd", "arg1", "arg2"]);
+  }
+
+  #[test]
+  fn test_parse_cmdline_empty_string() {
+    let result = parse_cmdline_with_quotes("");
+    assert_eq!(result, Vec::<String>::default());
+  }
+
+  #[test]
+  fn test_parse_cmdline_only_spaces() {
+    let result = parse_cmdline_with_quotes("   ");
+    assert_eq!(result, Vec::<String>::default());
+  }
+
+  #[test]
+  fn test_parse_cmdline_realistic_sudo() {
+    let cmdline =
+      r#"/usr/bin/sudo env 'PATH=/path with spaces' /usr/bin/nh clean all"#;
+    let result = parse_cmdline_with_quotes(cmdline);
+    assert_eq!(result, vec![
+      "/usr/bin/sudo",
+      "env",
+      "PATH=/path with spaces",
+      "/usr/bin/nh",
+      "clean",
+      "all"
+    ]);
   }
 
   #[test]

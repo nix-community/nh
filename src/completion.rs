@@ -11,6 +11,7 @@ impl interface::CompletionArgs {
   /// # Errors
   ///
   /// Returns an error if completion script generation or output fails.
+  #[cfg_attr(feature = "hotpath", hotpath::measure)]
   pub fn run(&self) -> Result<()> {
     let mut cmd = <Main as clap::CommandFactory>::command();
     generate(self.shell, &mut cmd, "nh", &mut std::io::stdout());
