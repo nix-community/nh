@@ -1171,7 +1171,7 @@ mod tests {
   fn test_build_new() {
     let installable = Installable::Flake {
       reference: "github:user/repo".to_string(),
-      attribute: vec!["package".to_string()],
+      attribute: "package".to_string(),
     };
 
     let build = Build::new(installable.clone());
@@ -1187,7 +1187,7 @@ mod tests {
   fn test_build_builder_pattern() {
     let installable = Installable::Flake {
       reference: "github:user/repo".to_string(),
-      attribute: vec!["package".to_string()],
+      attribute: "package".to_string(),
     };
 
     let build = Build::new(installable)
