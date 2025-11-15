@@ -356,12 +356,8 @@ pub struct OsGenerationsArgs {
   pub profile: Option<String>,
 
   /// Comma-delimited list of field(s) to display
-  #[arg(
-    long,
-    value_delimiter = ',',
-    default_value = "id,date,nver,kernel,confRev,spec,size"
-  )]
-  pub fields: Vec<Field>,
+  #[arg(long, value_delimiter = ',')]
+  pub fields: Option<Vec<Field>>,
 }
 
 #[derive(Args, Debug)]

@@ -18,6 +18,7 @@ functionality, under the "Removed" section.
 
 ### Changed
 
+- `nh os info` now hides empty columns.
 - `nh os info` now support `--fields` to select which field(s) to display; also
   add a per-generation "Closure Size" coloumn.
   ([#375](https://github.com/nix-community/nh/issues/375))
@@ -33,6 +34,13 @@ functionality, under the "Removed" section.
 - Switched from owo-colors to Yansi as the internal coloring library. This
   should not affect end-users, but please create an issue if you notice anything
   different.
+- `nh os info` now hides empty fields by default, they can be explicitly shown
+  via the `--fields` flag.
+
+### Fixed
+
+- Fixed the whitespace splitting of self-elevated commands so spaces inside quotes
+  don't get separated.
 
 ## 4.2.0
 
