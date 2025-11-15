@@ -10,18 +10,18 @@ use yansi::{Color, Paint};
 pub enum Installable {
   Flake {
     reference: String,
-    attribute: Vec<String>,
+    attribute: String,
   },
   File {
     path:      PathBuf,
-    attribute: Vec<String>,
+    attribute: String,
   },
   Store {
     path: PathBuf,
   },
   Expression {
     expression: String,
-    attribute:  Vec<String>,
+    attribute:  String,
   },
 }
 
@@ -51,14 +51,14 @@ impl FromArgMatches for Installable {
     if let Some(f) = file {
       return Ok(Self::File {
         path:      PathBuf::from(f),
-        attribute: parse_attribute(installable.cloned().unwrap_or_default()),
+        attribute: installable.cloned().unwrap_or_default(),
       });
     }
 
     if let Some(e) = expr {
       return Ok(Self::Expression {
         expression: e.to_string(),
-        attribute:  parse_attribute(installable.cloned().unwrap_or_default()),
+        attribute:  installable.cloned().unwrap_or_default(),
       });
     }
 
@@ -67,12 +67,10 @@ impl FromArgMatches for Installable {
       let reference = elems.next().unwrap().to_owned();
       return Ok(Self::Flake {
         reference,
-        attribute: parse_attribute(
-          elems
-            .next()
-            .map(std::string::ToString::to_string)
-            .unwrap_or_default(),
-        ),
+        attribute: elems
+          .next()
+          .map(std::string::ToString::to_string)
+          .unwrap_or_default(),
       });
     }
 
@@ -82,12 +80,10 @@ impl FromArgMatches for Installable {
         let mut elems = f.splitn(2, '#');
         Installable::Flake {
           reference: elems.next().unwrap().to_owned(),
-          attribute: parse_attribute(
-            elems
-              .next()
-              .map(std::string::ToString::to_string)
-              .unwrap_or_default(),
-          ),
+          attribute: elems
+            .next()
+            .map(std::string::ToString::to_string)
+            .unwrap_or_default(),
         }
       })
     }
@@ -124,7 +120,7 @@ impl FromArgMatches for Installable {
     if let Ok(f) = env::var("NH_FILE") {
       return Ok(Self::File {
         path:      PathBuf::from(f),
-        attribute: parse_attribute(env::var("NH_ATTRP").unwrap_or_default()),
+        attribute: env::var("NH_ATTRP").unwrap_or_default(),
       });
     }
 
@@ -141,6 +137,41 @@ impl FromArgMatches for Installable {
 
 impl Args for Installable {
   fn augment_args(cmd: clap::Command) -> clap::Command {
+    let nh_flake = env::var("NH_FLAKE").unwrap_or_default();
+    let nh_os_flake = env::var("NH_OS_FLAKE").unwrap_or_default();
+    let nh_home_flake = env::var("NH_HOME_FLAKE").unwrap_or_default();
+    let nh_darwin_flake = env::var("NH_DARWIN_FLAKE").unwrap_or_default();
+    let nh_file = env::var("NH_FILE").unwrap_or_default();
+    let nh_attr = env::var("NH_ATTR").unwrap_or_default();
+
+    let long_help = format!(
+      r"Which installable to use.
+Nix accepts various kinds of installables:
+
+[FLAKEREF[#ATTRPATH]]
+    Flake reference with an optional attribute path.
+    [env: NH_FLAKE={nh_flake}]
+    [env: NH_OS_FLAKE={nh_os_flake}]
+    [env: NH_HOME_FLAKE={nh_home_flake}]
+    [env: NH_DARWIN_FLAKE={nh_darwin_flake}]
+
+{f_short}, {f_long} <FILE> [ATTRPATH]
+    Path to file with an optional attribute path.
+    [env: NH_FILE={nh_file}]
+    [env: NH_ATTRP={nh_attr}]
+
+{e_short}, {e_long} <EXPR> [ATTRPATH]
+    Nix expression with an optional attribute path.
+
+[PATH]
+    Path or symlink to a /nix/store path
+",
+      f_short = "-f".yellow(),
+      f_long = "--file".yellow(),
+      e_short = "-e".yellow(),
+      e_long = "--expr".yellow(),
+    );
+
     cmd
       .arg(
         Arg::new("file")
@@ -153,48 +184,16 @@ impl Args for Installable {
         Arg::new("expr")
           .short('E')
           .long("expr")
-          .conflicts_with("file")
+          .action(ArgAction::Set)
           .hide(true)
-          .action(ArgAction::Set),
+          .conflicts_with("file"),
       )
       .arg(
         Arg::new("installable")
           .action(ArgAction::Set)
           .value_name("INSTALLABLE")
           .help("Which installable to use")
-          .long_help(format!(
-            r"Which installable to use.
-Nix accepts various kinds of installables:
-
-[FLAKEREF[#ATTRPATH]]
-    Flake reference with an optional attribute path.
-    [env: NH_FLAKE={}]
-    [env: NH_OS_FLAKE={}]
-    [env: NH_HOME_FLAKE={}]
-    [env: NH_DARWIN_FLAKE={}]
-
-{}, {} <FILE> [ATTRPATH]
-    Path to file with an optional attribute path.
-    [env: NH_FILE={}]
-    [env: NH_ATTRP={}]
-
-{}, {} <EXPR> [ATTRPATH]
-    Nix expression with an optional attribute path.
-
-[PATH]
-    Path or symlink to a /nix/store path
-",
-            env::var("NH_FLAKE").unwrap_or_default(),
-            env::var("NH_OS_FLAKE").unwrap_or_default(),
-            env::var("NH_HOME_FLAKE").unwrap_or_default(),
-            env::var("NH_DARWIN_FLAKE").unwrap_or_default(),
-            Paint::new("-f").fg(Color::Yellow),
-            Paint::new("--file").fg(Color::Yellow),
-            env::var("NH_FILE").unwrap_or_default(),
-            env::var("NH_ATTR").unwrap_or_default(),
-            Paint::new("-e").fg(Color::Yellow),
-            Paint::new("--expr").fg(Color::Yellow),
-          )),
+          .long_help(long_help),
       )
   }
 
@@ -203,82 +202,35 @@ Nix accepts various kinds of installables:
   }
 }
 
-// TODO: should handle quoted attributes, like foo."bar.baz" -> ["foo",
-// "bar.baz"] maybe use chumsky?
-pub fn parse_attribute<S>(s: S) -> Vec<String>
-where
-  S: AsRef<str>,
-{
-  let s = s.as_ref();
-  let mut res = Vec::new();
-
-  if s.is_empty() {
-    return res;
-  }
-
-  let mut in_quote = false;
-
-  let mut elem = String::new();
-  for char in s.chars() {
-    match char {
-      '.' => {
-        if in_quote {
-          elem.push(char);
-        } else {
-          res.push(elem.clone());
-          elem = String::new();
-        }
-      },
-      '"' => {
-        in_quote = !in_quote;
-      },
-      _ => elem.push(char),
-    }
-  }
-
-  res.push(elem);
-
-  assert!(!in_quote, "Failed to parse attribute: {s}");
-
-  res
-}
-
-#[test]
-fn test_parse_attribute() {
-  assert_eq!(parse_attribute(r"foo.bar"), vec!["foo", "bar"]);
-  assert_eq!(parse_attribute(r#"foo."bar.baz""#), vec!["foo", "bar.baz"]);
-  let v: Vec<String> = vec![];
-  assert_eq!(parse_attribute(""), v);
-}
-
 impl Installable {
   #[must_use]
   pub fn to_args(&self) -> Vec<String> {
-    let mut res = Vec::new();
     match self {
       Self::Flake {
         reference,
         attribute,
       } => {
-        res.push(format!("{reference}#{}", join_attribute(attribute)));
+        vec![format!("{reference}#{attribute}")]
       },
       Self::File { path, attribute } => {
-        res.push(String::from("--file"));
-        res.push(path.to_str().unwrap().to_string());
-        res.push(join_attribute(attribute));
+        vec![
+          String::from("--file"),
+          path.to_str().unwrap().to_string(),
+          attribute.to_string(),
+        ]
       },
       Self::Expression {
         expression,
         attribute,
       } => {
-        res.push(String::from("--expr"));
-        res.push(expression.to_string());
-        res.push(join_attribute(attribute));
+        vec![
+          String::from("--expr"),
+          expression.to_string(),
+          attribute.to_string(),
+        ]
       },
-      Self::Store { path } => res.push(path.to_str().unwrap().to_string()),
+      Self::Store { path } => vec![path.to_str().unwrap().to_string()],
     }
-
-    res
   }
 }
 
@@ -301,38 +253,6 @@ fn test_installable_to_args() {
     .to_args(),
     vec!["--file", "w", r#"x."y.z""#]
   );
-}
-
-fn join_attribute<I>(attribute: I) -> String
-where
-  I: IntoIterator,
-  I::Item: AsRef<str>,
-{
-  let mut res = String::new();
-  let mut first = true;
-  for elem in attribute {
-    if first {
-      first = false;
-    } else {
-      res.push('.');
-    }
-
-    let s = elem.as_ref();
-
-    if s.contains('.') {
-      res.push_str(&format!(r#""{s}""#));
-    } else {
-      res.push_str(s);
-    }
-  }
-
-  res
-}
-
-#[test]
-fn test_join_attribute() {
-  assert_eq!(join_attribute(vec!["foo", "bar"]), "foo.bar");
-  assert_eq!(join_attribute(vec!["foo", "bar.baz"]), r#"foo."bar.baz""#);
 }
 
 impl Installable {
