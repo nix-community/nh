@@ -10,9 +10,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - uses: cachix/install-nix-action@v31
       - name: Check nixos-search version
         run: |
-          VERSION_CONTENT=$(curl --silent "https://raw.githubusercontent.com/nixos/nixos-search/main/VERSION" | tr -d '[:space:]')
+          # Upstream stores backend and "import" versions in a `version.nix` file.
+          # I can't really tell the difference, but the "backend" key seems to be
+          # for migrations, and the "import" key is what we're looking for.
+          curl -fsSL https://raw.githubusercontent.com/nixos/nixos-search/main/version.nix -o version.nix
+          VERSION_CONTENT=$(nix eval --raw --file ./version.nix import)
+
           # NOTE: this number and the version number in src/search.rs have
           # to be updated when nixos-search updates it's version number.
           VERSION_NUMBER=44

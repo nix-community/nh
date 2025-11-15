@@ -238,6 +238,7 @@ pub fn create_output_path(
 }
 
 /// Compare configurations using nvd diff
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn compare_configurations(
   current_profile: &str,
   target_profile: &std::path::Path,
@@ -267,6 +268,7 @@ pub fn compare_configurations(
 }
 
 /// Build a configuration using the nix build command
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn build_configuration(
   installable: Installable,
   out_path: &dyn crate::util::MaybeTempPath,
@@ -412,6 +414,7 @@ pub fn process_specialisation(
 /// # Returns
 ///
 /// The path to the built configuration, which can be used for activation
+#[cfg_attr(feature = "hotpath", hotpath::measure)]
 #[allow(clippy::too_many_arguments)]
 pub fn handle_rebuild_workflow(
   installable: Installable,

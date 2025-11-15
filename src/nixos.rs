@@ -31,6 +31,7 @@ const CURRENT_PROFILE: &str = "/run/current-system";
 const SPEC_LOCATION: &str = "/etc/specialisation";
 
 impl interface::OsArgs {
+  #[cfg_attr(feature = "hotpath", hotpath::measure)]
   pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
     use OsRebuildVariant::{Boot, Build, Switch, Test};
     match self.subcommand {
@@ -937,7 +938,7 @@ impl OsGenerationsArgs {
       .filter_map(|gen_dir| generations::describe(gen_dir))
       .collect();
 
-    generations::print_info(descriptions, &self.fields)?;
+    generations::print_info(descriptions, self.fields.as_deref())?;
 
     Ok(())
   }

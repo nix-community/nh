@@ -21,6 +21,7 @@ impl interface::HomeArgs {
   /// # Errors
   ///
   /// Returns an error if the operation fails.
+  #[cfg_attr(feature = "hotpath", hotpath::measure)]
   pub fn run(self) -> Result<()> {
     use HomeRebuildVariant::{Build, Switch};
     match self.subcommand {

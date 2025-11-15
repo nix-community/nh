@@ -15,6 +15,7 @@ mod update;
 mod util;
 
 use color_eyre::Result;
+#[cfg(feature = "hotpath")] use hotpath;
 
 use crate::commands::ElevationStrategy;
 
@@ -22,6 +23,9 @@ pub const NH_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const NH_REV: Option<&str> = option_env!("NH_REV");
 
 fn main() -> Result<()> {
+  #[cfg(feature = "hotpath")]
+  let _guard = hotpath::GuardBuilder::new("main").build();
+
   let args = <crate::interface::Main as clap::Parser>::parse();
 
   // Set up logging
