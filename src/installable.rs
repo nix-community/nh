@@ -377,4 +377,37 @@ impl Installable {
        flake.nix"
     ))
   }
+
+  /// Try to find a sensible default home-manager installable when none was
+  /// provided.
+  pub fn try_find_default_for_home() -> color_eyre::Result<Self> {
+    // Check for home-manager configuration location
+    let home_dir = std::env::var("HOME")?;
+    let flake_path = format!("{home_dir}/.config/home-manager/flake.nix");
+
+    if let Ok(metadata) = fs::metadata(&flake_path) {
+      if metadata.is_file() {
+        let reference = std::path::Path::new(&flake_path)
+          .parent()
+          .expect("flake.nix should have a parent directory")
+          .to_string_lossy()
+          .to_string();
+
+        tracing::warn!(
+          "No home installable was specified, falling back to {reference}",
+        );
+
+        return Ok(Self::Flake {
+          reference,
+          attribute: vec![],
+        });
+      }
+    }
+
+    Err(color_eyre::eyre::eyre!(
+      "No home installable was specified, and no fallback installable was \
+       found. Consider setting NH_HOME_FLAKE to the directory containing your \
+       home-manager flake.nix."
+    ))
+  }
 }

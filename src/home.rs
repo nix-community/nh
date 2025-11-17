@@ -80,7 +80,14 @@ impl HomeRebuildArgs {
         attribute,
       }
     } else {
-      self.common.installable.clone()
+      // Handle to case where no installable was specified during parsing
+      match &self.common.installable {
+        Installable::Unspecified => {
+          Installable::try_find_default_for_home()
+            .expect("Failed to find default home installable")
+        },
+        _ => self.common.installable.clone(),
+      }
     };
 
     let toplevel = toplevel_for(
@@ -398,7 +405,14 @@ impl HomeReplArgs {
         attribute,
       }
     } else {
-      self.installable
+      // Handle to case where no installable was specified during parsing
+      match &self.installable {
+        Installable::Unspecified => {
+          Installable::try_find_default_for_home()
+            .expect("Failed to find default home installable")
+        },
+        _ => self.installable.clone(),
+      }
     };
 
     let toplevel = toplevel_for(
