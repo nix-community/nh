@@ -1,6 +1,6 @@
 use std::{env, fs, path::PathBuf};
 
-use clap::{Arg, ArgAction, Args, FromArgMatches, error::ErrorKind};
+use clap::{Arg, ArgAction, Args, FromArgMatches};
 use tracing::debug;
 use yansi::{Color, Paint};
 
@@ -23,6 +23,14 @@ pub enum Installable {
     expression: String,
     attribute:  Vec<String>,
   },
+
+  /// Represents the case where no installable was provided during CLI parsing
+  ///
+  /// This variant is used internally to defer the resolution of default
+  /// installables until after the logging system is initialized. It gets
+  /// resolved to a concrete Installable (Flake, File, etc.) by calling
+  /// try_find_default_for_os() in the appropriate command module.
+  Unspecified,
 }
 
 impl FromArgMatches for Installable {
@@ -128,7 +136,7 @@ impl FromArgMatches for Installable {
       });
     }
 
-    Err(clap::Error::new(ErrorKind::TooFewValues))
+    Ok(Self::Unspecified)
   }
 
   fn update_from_arg_matches(
@@ -276,6 +284,7 @@ impl Installable {
         res.push(join_attribute(attribute));
       },
       Self::Store { path } => res.push(path.to_str().unwrap().to_string()),
+      Self::Unspecified => res.push(String::from("")),
     }
 
     res
@@ -343,6 +352,29 @@ impl Installable {
       Self::File { .. } => "file",
       Self::Store { .. } => "store path",
       Self::Expression { .. } => "expression",
+      Self::Unspecified => "unspecified",
     }
+  }
+
+  /// Try to find a sensible default installable when none was provided.
+  pub fn try_find_default_for_os() -> color_eyre::Result<Self> {
+    // Check for system-wide NixOS flake as fallback.
+    if let Ok(metadata) = fs::metadata("/etc/nixos/flake.nix") {
+      if metadata.is_file() {
+        tracing::warn!(
+          "No installable was specified, falling back to /etc/nixos"
+        );
+        return Ok(Self::Flake {
+          reference: "/etc/nixos".to_string(),
+          attribute: vec![],
+        });
+      }
+    }
+
+    Err(color_eyre::eyre::eyre!(
+      "No installable was specified, and no fallback installable was found in \
+       /etc/nixos. Consider setting NH_FLAKE to the directory containing your \
+       flake.nix"
+    ))
   }
 }

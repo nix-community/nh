@@ -210,8 +210,19 @@ impl OsRebuildArgs {
     target_hostname: &str,
     final_attr: Option<&String>,
   ) -> Result<Installable> {
+    use crate::installable::Installable;
+
     let installable = (get_nh_os_flake_env()?).map_or_else(
-      || self.common.installable.clone(),
+      || {
+        // Handle to case where no installable was specified during parsing
+        match &self.common.installable {
+          Installable::Unspecified => {
+            Installable::try_find_default_for_os()
+              .expect("Failed to find default installable")
+          },
+          _ => self.common.installable.clone(),
+        }
+      },
       |flake_installable| flake_installable,
     );
 
@@ -228,6 +239,30 @@ impl OsRebuildArgs {
     out_path: &Path,
     message: &str,
   ) -> Result<()> {
+    // Proactive permission check for common system flake access issues
+    if let Installable::Flake { reference, .. } = &toplevel {
+      if reference.contains("/etc/nixos") {
+        // Check if we can read key files by actually attempting to read them
+        let config_path = match std::fs::canonicalize("/etc/nixos") {
+          Ok(path) => path.join("flake.nix"),
+          Err(_) => {
+            return Err(eyre!(
+              "Could not access /etc/nixos. Check if the directory exists and \
+               if it is accessible."
+            ));
+          },
+        };
+
+        if std::fs::read_to_string(&config_path).is_err() {
+          // Just error here. We could try to handle
+          return Err(eyre!(
+            "Could not access /etc/nixos. Check if the directory exists and \
+             if it is accessible."
+          ));
+        }
+      }
+    }
+
     commands::Build::new(toplevel)
       .extra_arg("--out-link")
       .extra_arg(out_path)
@@ -865,6 +900,14 @@ pub fn toplevel_for<S: AsRef<str>>(
     } => attribute.extend(toplevel),
 
     Installable::Store { .. } => {},
+    Installable::Unspecified => {
+      // This should never happen since we resolve Unspecified before calling
+      // toplevel_for
+      unreachable!(
+        "Installable::Unspecified should have been resolved before \
+         toplevel_for"
+      );
+    },
   }
 
   res

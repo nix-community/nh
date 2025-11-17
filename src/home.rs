@@ -364,6 +364,14 @@ where
       }
     },
     Installable::Store { .. } => {},
+    Installable::Unspecified => {
+      // This should never happen since we resolve Unspecified before calling
+      // toplevel_for
+      unreachable!(
+        "Installable::Unspecified should have been resolved before \
+         toplevel_for"
+      );
+    },
   }
 
   Ok(res)
