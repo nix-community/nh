@@ -1,0 +1,88 @@
+name: hotpath-profile
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  profile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: true
+          cache-bin: true
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - id: head_timing_metrics
+        env:
+          HOTPATH_JSON: true
+        run: |
+          # Extract timing metrics from head branch
+          {
+            echo 'metrics<<EOF'
+            cargo run --features 'hotpath' --release -- search "nix" | grep '^{"hotpath_profiling_mode"'
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - id: base_timing_metrics
+        env:
+          HOTPATH_JSON: true
+        run: |
+          # Extract timing metrics from base branch
+          git checkout ${{ github.event.pull_request.base.sha }}
+          {
+            echo 'metrics<<EOF'
+            cargo run --features 'hotpath' --release -- search "nix" | grep '^{"hotpath_profiling_mode"'
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - id: head_alloc_metrics
+        env:
+          HOTPATH_JSON: true
+        run: |
+          # Extract alloc bytes metrics from head branch
+          git checkout ${{ github.event.pull_request.head.sha }}
+          {
+            echo 'metrics<<EOF'
+            cargo run --features 'hotpath,hotpath-alloc-bytes-total' --release -- search "nix" | grep '^{"hotpath_profiling_mode"'
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - id: base_alloc_metrics
+        env:
+          HOTPATH_JSON: true
+        run: |
+          # Extract alloc bytes metrics from base branch
+          git checkout ${{ github.event.pull_request.base.sha }}
+          {
+            echo 'metrics<<EOF'
+            cargo run --features 'hotpath,hotpath-alloc-bytes-total' --release -- search "nix" | grep '^{"hotpath_profiling_mode"'
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Save metrics to artifact
+        run: |
+          mkdir -p /tmp/metrics
+          echo '${{ steps.head_timing_metrics.outputs.metrics }}' > /tmp/metrics/head_timing.json
+          echo '${{ steps.base_timing_metrics.outputs.metrics }}' > /tmp/metrics/base_timing.json
+          echo '${{ steps.head_alloc_metrics.outputs.metrics }}' > /tmp/metrics/head_alloc.json
+          echo '${{ steps.base_alloc_metrics.outputs.metrics }}' > /tmp/metrics/base_alloc.json
+          echo '${{ github.event.pull_request.number }}' > /tmp/metrics/pr_number.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: profile-metrics
+          path: /tmp/metrics/
+          retention-days: 1
