@@ -82,10 +82,7 @@ impl HomeRebuildArgs {
     } else {
       // Handle to case where no installable was specified during parsing
       match &self.common.installable {
-        Installable::Unspecified => {
-          Installable::try_find_default_for_home()
-            .expect("Failed to find default home installable")
-        },
+        Installable::Unspecified => Installable::try_find_default_for_home()?,
         _ => self.common.installable.clone(),
       }
     };
@@ -407,10 +404,7 @@ impl HomeReplArgs {
     } else {
       // Handle to case where no installable was specified during parsing
       match &self.installable {
-        Installable::Unspecified => {
-          Installable::try_find_default_for_home()
-            .expect("Failed to find default home installable")
-        },
+        Installable::Unspecified => Installable::try_find_default_for_home()?,
         _ => self.installable.clone(),
       }
     };

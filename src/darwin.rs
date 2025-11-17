@@ -97,7 +97,11 @@ impl DarwinRebuildArgs {
         attribute,
       }
     } else {
-      self.common.installable.clone()
+      // Handle to case where no installable was specified during parsing
+      match &self.common.installable {
+        Installable::Unspecified => Installable::try_find_default_for_darwin()?,
+        _ => self.common.installable.clone(),
+      }
     };
 
     let mut processed_installable = installable;
@@ -114,6 +118,30 @@ impl DarwinRebuildArgs {
     }
 
     let toplevel = toplevel_for(hostname, processed_installable, "toplevel");
+
+    // Proactive permission check for nix-darwin system flake access issues
+    if let Installable::Flake { reference, .. } = &toplevel {
+      if reference.contains("/etc/nix-darwin") {
+        // Check if we can read key files by actually attempting to read them
+        let config_path = match std::fs::canonicalize("/etc/nix-darwin") {
+          Ok(path) => path.join("flake.nix"),
+          Err(_) => {
+            return Err(eyre!(
+              "Could not access /etc/nix-darwin. Check if the directory \
+               exists and if it is accessible."
+            ));
+          },
+        };
+
+        if std::fs::read_to_string(&config_path).is_err() {
+          // Just error here. We could try to handle
+          return Err(eyre!(
+            "Could not access /etc/nix-darwin. Check if the directory exists \
+             and if it is accessible."
+          ));
+        }
+      }
+    }
 
     commands::Build::new(toplevel)
       .extra_arg("--out-link")
@@ -197,27 +225,32 @@ impl DarwinRebuildArgs {
 impl DarwinReplArgs {
   fn run(self) -> Result<()> {
     // Use NH_DARWIN_FLAKE if available, otherwise use the provided installable
-    let mut target_installable =
-      if let Ok(darwin_flake) = env::var("NH_DARWIN_FLAKE") {
-        debug!("Using NH_DARWIN_FLAKE: {}", darwin_flake);
+    let mut target_installable = if let Ok(darwin_flake) =
+      env::var("NH_DARWIN_FLAKE")
+    {
+      debug!("Using NH_DARWIN_FLAKE: {}", darwin_flake);
 
-        let mut elems = darwin_flake.splitn(2, '#');
-        let reference = match elems.next() {
-          Some(r) => r.to_owned(),
-          None => return Err(eyre!("NH_DARWIN_FLAKE missing reference part")),
-        };
-        let attribute = elems
-          .next()
-          .map(crate::installable::parse_attribute)
-          .unwrap_or_default();
-
-        Installable::Flake {
-          reference,
-          attribute,
-        }
-      } else {
-        self.installable
+      let mut elems = darwin_flake.splitn(2, '#');
+      let reference = match elems.next() {
+        Some(r) => r.to_owned(),
+        None => return Err(eyre!("NH_DARWIN_FLAKE missing reference part")),
       };
+      let attribute = elems
+        .next()
+        .map(crate::installable::parse_attribute)
+        .unwrap_or_default();
+
+      Installable::Flake {
+        reference,
+        attribute,
+      }
+    } else {
+      // Handle to case where no installable was specified during parsing
+      match &self.installable {
+        Installable::Unspecified => Installable::try_find_default_for_darwin()?,
+        _ => self.installable.clone(),
+      }
+    };
 
     if matches!(target_installable, Installable::Store { .. }) {
       bail!("Nix doesn't support nix store installables.");

@@ -212,19 +212,18 @@ impl OsRebuildArgs {
   ) -> Result<Installable> {
     use crate::installable::Installable;
 
-    let installable = (get_nh_os_flake_env()?).map_or_else(
-      || {
-        // Handle to case where no installable was specified during parsing
-        match &self.common.installable {
-          Installable::Unspecified => {
-            Installable::try_find_default_for_os()
-              .expect("Failed to find default installable")
-          },
-          _ => self.common.installable.clone(),
-        }
-      },
-      |flake_installable| flake_installable,
-    );
+    let installable = if let Some(flake_installable) = get_nh_os_flake_env()? {
+      flake_installable
+    } else {
+      // Handle to case where no installable was specified during parsing
+      match &self.common.installable {
+        Installable::Unspecified => {
+          Installable::try_find_default_for_os()
+            .wrap_err("Failed to find default installable")?
+        },
+        _ => self.common.installable.clone(),
+      }
+    };
 
     Ok(toplevel_for(
       target_hostname,
