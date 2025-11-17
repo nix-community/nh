@@ -1,0 +1,54 @@
+name: hotpath-comment
+
+on:
+  workflow_run:
+    workflows: ["hotpath-profile"]
+    types:
+      - completed
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: profile-metrics
+          path: /tmp/metrics/
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Install hotpath CLI
+        run: cargo install hotpath
+
+      - name: Post timing PR comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          HEAD_METRICS=$(cat /tmp/metrics/head_timing.json)
+          BASE_METRICS=$(cat /tmp/metrics/base_timing.json)
+          PR_NUMBER=$(cat /tmp/metrics/pr_number.txt)
+          hotpath profile-pr \
+            --head-metrics "$HEAD_METRICS" \
+            --base-metrics "$BASE_METRICS" \
+            --github-token "$GH_TOKEN" \
+            --pr-number "$PR_NUMBER"
+
+      - name: Post alloc PR comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          HEAD_METRICS=$(cat /tmp/metrics/head_alloc.json)
+          BASE_METRICS=$(cat /tmp/metrics/base_alloc.json)
+          PR_NUMBER=$(cat /tmp/metrics/pr_number.txt)
+          hotpath profile-pr \
+            --head-metrics "$HEAD_METRICS" \
+            --base-metrics "$BASE_METRICS" \
+            --github-token "$GH_TOKEN" \
+            --pr-number "$PR_NUMBER"
