@@ -36,11 +36,18 @@ functionality, under the "Removed" section.
   different.
 - `nh os info` now hides empty fields by default, they can be explicitly shown
   via the `--fields` flag.
+- NH now handles missing installable paths more gracefully. Previously NH would
+  throw an unhelpful error about a missing arg but would not tell anything about
+  what is missing.
+  - With the new changes NH will **fall back to common installable locations**
+    and actually tell what exactly is missing in the CLI. For example when an
+    installable is missing for `nh home`, it will tell the user to set
+    `NH_HOME_FLAKE` or pass the correct path to the `flake.nix`.
 
 ### Fixed
 
-- Fixed the whitespace splitting of self-elevated commands so spaces inside quotes
-  don't get separated.
+- Fixed the whitespace splitting of self-elevated commands so spaces inside
+  quotes don't get separated.
 
 ## 4.2.0
 
