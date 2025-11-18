@@ -745,6 +745,7 @@ fn missing_switch_to_configuration_error() -> color_eyre::eyre::Report {
 /// If `NH_OS_FLAKE` is not set, it returns `Ok(None)`.
 /// If `NH_OS_FLAKE` is set but invalid, it returns an `Err`.
 fn get_nh_os_flake_env() -> Result<Option<Installable>> {
+  // Check NH_OS_FLAKE first (platform-specific), then NH_FLAKE (generic)
   if let Ok(os_flake) = env::var("NH_OS_FLAKE") {
     debug!("Using NH_OS_FLAKE: {}", os_flake);
 
@@ -752,6 +753,23 @@ fn get_nh_os_flake_env() -> Result<Option<Installable>> {
     let reference = elems
       .next()
       .ok_or_else(|| eyre!("NH_OS_FLAKE missing reference part"))?
+      .to_owned();
+    let attribute = elems
+      .next()
+      .map(crate::installable::parse_attribute)
+      .unwrap_or_default();
+
+    Ok(Some(Installable::Flake {
+      reference,
+      attribute,
+    }))
+  } else if let Ok(generic_flake) = env::var("NH_FLAKE") {
+    debug!("Using NH_FLAKE: {}", generic_flake);
+
+    let mut elems = generic_flake.splitn(2, '#');
+    let reference = elems
+      .next()
+      .ok_or_else(|| eyre!("NH_FLAKE missing reference part"))?
       .to_owned();
     let attribute = elems
       .next()

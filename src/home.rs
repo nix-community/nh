@@ -61,7 +61,8 @@ impl HomeRebuildArgs {
 
     debug!("Output path: {out_path:?}");
 
-    // Use NH_HOME_FLAKE if available, otherwise use the provided installable
+    // Use NH_HOME_FLAKE if available, otherwise NH_FLAKE, otherwise use the
+    // provided installable
     let installable = if let Ok(home_flake) = env::var("NH_HOME_FLAKE") {
       debug!("Using NH_HOME_FLAKE: {}", home_flake);
 
@@ -69,6 +70,23 @@ impl HomeRebuildArgs {
       let reference = match elems.next() {
         Some(r) => r.to_owned(),
         None => return Err(eyre!("NH_HOME_FLAKE missing reference part")),
+      };
+      let attribute = elems
+        .next()
+        .map(crate::installable::parse_attribute)
+        .unwrap_or_default();
+
+      Installable::Flake {
+        reference,
+        attribute,
+      }
+    } else if let Ok(generic_flake) = env::var("NH_FLAKE") {
+      debug!("Using NH_FLAKE: {}", generic_flake);
+
+      let mut elems = generic_flake.splitn(2, '#');
+      let reference = match elems.next() {
+        Some(r) => r.to_owned(),
+        None => return Err(eyre!("NH_FLAKE missing reference part")),
       };
       let attribute = elems
         .next()
