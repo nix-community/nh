@@ -937,7 +937,10 @@ impl OsReplArgs {
       if let Some(flake_installable) = get_nh_os_flake_env()? {
         flake_installable
       } else {
-        self.installable
+        match self.installable {
+          Installable::Unspecified => Installable::try_find_default_for_os()?,
+          _ => self.installable,
+        }
       };
 
     if matches!(target_installable, Installable::Store { .. }) {
