@@ -35,7 +35,7 @@ color-eyre = { default-features = false, features = [ "track-caller" ], version 
 dix = "1.3.0"
 elasticsearch-dsl = "0.4.24"
 hostname = "0.4.1"
-hotpath = { version = "0.5.3", optional = true }
+hotpath = { version = "0.6", optional = true }
 humantime = "2.3.0"
 inquire = { default-features = false, version = "0.9.1", features = [ "crossterm" ] }
 nix = { default-features = false, features = [ "fs", "user" ], version = "0.30.1" }
@@ -63,7 +63,6 @@ yansi = "1.0.1"
 hotpath                   = [ "dep:hotpath", "hotpath/hotpath" ]
 hotpath-alloc-bytes-total = [ "hotpath/hotpath-alloc-bytes-total" ]
 hotpath-alloc-count-total = [ "hotpath/hotpath-alloc-count-total" ]
-hotpath-alloc-self        = [ "hotpath/hotpath-alloc-self" ]
 hotpath-off               = [ "hotpath/hotpath-off" ]
 
 [target.'cfg(target_os="macos")'.dependencies]
