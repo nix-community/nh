@@ -381,9 +381,9 @@ impl Installable {
     }
 
     Err(color_eyre::eyre::eyre!(
-      "No installable was specified, and no fallback installable was found in \
-       /etc/nixos.\n\nConsider setting NH_FLAKE or NH_OS_FLAKE to the \
-       directory containing your flake.nix"
+      "No NixOS installable was specified, and no fallback installable was found in \
+       /etc/nixos.\n\nConsider setting NH_FLAKE or NH_OS_FLAKE to point to your NixOS \
+       configuration directory (the directory containing flake.nix with your nixosConfigurations)"
     ))
   }
 
@@ -414,9 +414,10 @@ impl Installable {
     }
 
     Err(color_eyre::eyre::eyre!(
-      "No home installable was specified, and no fallback installable was \
-       found.\n\nConsider setting NH_FLAKE or NH_HOME_FLAKE to the directory \
-       containing your home-manager flake.nix."
+      "No Home Manager installable was specified, and no fallback installable was \
+       found.\n\nConsider setting NH_FLAKE or NH_HOME_FLAKE to point to your flake \
+       directory containing home-manager configurations (either a standalone home-manager \
+       flake or a flake with homeConfigurations)"
     ))
   }
 
@@ -446,9 +447,10 @@ impl Installable {
     }
 
     Err(color_eyre::eyre::eyre!(
-      "No darwin installable was specified, and no fallback installable was \
+      "No nix-darwin installable was specified, and no fallback installable was \
        found in /etc/nix-darwin.\n\nConsider setting NH_FLAKE or \
-       NH_DARWIN_FLAKE to the directory containing your nix-darwin flake.nix"
+       NH_DARWIN_FLAKE to point to your nix-darwin configuration directory \
+       (the directory containing flake.nix with your darwinConfigurations)"
     ))
   }
 }
