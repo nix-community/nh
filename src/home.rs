@@ -70,10 +70,7 @@ impl HomeRebuildArgs {
         Some(r) => r.to_owned(),
         None => return Err(eyre!("NH_HOME_FLAKE missing reference part")),
       };
-      let attribute = elems
-        .next()
-        .map(crate::installable::parse_attribute)
-        .unwrap_or_default();
+      let attribute = elems.next().unwrap_or_default().to_string();
 
       Installable::Flake {
         reference,
@@ -224,7 +221,7 @@ where
         return Ok(res);
       }
 
-      attribute.push(String::from("homeConfigurations"));
+      *attribute = String::from("homeConfigurations");
 
       let flake_reference = reference.clone();
       let mut found_config = false;
@@ -255,7 +252,7 @@ where
         if check_res.map(|s| s.trim().to_owned()).as_deref() == Some("true") {
           debug!("Using explicit configuration from flag: {config_name:?}");
 
-          attribute.push(config_name);
+          attribute.push_str(&config_name);
           if push_drv {
             attribute.extend(toplevel.clone());
           }
@@ -265,7 +262,7 @@ where
           // Explicit config provided but not found
           let tried_attr_path = {
             let mut attr_path = attribute.clone();
-            attr_path.push(config_name);
+            attr_path.push_str(&config_name);
             Installable::Flake {
               reference: flake_reference,
               attribute: attr_path,
@@ -310,7 +307,7 @@ where
 
           let current_try_attr = {
             let mut attr_path = attribute.clone();
-            attr_path.push(attr_name.clone());
+            attr_path.push_str(&attr_name);
             attr_path
           };
           tried.push(current_try_attr.clone());
@@ -319,7 +316,7 @@ where
             check_res.map(|s| s.trim().to_owned()).as_deref()
           {
             debug!("Using automatically detected configuration: {}", attr_name);
-            attribute.push(attr_name);
+            attribute.push_str(&attr_name);
             if push_drv {
               attribute.extend(toplevel.clone());
             }
@@ -380,10 +377,7 @@ impl HomeReplArgs {
         Some(r) => r.to_owned(),
         None => return Err(eyre!("NH_HOME_FLAKE missing reference part")),
       };
-      let attribute = elems
-        .next()
-        .map(crate::installable::parse_attribute)
-        .unwrap_or_default();
+      let attribute = elems.next().unwrap_or_default().to_string();
 
       Installable::Flake {
         reference,
