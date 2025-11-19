@@ -1,7 +1,7 @@
 use std::{env, path::PathBuf};
 
 use color_eyre::eyre::{Context, bail, eyre};
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use crate::{
   Result,
@@ -132,10 +132,34 @@ impl DarwinRebuildArgs {
       if attribute.is_empty() {
         attribute.push(String::from("darwinConfigurations"));
         attribute.push(hostname.clone());
+      } else if attribute.len() == 1 && attribute[0] == "darwinConfigurations" {
+        // User provided just ".#darwinConfigurations" - append hostname
+        info!("Inferring hostname '{hostname}' for darwinConfigurations");
+        attribute.push(hostname.clone());
+      } else if attribute[0] == "darwinConfigurations" {
+        // User provided darwinConfigurations.something...
+        if attribute.len() == 2 {
+          // darwinConfigurations.hostname - this is fine
+        } else if attribute.len() > 2 && attribute[2] == "config" {
+          // darwinConfigurations.hostname.config.something - too specific
+          bail!(
+            "Attribute path is too specific: {}. Please either:\n  1. Use the \
+             flake reference without attributes (e.g., '.')\n  2. Specify \
+             only the configuration name (e.g., '.#{}'), or\n  3. Specify the \
+             full configuration path (e.g., '.#darwinConfigurations.{}')",
+            attribute.join("."),
+            attribute[1],
+            attribute[1]
+          );
+        }
+      } else {
+        // User provided something like ".#test"
+        // They mean "test" is the configuration name under darwinConfigurations
+        attribute.insert(0, String::from("darwinConfigurations"));
       }
     }
 
-    let toplevel = toplevel_for(hostname, processed_installable, "toplevel");
+    let toplevel = toplevel_for(hostname, processed_installable, "toplevel")?;
 
     // Proactive permission check for nix-darwin system flake access issues
     if let Installable::Flake { reference, .. } = &toplevel {
