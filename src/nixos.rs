@@ -225,11 +225,11 @@ impl OsRebuildArgs {
       }
     };
 
-    Ok(toplevel_for(
+    toplevel_for(
       target_hostname,
       installable,
-      final_attr.map_or("toplevel", |v| v),
-    ))
+      final_attr.map_or("toplevel", String::as_str),
+    )
   }
 
   fn execute_build_command(
@@ -889,7 +889,7 @@ pub fn toplevel_for<S: AsRef<str>>(
   hostname: S,
   installable: Installable,
   final_attr: &str,
-) -> Installable {
+) -> Result<Installable> {
   let mut res = installable;
   let hostname_str = hostname.as_ref();
 
@@ -906,6 +906,34 @@ pub fn toplevel_for<S: AsRef<str>>(
       if attribute.is_empty() {
         attribute.push(String::from("nixosConfigurations"));
         attribute.push(hostname_str.to_owned());
+      } else if attribute.len() == 1 && attribute[0] == "nixosConfigurations" {
+        // User provided just ".#nixosConfigurations" - append hostname
+        info!("Inferring hostname '{hostname_str}' for nixosConfigurations",);
+        attribute.push(hostname_str.to_owned());
+      } else if attribute[0] == "nixosConfigurations" {
+        // User provided nixosConfigurations.something...
+        if attribute.len() == 2 {
+          // nixosConfigurations.hostname - this is fine, just append toplevel
+        } else if attribute.len() > 2 && attribute[2] == "config" {
+          // nixosConfigurations.hostname.config.something - too specific
+          bail!(
+            "Attribute path is too specific: {}. Please either:\n  1. Use the \
+             flake reference without attributes (e.g., '.')\n  2. Specify \
+             only the configuration name (e.g., '.#{}'), or\n  3. Specify the \
+             full configuration path (e.g., '.#nixosConfigurations.{}')",
+            attribute.join("."),
+            attribute[1],
+            attribute[1]
+          );
+        }
+        // Otherwise it's something like
+        // nixosConfigurations.hostname.specialisation which we should
+        // allow
+      } else {
+        // User provided something like ".setup#test"
+        // They mean "test" is the configuration name under nixosConfigurations
+        // So we need to prepend "nixosConfigurations"
+        attribute.insert(0, String::from("nixosConfigurations"));
       }
       attribute.extend(toplevel);
     },
@@ -927,7 +955,7 @@ pub fn toplevel_for<S: AsRef<str>>(
     },
   }
 
-  res
+  Ok(res)
 }
 
 impl OsReplArgs {
