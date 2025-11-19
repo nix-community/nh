@@ -236,17 +236,69 @@ where
       ref reference,
       ref mut attribute,
     } => {
-      // If user explicitly selects some other attribute in the installable
-      // itself then don't push homeConfigurations
-      if !attribute.is_empty() {
+      // Handle different attribute path scenarios intelligently
+      if attribute.is_empty() {
+        // No attribute provided - we'll auto-discover
+        attribute.push(String::from("homeConfigurations"));
+      } else if attribute.len() == 1 && attribute[0] == "homeConfigurations" {
+        // User provided just ".#homeConfigurations" - we'll infer the config
+        // name
         debug!(
-          "Using explicit attribute path from installable: {:?}",
-          attribute
+          "User provided .#homeConfigurations, will infer configuration name"
         );
-        return Ok(res);
+        // Don't return early - let the auto-discovery logic below handle it
+      } else if attribute[0] == "homeConfigurations" {
+        // User provided homeConfigurations.something...
+        if attribute.len() == 2 {
+          // homeConfigurations.username - this is fine, explicit config name
+          debug!(
+            "Using explicit configuration from attribute path: {}",
+            attribute[1]
+          );
+          if push_drv {
+            attribute.extend(toplevel.clone());
+          }
+          return Ok(res);
+        } else {
+          // homeConfigurations.username.something - too specific for
+          // home-manager
+          bail!(
+            "Invalid attribute path for home-manager: {}. Only configuration \
+             names are allowed.\n\nUse: '.#{}' or just '.' for auto-discovery",
+            attribute.join("."),
+            attribute[1]
+          );
+        }
+      } else {
+        // User provided something like ".setup#myconfig"
+        // They mean "myconfig" is the configuration name under
+        // homeConfigurations
+        debug!(
+          "Prepending homeConfigurations to attribute path: {}",
+          attribute.join(".")
+        );
+        attribute.insert(0, String::from("homeConfigurations"));
+        // Check if this is a simple config name (now at index 1)
+        if attribute.len() == 2 {
+          // Simple case: homeConfigurations.configname - use it directly
+          if push_drv {
+            attribute.extend(toplevel.clone());
+          }
+          return Ok(res);
+        } else {
+          // Too specific for home-manager after prepending
+          bail!(
+            "Invalid attribute path for home-manager: {}. Only configuration \
+             names are allowed.\n\nUse: '.#{}' or just '.' for auto-discovery",
+            attribute.join("."),
+            attribute[1]
+          );
+        }
       }
 
-      attribute.push(String::from("homeConfigurations"));
+      // If we reach here, attribute is either empty or just
+      // ["homeConfigurations"] Proceed with auto-discovery or explicit
+      // config flag handling
 
       let flake_reference = reference.clone();
       let mut found_config = false;
@@ -340,7 +392,10 @@ where
           if let Some("true") =
             check_res.map(|s| s.trim().to_owned()).as_deref()
           {
-            debug!("Using automatically detected configuration: {}", attr_name);
+            info!(
+              "Inferring home-manager configuration '{attr_name}' for \
+               homeConfigurations"
+            );
             attribute.push(attr_name);
             if push_drv {
               attribute.extend(toplevel.clone());
