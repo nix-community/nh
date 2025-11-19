@@ -66,6 +66,7 @@ hotpath-alloc-count-total = [ "hotpath/hotpath-alloc-count-total" ]
 hotpath-off               = [ "hotpath/hotpath-off" ]
 
 [target.'cfg(target_os="macos")'.dependencies]
+brewdiff             = "0.2.0"
 system-configuration = "0.6.1"
 
 [dev-dependencies]
