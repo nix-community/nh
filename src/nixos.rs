@@ -987,10 +987,21 @@ impl OsReplArgs {
       }
     }
 
-    Command::new("nix")
-      .arg("repl")
-      .args(target_installable.to_args())
-      .with_required_env()
+    let cmd = match &target_installable {
+      Installable::File { path, .. } => {
+        Command::new("nix")
+          .arg("repl")
+          .arg("--file")
+          .arg(path)
+      },
+      _ => {
+        Command::new("nix")
+          .arg("repl")
+          .args(target_installable.to_args())
+      },
+    };
+    
+    cmd.with_required_env()
       .show_output(true)
       .run()?;
 

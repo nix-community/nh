@@ -482,17 +482,27 @@ impl HomeReplArgs {
       }
     };
 
-    let toplevel = toplevel_for(
-      installable,
-      false,
-      &self.extra_args,
-      self.configuration.clone(),
-    )?;
-
-    Command::new("nix")
-      .with_required_env()
-      .arg("repl")
-      .args(toplevel.to_args())
+    let cmd = match &installable {
+      Installable::File { path, .. } => {
+        Command::new("nix")
+          .arg("repl")
+          .arg("--file")
+          .arg(path)
+      },
+      _ => {
+        let toplevel = toplevel_for(
+          installable,
+          false,
+          &self.extra_args,
+          self.configuration.clone(),
+        )?;
+        Command::new("nix")
+          .arg("repl")
+          .args(toplevel.to_args())
+      },
+    };
+    
+    cmd.with_required_env()
       .show_output(true)
       .run()?;
 
