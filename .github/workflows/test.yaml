@@ -33,7 +33,7 @@ jobs:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
           nix_path: nixpkgs=channel:nixos-unstable
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Run Tests
         run: |
@@ -55,7 +55,7 @@ jobs:
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Run Tests
         run: |
