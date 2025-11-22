@@ -61,7 +61,8 @@ impl HomeRebuildArgs {
 
     debug!("Output path: {out_path:?}");
 
-    // Use NH_HOME_FLAKE if available, otherwise use the provided installable
+    // Use NH_HOME_FLAKE if available, otherwise NH_FLAKE, otherwise use the
+    // provided installable
     let installable = if let Ok(home_flake) = env::var("NH_HOME_FLAKE") {
       debug!("Using NH_HOME_FLAKE: {}", home_flake);
 
@@ -79,8 +80,29 @@ impl HomeRebuildArgs {
         reference,
         attribute,
       }
+    } else if let Ok(generic_flake) = env::var("NH_FLAKE") {
+      debug!("Using NH_FLAKE: {}", generic_flake);
+
+      let mut elems = generic_flake.splitn(2, '#');
+      let reference = match elems.next() {
+        Some(r) => r.to_owned(),
+        None => return Err(eyre!("NH_FLAKE missing reference part")),
+      };
+      let attribute = elems
+        .next()
+        .map(crate::installable::parse_attribute)
+        .unwrap_or_default();
+
+      Installable::Flake {
+        reference,
+        attribute,
+      }
     } else {
-      self.common.installable.clone()
+      // Handle to case where no installable was specified during parsing
+      match &self.common.installable {
+        Installable::Unspecified => Installable::try_find_default_for_home()?,
+        _ => self.common.installable.clone(),
+      }
     };
 
     let toplevel = toplevel_for(
@@ -214,17 +236,69 @@ where
       ref reference,
       ref mut attribute,
     } => {
-      // If user explicitly selects some other attribute in the installable
-      // itself then don't push homeConfigurations
-      if !attribute.is_empty() {
+      // Handle different attribute path scenarios intelligently
+      if attribute.is_empty() {
+        // No attribute provided - we'll auto-discover
+        attribute.push(String::from("homeConfigurations"));
+      } else if attribute.len() == 1 && attribute[0] == "homeConfigurations" {
+        // User provided just ".#homeConfigurations" - we'll infer the config
+        // name
         debug!(
-          "Using explicit attribute path from installable: {:?}",
-          attribute
+          "User provided .#homeConfigurations, will infer configuration name"
         );
-        return Ok(res);
+        // Don't return early - let the auto-discovery logic below handle it
+      } else if attribute[0] == "homeConfigurations" {
+        // User provided homeConfigurations.something...
+        if attribute.len() == 2 {
+          // homeConfigurations.username - this is fine, explicit config name
+          debug!(
+            "Using explicit configuration from attribute path: {}",
+            attribute[1]
+          );
+          if push_drv {
+            attribute.extend(toplevel.clone());
+          }
+          return Ok(res);
+        } else {
+          // homeConfigurations.username.something - too specific for
+          // home-manager
+          bail!(
+            "Invalid attribute path for home-manager: {}. Only configuration \
+             names are allowed.\n\nUse: '.#{}' or just '.' for auto-discovery",
+            attribute.join("."),
+            attribute[1]
+          );
+        }
+      } else {
+        // User provided something like ".setup#myconfig"
+        // They mean "myconfig" is the configuration name under
+        // homeConfigurations
+        debug!(
+          "Prepending homeConfigurations to attribute path: {}",
+          attribute.join(".")
+        );
+        attribute.insert(0, String::from("homeConfigurations"));
+        // Check if this is a simple config name (now at index 1)
+        if attribute.len() == 2 {
+          // Simple case: homeConfigurations.configname - use it directly
+          if push_drv {
+            attribute.extend(toplevel.clone());
+          }
+          return Ok(res);
+        } else {
+          // Too specific for home-manager after prepending
+          bail!(
+            "Invalid attribute path for home-manager: {}. Only configuration \
+             names are allowed.\n\nUse: '.#{}' or just '.' for auto-discovery",
+            attribute.join("."),
+            attribute[1]
+          );
+        }
       }
 
-      attribute.push(String::from("homeConfigurations"));
+      // If we reach here, attribute is either empty or just
+      // ["homeConfigurations"] Proceed with auto-discovery or explicit
+      // config flag handling
 
       let flake_reference = reference.clone();
       let mut found_config = false;
@@ -318,7 +392,10 @@ where
           if let Some("true") =
             check_res.map(|s| s.trim().to_owned()).as_deref()
           {
-            debug!("Using automatically detected configuration: {}", attr_name);
+            info!(
+              "Inferring home-manager configuration '{attr_name}' for \
+               homeConfigurations"
+            );
             attribute.push(attr_name);
             if push_drv {
               attribute.extend(toplevel.clone());
@@ -364,6 +441,14 @@ where
       }
     },
     Installable::Store { .. } => {},
+    Installable::Unspecified => {
+      // This should never happen since we resolve Unspecified before calling
+      // toplevel_for
+      unreachable!(
+        "Installable::Unspecified should have been resolved before \
+         toplevel_for"
+      );
+    },
   }
 
   Ok(res)
@@ -390,22 +475,29 @@ impl HomeReplArgs {
         attribute,
       }
     } else {
-      self.installable
+      // Handle to case where no installable was specified during parsing
+      match &self.installable {
+        Installable::Unspecified => Installable::try_find_default_for_home()?,
+        _ => self.installable.clone(),
+      }
     };
 
-    let toplevel = toplevel_for(
-      installable,
-      false,
-      &self.extra_args,
-      self.configuration.clone(),
-    )?;
+    let cmd = match &installable {
+      Installable::File { path, .. } => {
+        Command::new("nix").arg("repl").arg("--file").arg(path)
+      },
+      _ => {
+        let toplevel = toplevel_for(
+          installable,
+          false,
+          &self.extra_args,
+          self.configuration.clone(),
+        )?;
+        Command::new("nix").arg("repl").args(toplevel.to_args())
+      },
+    };
 
-    Command::new("nix")
-      .with_required_env()
-      .arg("repl")
-      .args(toplevel.to_args())
-      .show_output(true)
-      .run()?;
+    cmd.with_required_env().show_output(true).run()?;
 
     Ok(())
   }

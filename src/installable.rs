@@ -23,6 +23,14 @@ pub enum Installable {
     expression: String,
     attribute:  Vec<String>,
   },
+
+  /// Represents the case where no installable was provided during CLI parsing
+  ///
+  /// This variant is used internally to defer the resolution of default
+  /// installables until after the logging system is initialized. It gets
+  /// resolved to a concrete Installable (Flake, File, etc.) by calling
+  /// `try_find_default_for_os()` in the appropriate command module.
+  Unspecified,
 }
 
 impl FromArgMatches for Installable {
@@ -137,7 +145,7 @@ impl FromArgMatches for Installable {
       });
     }
 
-    Err(clap::Error::new(ErrorKind::TooFewValues))
+    Ok(Self::Unspecified)
   }
 
   fn update_from_arg_matches(
@@ -297,6 +305,9 @@ impl Installable {
           return Vec::new();
         }
       },
+      Self::Unspecified => {
+        unreachable!("Unspecified should be resolved before to_args")
+      },
     }
 
     res
@@ -364,6 +375,106 @@ impl Installable {
       Self::File { .. } => "file",
       Self::Store { .. } => "store path",
       Self::Expression { .. } => "expression",
+      Self::Unspecified => "unspecified",
     }
+  }
+
+  /// Try to find a sensible default installable when none was provided.
+  pub fn try_find_default_for_os() -> color_eyre::Result<Self> {
+    // Check for system-wide NixOS flake as fallback.
+    let flake_path = "/etc/nixos/flake.nix";
+
+    if let Ok(metadata) = fs::metadata(flake_path) {
+      if metadata.is_file() {
+        let reference = std::path::Path::new(flake_path)
+          .parent()
+          .expect("flake.nix should have a parent directory")
+          .to_string_lossy()
+          .to_string();
+
+        tracing::warn!(
+          "No installable was specified, falling back to {reference}"
+        );
+
+        return Ok(Self::Flake {
+          reference,
+          attribute: vec![],
+        });
+      }
+    }
+
+    Err(color_eyre::eyre::eyre!(
+      "No NixOS installable was specified, and no fallback installable was \
+       found in /etc/nixos.\n\nConsider setting NH_FLAKE or NH_OS_FLAKE to \
+       point to your NixOS configuration directory (the directory containing \
+       flake.nix with your nixosConfigurations)"
+    ))
+  }
+
+  /// Try to find a sensible default home-manager installable when none was
+  /// provided.
+  pub fn try_find_default_for_home() -> color_eyre::Result<Self> {
+    // Check for home-manager configuration location
+    let home_dir = std::env::var("HOME")?;
+    let flake_path = format!("{home_dir}/.config/home-manager/flake.nix");
+
+    if let Ok(metadata) = fs::metadata(&flake_path) {
+      if metadata.is_file() {
+        let reference = std::path::Path::new(&flake_path)
+          .parent()
+          .expect("flake.nix should have a parent directory")
+          .to_string_lossy()
+          .to_string();
+
+        tracing::warn!(
+          "No home installable was specified, falling back to {reference}",
+        );
+
+        return Ok(Self::Flake {
+          reference,
+          attribute: vec![],
+        });
+      }
+    }
+
+    Err(color_eyre::eyre::eyre!(
+      "No Home Manager installable was specified, and no fallback installable \
+       was found.\n\nConsider setting NH_FLAKE or NH_HOME_FLAKE to point to \
+       your flake directory containing home-manager configurations (either a \
+       standalone home-manager flake or a flake with homeConfigurations)"
+    ))
+  }
+
+  /// Try to find a sensible default nix-darwin installable when none was
+  /// provided.
+  pub fn try_find_default_for_darwin() -> color_eyre::Result<Self> {
+    // Check for nix-darwin configuration location
+    let flake_path = "/etc/nix-darwin/flake.nix";
+
+    if let Ok(metadata) = fs::metadata(flake_path) {
+      if metadata.is_file() {
+        let reference = std::path::Path::new(flake_path)
+          .parent()
+          .expect("flake.nix should have a parent directory")
+          .to_string_lossy()
+          .to_string();
+
+        tracing::warn!(
+          "No darwin installable was specified, falling back to {reference}"
+        );
+
+        return Ok(Self::Flake {
+          reference,
+          attribute: vec![],
+        });
+      }
+    }
+
+    Err(color_eyre::eyre::eyre!(
+      "No nix-darwin installable was specified, and no fallback installable \
+       was found in /etc/nix-darwin.\n\nConsider setting NH_FLAKE or \
+       NH_DARWIN_FLAKE to point to your nix-darwin configuration directory \
+       (the directory containing flake.nix with your darwinConfigurations)"
+    ))
   }
 }

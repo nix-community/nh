@@ -308,9 +308,11 @@ pub fn run_repl(
     config_name: Option<String>,
     extra_args: &[String],
 ) -> Result<()> {
-    // Store paths don't work with REPL
-    if let Installable::Store { .. } = installable {
-        bail!("Nix doesn't support nix store installables with repl.");
+    // Store paths and Unspecified don't work with REPL
+    match &installable {
+        Installable::Store { .. } => bail!("Nix doesn't support nix store installables with repl."),
+        Installable::Unspecified => bail!("Installable must be specified for REPL."),
+        _ => {}
     }
 
     let installable = extend_installable_for_platform(

@@ -210,16 +210,26 @@ impl OsRebuildArgs {
     target_hostname: &str,
     final_attr: Option<&String>,
   ) -> Result<Installable> {
-    let installable = (get_nh_os_flake_env()?).map_or_else(
-      || self.common.installable.clone(),
-      |flake_installable| flake_installable,
-    );
+    use crate::installable::Installable;
 
-    Ok(toplevel_for(
+    let installable = if let Some(flake_installable) = get_nh_os_flake_env()? {
+      flake_installable
+    } else {
+      // Handle to case where no installable was specified during parsing
+      match &self.common.installable {
+        Installable::Unspecified => {
+          Installable::try_find_default_for_os()
+            .wrap_err("Failed to find default installable")?
+        },
+        _ => self.common.installable.clone(),
+      }
+    };
+
+    toplevel_for(
       target_hostname,
       installable,
-      final_attr.map_or("toplevel", |v| v),
-    ))
+      final_attr.map_or("toplevel", String::as_str),
+    )
   }
 
   fn execute_build_command(
@@ -228,6 +238,30 @@ impl OsRebuildArgs {
     out_path: &Path,
     message: &str,
   ) -> Result<()> {
+    // Proactive permission check for common system flake access issues
+    if let Installable::Flake { reference, .. } = &toplevel {
+      if reference.contains("/etc/nixos") {
+        // Check if we can read key files by actually attempting to read them
+        let config_path = match std::fs::canonicalize("/etc/nixos") {
+          Ok(path) => path.join("flake.nix"),
+          Err(_) => {
+            return Err(eyre!(
+              "Could not access /etc/nixos. Check if the directory exists and \
+               if it is accessible."
+            ));
+          },
+        };
+
+        if std::fs::read_to_string(&config_path).is_err() {
+          // Just error here. We could try to handle
+          return Err(eyre!(
+            "Could not access /etc/nixos. Check if the directory exists and \
+             if it is accessible."
+          ));
+        }
+      }
+    }
+
     commands::Build::new(toplevel)
       .extra_arg("--out-link")
       .extra_arg(out_path)
@@ -711,6 +745,7 @@ fn missing_switch_to_configuration_error() -> color_eyre::eyre::Report {
 /// If `NH_OS_FLAKE` is not set, it returns `Ok(None)`.
 /// If `NH_OS_FLAKE` is set but invalid, it returns an `Err`.
 fn get_nh_os_flake_env() -> Result<Option<Installable>> {
+  // Check NH_OS_FLAKE first (platform-specific), then NH_FLAKE (generic)
   if let Ok(os_flake) = env::var("NH_OS_FLAKE") {
     debug!("Using NH_OS_FLAKE: {}", os_flake);
 
@@ -718,6 +753,23 @@ fn get_nh_os_flake_env() -> Result<Option<Installable>> {
     let reference = elems
       .next()
       .ok_or_else(|| eyre!("NH_OS_FLAKE missing reference part"))?
+      .to_owned();
+    let attribute = elems
+      .next()
+      .map(crate::installable::parse_attribute)
+      .unwrap_or_default();
+
+    Ok(Some(Installable::Flake {
+      reference,
+      attribute,
+    }))
+  } else if let Ok(generic_flake) = env::var("NH_FLAKE") {
+    debug!("Using NH_FLAKE: {}", generic_flake);
+
+    let mut elems = generic_flake.splitn(2, '#');
+    let reference = elems
+      .next()
+      .ok_or_else(|| eyre!("NH_FLAKE missing reference part"))?
       .to_owned();
     let attribute = elems
       .next()
@@ -837,7 +889,7 @@ pub fn toplevel_for<S: AsRef<str>>(
   hostname: S,
   installable: Installable,
   final_attr: &str,
-) -> Installable {
+) -> Result<Installable> {
   let mut res = installable;
   let hostname_str = hostname.as_ref();
 
@@ -854,6 +906,34 @@ pub fn toplevel_for<S: AsRef<str>>(
       if attribute.is_empty() {
         attribute.push(String::from("nixosConfigurations"));
         attribute.push(hostname_str.to_owned());
+      } else if attribute.len() == 1 && attribute[0] == "nixosConfigurations" {
+        // User provided just ".#nixosConfigurations" - append hostname
+        info!("Inferring hostname '{hostname_str}' for nixosConfigurations",);
+        attribute.push(hostname_str.to_owned());
+      } else if attribute[0] == "nixosConfigurations" {
+        // User provided nixosConfigurations.something...
+        if attribute.len() == 2 {
+          // nixosConfigurations.hostname - this is fine, just append toplevel
+        } else if attribute.len() > 2 && attribute[2] == "config" {
+          // nixosConfigurations.hostname.config.something - too specific
+          bail!(
+            "Attribute path is too specific: {}. Please either:\n  1. Use the \
+             flake reference without attributes (e.g., '.')\n  2. Specify \
+             only the configuration name (e.g., '.#{}'), or\n  3. Specify the \
+             full configuration path (e.g., '.#nixosConfigurations.{}')",
+            attribute.join("."),
+            attribute[1],
+            attribute[1]
+          );
+        }
+        // Otherwise it's something like
+        // nixosConfigurations.hostname.specialisation which we should
+        // allow
+      } else {
+        // User provided something like ".setup#test"
+        // They mean "test" is the configuration name under nixosConfigurations
+        // So we need to prepend "nixosConfigurations"
+        attribute.insert(0, String::from("nixosConfigurations"));
       }
       attribute.extend(toplevel);
     },
@@ -865,9 +945,17 @@ pub fn toplevel_for<S: AsRef<str>>(
     } => attribute.extend(toplevel),
 
     Installable::Store { .. } => {},
+    Installable::Unspecified => {
+      // This should never happen since we resolve Unspecified before calling
+      // toplevel_for
+      unreachable!(
+        "Installable::Unspecified should have been resolved before \
+         toplevel_for"
+      );
+    },
   }
 
-  res
+  Ok(res)
 }
 
 impl OsReplArgs {
@@ -877,7 +965,10 @@ impl OsReplArgs {
       if let Some(flake_installable) = get_nh_os_flake_env()? {
         flake_installable
       } else {
-        self.installable
+        match self.installable {
+          Installable::Unspecified => Installable::try_find_default_for_os()?,
+          _ => self.installable,
+        }
       };
 
     if matches!(target_installable, Installable::Store { .. }) {
@@ -896,12 +987,18 @@ impl OsReplArgs {
       }
     }
 
-    Command::new("nix")
-      .arg("repl")
-      .args(target_installable.to_args())
-      .with_required_env()
-      .show_output(true)
-      .run()?;
+    let cmd = match &target_installable {
+      Installable::File { path, .. } => {
+        Command::new("nix").arg("repl").arg("--file").arg(path)
+      },
+      _ => {
+        Command::new("nix")
+          .arg("repl")
+          .args(target_installable.to_args())
+      },
+    };
+
+    cmd.with_required_env().show_output(true).run()?;
 
     Ok(())
   }

@@ -1,7 +1,7 @@
 use std::{env, path::PathBuf};
 
 use color_eyre::eyre::{Context, bail, eyre};
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use crate::{
   Result,
@@ -78,7 +78,8 @@ impl DarwinRebuildArgs {
 
     debug!("Output path: {out_path:?}");
 
-    // Use NH_DARWIN_FLAKE if available, otherwise use the provided installable
+    // Use NH_DARWIN_FLAKE if available, otherwise NH_FLAKE, otherwise use the
+    // provided installable
     let installable = if let Ok(darwin_flake) = env::var("NH_DARWIN_FLAKE") {
       debug!("Using NH_DARWIN_FLAKE: {}", darwin_flake);
 
@@ -96,8 +97,29 @@ impl DarwinRebuildArgs {
         reference,
         attribute,
       }
+    } else if let Ok(generic_flake) = env::var("NH_FLAKE") {
+      debug!("Using NH_FLAKE: {}", generic_flake);
+
+      let mut elems = generic_flake.splitn(2, '#');
+      let reference = match elems.next() {
+        Some(r) => r.to_owned(),
+        None => return Err(eyre!("NH_FLAKE missing reference part")),
+      };
+      let attribute = elems
+        .next()
+        .map(crate::installable::parse_attribute)
+        .unwrap_or_default();
+
+      Installable::Flake {
+        reference,
+        attribute,
+      }
     } else {
-      self.common.installable.clone()
+      // Handle to case where no installable was specified during parsing
+      match &self.common.installable {
+        Installable::Unspecified => Installable::try_find_default_for_darwin()?,
+        _ => self.common.installable.clone(),
+      }
     };
 
     let mut processed_installable = installable;
@@ -110,10 +132,58 @@ impl DarwinRebuildArgs {
       if attribute.is_empty() {
         attribute.push(String::from("darwinConfigurations"));
         attribute.push(hostname.clone());
+      } else if attribute.len() == 1 && attribute[0] == "darwinConfigurations" {
+        // User provided just ".#darwinConfigurations" - append hostname
+        info!("Inferring hostname '{hostname}' for darwinConfigurations");
+        attribute.push(hostname.clone());
+      } else if attribute[0] == "darwinConfigurations" {
+        // User provided darwinConfigurations.something...
+        if attribute.len() == 2 {
+          // darwinConfigurations.hostname - this is fine
+        } else if attribute.len() > 2 && attribute[2] == "config" {
+          // darwinConfigurations.hostname.config.something - too specific
+          bail!(
+            "Attribute path is too specific: {}. Please either:\n  1. Use the \
+             flake reference without attributes (e.g., '.')\n  2. Specify \
+             only the configuration name (e.g., '.#{}'), or\n  3. Specify the \
+             full configuration path (e.g., '.#darwinConfigurations.{}')",
+            attribute.join("."),
+            attribute[1],
+            attribute[1]
+          );
+        }
+      } else {
+        // User provided something like ".#test"
+        // They mean "test" is the configuration name under darwinConfigurations
+        attribute.insert(0, String::from("darwinConfigurations"));
       }
     }
 
-    let toplevel = toplevel_for(hostname, processed_installable, "toplevel");
+    let toplevel = toplevel_for(hostname, processed_installable, "toplevel")?;
+
+    // Proactive permission check for nix-darwin system flake access issues
+    if let Installable::Flake { reference, .. } = &toplevel {
+      if reference.contains("/etc/nix-darwin") {
+        // Check if we can read key files by actually attempting to read them
+        let config_path = match std::fs::canonicalize("/etc/nix-darwin") {
+          Ok(path) => path.join("flake.nix"),
+          Err(_) => {
+            return Err(eyre!(
+              "Could not access /etc/nix-darwin. Check if the directory \
+               exists and if it is accessible."
+            ));
+          },
+        };
+
+        if std::fs::read_to_string(&config_path).is_err() {
+          // Just error here. We could try to handle
+          return Err(eyre!(
+            "Could not access /etc/nix-darwin. Check if the directory exists \
+             and if it is accessible."
+          ));
+        }
+      }
+    }
 
     commands::Build::new(toplevel)
       .extra_arg("--out-link")
@@ -197,27 +267,32 @@ impl DarwinRebuildArgs {
 impl DarwinReplArgs {
   fn run(self) -> Result<()> {
     // Use NH_DARWIN_FLAKE if available, otherwise use the provided installable
-    let mut target_installable =
-      if let Ok(darwin_flake) = env::var("NH_DARWIN_FLAKE") {
-        debug!("Using NH_DARWIN_FLAKE: {}", darwin_flake);
+    let mut target_installable = if let Ok(darwin_flake) =
+      env::var("NH_DARWIN_FLAKE")
+    {
+      debug!("Using NH_DARWIN_FLAKE: {}", darwin_flake);
 
-        let mut elems = darwin_flake.splitn(2, '#');
-        let reference = match elems.next() {
-          Some(r) => r.to_owned(),
-          None => return Err(eyre!("NH_DARWIN_FLAKE missing reference part")),
-        };
-        let attribute = elems
-          .next()
-          .map(crate::installable::parse_attribute)
-          .unwrap_or_default();
-
-        Installable::Flake {
-          reference,
-          attribute,
-        }
-      } else {
-        self.installable
+      let mut elems = darwin_flake.splitn(2, '#');
+      let reference = match elems.next() {
+        Some(r) => r.to_owned(),
+        None => return Err(eyre!("NH_DARWIN_FLAKE missing reference part")),
       };
+      let attribute = elems
+        .next()
+        .map(crate::installable::parse_attribute)
+        .unwrap_or_default();
+
+      Installable::Flake {
+        reference,
+        attribute,
+      }
+    } else {
+      // Handle to case where no installable was specified during parsing
+      match &self.installable {
+        Installable::Unspecified => Installable::try_find_default_for_darwin()?,
+        _ => self.installable.clone(),
+      }
+    };
 
     if matches!(target_installable, Installable::Store { .. }) {
       bail!("Nix doesn't support nix store installables.");
@@ -235,12 +310,18 @@ impl DarwinReplArgs {
       }
     }
 
-    Command::new("nix")
-      .arg("repl")
-      .args(target_installable.to_args())
-      .with_required_env()
-      .show_output(true)
-      .run()?;
+    let cmd = match &target_installable {
+      Installable::File { path, .. } => {
+        Command::new("nix").arg("repl").arg("--file").arg(path)
+      },
+      _ => {
+        Command::new("nix")
+          .arg("repl")
+          .args(target_installable.to_args())
+      },
+    };
+
+    cmd.with_required_env().show_output(true).run()?;
 
     Ok(())
   }
