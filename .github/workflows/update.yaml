@@ -14,7 +14,7 @@ jobs:
       with:
         github_access_token: ${{ secrets.GITHUB_TOKEN }}
 
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
       name: Checkout
 
     - name: Update

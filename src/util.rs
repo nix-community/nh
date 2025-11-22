@@ -67,8 +67,10 @@ pub fn get_nix_variant() -> &'static NixVariant {
 
 // Matches and captures major, minor, and optional patch numbers from semantic
 // version strings, optionally followed by a "pre" pre-release suffix.
-static VERSION_REGEX: LazyLock<Regex> =
-  LazyLock::new(|| Regex::new(r"(\d+)\.(\d+)(?:\.(\d+))?(?:pre\d*)?").unwrap());
+static VERSION_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+  Regex::new(r"(\d+)\.(\d+)(?:\.(\d+))?(?:pre\d*)?")
+    .expect("VERSION_REGEX should be valid")
+});
 
 /// Normalizes a version string to be compatible with semver parsing.
 ///
@@ -287,6 +289,7 @@ pub fn get_missing_experimental_features(
 /// // Elevate the current process to run as root
 /// let elevate: fn(ElevationStrategy) -> ! = nh::util::self_elevate;
 /// ```
+#[allow(clippy::panic)]
 pub fn self_elevate(strategy: ElevationStrategy) -> ! {
   use std::os::unix::process::CommandExt;
 

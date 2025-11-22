@@ -69,20 +69,20 @@ fn test_value() {
 
   assert!(i.get("foo").is_ok());
   assert!(i.get("foo_bad").is_err());
-  assert!(i.get("foo").unwrap().get("bar").is_ok());
+  assert!(i.get("foo").expect("foo should exist").get("bar").is_ok());
   assert!(
     i.get("foo")
-      .unwrap()
+      .expect("foo should exist")
       .get("some")
-      .unwrap()
+      .expect("some should exist")
       .get("other_bad")
       .is_err()
   );
   assert!(
     i.get("foo")
-      .unwrap()
+      .expect("foo should exist")
       .get("some")
-      .unwrap()
+      .expect("some should exist")
       .get("other")
       .is_ok()
   );

@@ -581,7 +581,10 @@ mod tests {
       result.is_ok(),
       "Should warn when migrating FLAKE to NH_FLAKE"
     );
-    assert_eq!(env::var("NH_FLAKE").unwrap(), "/test/flake");
+    assert_eq!(
+      env::var("NH_FLAKE").expect("NH_FLAKE should be set by test"),
+      "/test/flake"
+    );
   }
 
   #[test]
@@ -604,7 +607,10 @@ mod tests {
       result.is_ok(),
       "Should not warn when NH_FLAKE already exists"
     );
-    assert_eq!(env::var("NH_FLAKE").unwrap(), "/existing/flake");
+    assert_eq!(
+      env::var("NH_FLAKE").expect("NH_FLAKE should be set by test"),
+      "/existing/flake"
+    );
   }
 
   #[test]
@@ -627,7 +633,10 @@ mod tests {
       result.is_ok(),
       "Should not warn when specific flake vars exist"
     );
-    assert_eq!(env::var("NH_FLAKE").unwrap(), "/test/flake");
+    assert_eq!(
+      env::var("NH_FLAKE").expect("NH_FLAKE should be set by test"),
+      "/test/flake"
+    );
   }
 
   #[test]
@@ -681,12 +690,12 @@ mod tests {
 
           {
               let _guard = EnvGuard::new(&key, &value);
-              prop_assert_eq!(env::var(&key).unwrap(), value);
+              prop_assert_eq!(env::var(&key).expect("Environment variable should be set by test"), value);
           }
 
           // Property: Environment should be restored after guard is dropped
           match original {
-              Some(orig_val) => prop_assert_eq!(env::var(&key).unwrap(), orig_val),
+              Some(orig_val) => prop_assert_eq!(env::var(&key).expect("Environment variable should be restored"), orig_val),
               None => prop_assert!(env::var(&key).is_err()),
           }
       }

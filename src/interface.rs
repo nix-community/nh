@@ -575,7 +575,24 @@ impl HomeReplArgs {
 /// Generate shell completion files into stdout
 pub struct CompletionArgs {
   /// Name of the shell
-  pub shell: clap_complete::Shell,
+  pub shell: Shell,
+}
+
+#[derive(Debug, Clone, ValueEnum)]
+#[non_exhaustive]
+pub enum Shell {
+  #[value(name = "bash")]
+  Bash,
+  #[value(name = "elvish")]
+  Elvish,
+  #[value(name = "fish")]
+  Fish,
+  #[value(alias = "powershell_ise", name = "powershell")]
+  PowerShell,
+  #[value(name = "zsh")]
+  Zsh,
+  #[value(alias = "nu", name = "nushell")]
+  Nushell,
 }
 
 /// Nix-darwin functionality

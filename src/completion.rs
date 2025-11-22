@@ -14,7 +14,56 @@ impl interface::CompletionArgs {
   #[cfg_attr(feature = "hotpath", hotpath::measure)]
   pub fn run(&self) -> Result<()> {
     let mut cmd = <Main as clap::CommandFactory>::command();
-    generate(self.shell, &mut cmd, "nh", &mut std::io::stdout());
+    match self.shell {
+      interface::Shell::Bash => {
+        generate(
+          clap_complete::Shell::Bash,
+          &mut cmd,
+          "nh",
+          &mut std::io::stdout(),
+        )
+      },
+      interface::Shell::Elvish => {
+        generate(
+          clap_complete::Shell::Elvish,
+          &mut cmd,
+          "nh",
+          &mut std::io::stdout(),
+        )
+      },
+      interface::Shell::Fish => {
+        generate(
+          clap_complete::Shell::Fish,
+          &mut cmd,
+          "nh",
+          &mut std::io::stdout(),
+        )
+      },
+      interface::Shell::PowerShell => {
+        generate(
+          clap_complete::Shell::PowerShell,
+          &mut cmd,
+          "nh",
+          &mut std::io::stdout(),
+        )
+      },
+      interface::Shell::Zsh => {
+        generate(
+          clap_complete::Shell::Zsh,
+          &mut cmd,
+          "nh",
+          &mut std::io::stdout(),
+        )
+      },
+      interface::Shell::Nushell => {
+        generate(
+          clap_complete_nushell::Nushell,
+          &mut cmd,
+          "nh",
+          &mut std::io::stdout(),
+        )
+      },
+    }
     Ok(())
   }
 }

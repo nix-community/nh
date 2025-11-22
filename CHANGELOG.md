@@ -18,6 +18,7 @@ functionality, under the "Removed" section.
 
 ### Changed
 
+- `nh completions` now supports [nushell](https://www.nushell.sh/)
 - `nh os info` now hides empty columns.
 - `nh os info` now support `--fields` to select which field(s) to display; also
   add a per-generation "Closure Size" coloumn.
