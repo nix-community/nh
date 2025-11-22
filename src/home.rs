@@ -484,10 +484,7 @@ impl HomeReplArgs {
 
     let cmd = match &installable {
       Installable::File { path, .. } => {
-        Command::new("nix")
-          .arg("repl")
-          .arg("--file")
-          .arg(path)
+        Command::new("nix").arg("repl").arg("--file").arg(path)
       },
       _ => {
         let toplevel = toplevel_for(
@@ -496,15 +493,11 @@ impl HomeReplArgs {
           &self.extra_args,
           self.configuration.clone(),
         )?;
-        Command::new("nix")
-          .arg("repl")
-          .args(toplevel.to_args())
+        Command::new("nix").arg("repl").args(toplevel.to_args())
       },
     };
-    
-    cmd.with_required_env()
-      .show_output(true)
-      .run()?;
+
+    cmd.with_required_env().show_output(true).run()?;
 
     Ok(())
   }
