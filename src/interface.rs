@@ -587,7 +587,7 @@ pub enum Shell {
   Elvish,
   #[value(name = "fish")]
   Fish,
-  #[value(alias = "powershell_ise",name = "powershell")]
+  #[value(alias = "powershell_ise", name = "powershell")]
   PowerShell,
   #[value(name = "zsh")]
   Zsh,
