@@ -90,6 +90,7 @@ style      = { level = "warn", priority = -1 }
 # enable those to keep our sanity.
 absolute_paths                 = "allow"
 arbitrary_source_item_ordering = "allow"
+enum_variant_names             = "allow"
 implicit_return                = "allow"
 missing_docs_in_private_items  = "allow"
 non_ascii_literal              = "allow"
@@ -102,7 +103,6 @@ std_instead_of_core            = "allow"
 too_long_first_doc_paragraph   = "allow"
 too_many_lines                 = "allow"
 unused_trait_names             = "allow"
-enum_variant_names             = "allow"
 
 # In the honor of a recent Cloudflare regression
 # Let's get rid of them, what the hell
