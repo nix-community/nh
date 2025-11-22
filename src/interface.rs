@@ -66,8 +66,6 @@ pub enum NHCommand {
   Darwin(DarwinArgs),
   Search(SearchArgs),
   Clean(CleanProxy),
-  #[command(hide = true)]
-  Completions(CompletionArgs),
 }
 
 impl NHCommand {
@@ -79,7 +77,6 @@ impl NHCommand {
       Self::Darwin(args) => args.get_feature_requirements(),
       Self::Search(_) => Box::new(NoFeatures),
       Self::Clean(_) => Box::new(NoFeatures),
-      Self::Completions(_) => Box::new(NoFeatures),
     }
   }
 
@@ -97,7 +94,6 @@ impl NHCommand {
       },
       Self::Search(args) => args.run(),
       Self::Clean(proxy) => proxy.command.run(elevation),
-      Self::Completions(args) => args.run(),
       Self::Home(args) => {
         unsafe {
           std::env::set_var("NH_CURRENT_COMMAND", "home");
@@ -585,30 +581,6 @@ impl HomeReplArgs {
     // Check installable type
     matches!(self.installable, Installable::Flake { .. })
   }
-}
-
-#[derive(Debug, Parser)]
-/// Generate shell completion files into stdout
-pub struct CompletionArgs {
-  /// Name of the shell
-  pub shell: Shell,
-}
-
-#[derive(Debug, Clone, ValueEnum)]
-#[non_exhaustive]
-pub enum Shell {
-  #[value(name = "bash")]
-  Bash,
-  #[value(name = "elvish")]
-  Elvish,
-  #[value(name = "fish")]
-  Fish,
-  #[value(alias = "powershell_ise", name = "powershell")]
-  PowerShell,
-  #[value(name = "zsh")]
-  Zsh,
-  #[value(alias = "nu", name = "nushell")]
-  Nushell,
 }
 
 /// Nix-darwin functionality
