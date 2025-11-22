@@ -39,7 +39,7 @@ rustPlatform.buildRustPackage {
   postInstall = ''
     mkdir completions man
 
-    for shell in bash zsh fish; do
+    for shell in bash zsh fish nu; do
       NH_NO_CHECKS=1 $out/bin/nh completions $shell > completions/nh.$shell
     done
 
