@@ -134,8 +134,14 @@ impl OsArgs {
       },
       OsSubcommand::Switch(args)
       | OsSubcommand::Boot(args)
-      | OsSubcommand::Test(args)
-      | OsSubcommand::Build(args) => {
+      | OsSubcommand::Test(args) => {
+        if args.rebuild.uses_flakes() {
+          Box::new(FlakeFeatures)
+        } else {
+          Box::new(LegacyFeatures)
+        }
+      },
+      OsSubcommand::Build(args) => {
         if args.uses_flakes() {
           Box::new(FlakeFeatures)
         } else {
@@ -159,13 +165,13 @@ impl OsArgs {
 #[derive(Debug, Subcommand)]
 pub enum OsSubcommand {
   /// Build and activate the new configuration, and make it the boot default
-  Switch(OsRebuildArgs),
+  Switch(OsRebuildActivateArgs),
 
   /// Build the new configuration and make it the boot default
-  Boot(OsRebuildArgs),
+  Boot(OsRebuildActivateArgs),
 
   /// Build and activate the new configuration
-  Test(OsRebuildArgs),
+  Test(OsRebuildActivateArgs),
 
   /// Build the new configuration
   Build(OsRebuildArgs),
@@ -237,6 +243,12 @@ pub struct OsRebuildArgs {
   /// Build the configuration to a different host over ssh
   #[arg(long)]
   pub build_host: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct OsRebuildActivateArgs {
+  #[command(flatten)]
+  pub rebuild: OsRebuildArgs,
 
   /// Show systemctl debugging hints when systemd services fail
   #[arg(long, env = "NH_SHOW_SYSTEMCTL_HINTS")]
