@@ -1,6 +1,6 @@
 use std::{env, fs, path::PathBuf};
 
-use clap::{Arg, ArgAction, Args, FromArgMatches};
+use clap::{Arg, ArgAction, Args, FromArgMatches, error::ErrorKind};
 use tracing::debug;
 use yansi::{Color, Paint};
 
@@ -29,7 +29,7 @@ pub enum Installable {
   /// This variant is used internally to defer the resolution of default
   /// installables until after the logging system is initialized. It gets
   /// resolved to a concrete Installable (Flake, File, etc.) by calling
-  /// try_find_default_for_os() in the appropriate command module.
+  /// `try_find_default_for_os()` in the appropriate command module.
   Unspecified,
 }
 
@@ -306,7 +306,8 @@ impl Installable {
         }
       },
       Self::Unspecified => {
-       unreachable!("Unspecified should be resolved before to_args")
+        unreachable!("Unspecified should be resolved before to_args")
+      },
     }
 
     res
