@@ -258,7 +258,10 @@ impl SearchArgs {
       }
 
       if let Some(position) = &elem.package_position {
-        let position = position.split(':').next().unwrap();
+        let position = position
+          .split(':')
+          .next()
+          .expect("Position should have at least one part");
         print!("  Defined at: ");
         if hyperlinks {
           let position_trimmed = position
@@ -297,7 +300,7 @@ fn supported_branch<S: AsRef<str>>(branch: S) -> bool {
   let re = SUPPORTED_BRANCH_REGEX.get_or_init(|| {
     Regex::new(r"^nixos-\d+\.\d+$").unwrap_or_else(|e| {
       warn!("invalid regex in supported_branch: {e}");
-      Regex::new("$^").unwrap()
+      Regex::new("$^").expect("Regex $^ should always be valid")
     })
   });
   re.is_match(branch)

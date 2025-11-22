@@ -10,7 +10,7 @@ jobs:
   profile:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -81,7 +81,7 @@ jobs:
           echo '${{ steps.base_alloc_metrics.outputs.metrics }}' > /tmp/metrics/base_alloc.json
           echo '${{ github.event.pull_request.number }}' > /tmp/metrics/pr_number.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: profile-metrics
           path: /tmp/metrics/

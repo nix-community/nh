@@ -64,7 +64,15 @@ impl FromArgMatches for Installable {
 
     if let Some(i) = installable {
       let mut elems = i.splitn(2, '#');
-      let reference = elems.next().unwrap().to_owned();
+      let reference = elems
+        .next()
+        .ok_or_else(|| {
+          clap::Error::raw(
+            ErrorKind::ValueValidation,
+            "Invalid installable format: missing reference",
+          )
+        })?
+        .to_owned();
       return Ok(Self::Flake {
         reference,
         attribute: parse_attribute(
@@ -78,17 +86,18 @@ impl FromArgMatches for Installable {
 
     // Env var parsing & fallbacks
     fn parse_flake_env(var: &str) -> Option<Installable> {
-      env::var(var).ok().map(|f| {
+      env::var(var).ok().and_then(|f| {
         let mut elems = f.splitn(2, '#');
-        Installable::Flake {
-          reference: elems.next().unwrap().to_owned(),
+        let reference = elems.next()?.to_owned();
+        Some(Installable::Flake {
+          reference,
           attribute: parse_attribute(
             elems
               .next()
               .map(std::string::ToString::to_string)
               .unwrap_or_default(),
           ),
-        }
+        })
       })
     }
 
@@ -263,9 +272,14 @@ impl Installable {
         res.push(format!("{reference}#{}", join_attribute(attribute)));
       },
       Self::File { path, attribute } => {
-        res.push(String::from("--file"));
-        res.push(path.to_str().unwrap().to_string());
-        res.push(join_attribute(attribute));
+        if let Some(path_str) = path.to_str() {
+          res.push(String::from("--file"));
+          res.push(path_str.to_string());
+          res.push(join_attribute(attribute));
+        } else {
+          // Return empty args if path contains invalid UTF-8
+          return Vec::new();
+        }
       },
       Self::Expression {
         expression,
@@ -275,7 +289,14 @@ impl Installable {
         res.push(expression.to_string());
         res.push(join_attribute(attribute));
       },
-      Self::Store { path } => res.push(path.to_str().unwrap().to_string()),
+      Self::Store { path } => {
+        if let Some(path_str) = path.to_str() {
+          res.push(path_str.to_string());
+        } else {
+          // Return empty args if path contains invalid UTF-8
+          return Vec::new();
+        }
+      },
     }
 
     res
