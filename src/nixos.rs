@@ -373,17 +373,23 @@ impl OsRebuildArgs {
         .show_output(true)
         .run()
         .map_err(|e| {
-          let error_str = e.to_string();
-          let mut enhanced =
-            format!("Activation (test) failed\n\nError: {}", error_str);
+          // Check if this looks like a service/unit failure
+          let error_display = format!("{:#}", e);
+          let error_lower = error_display.to_lowercase();
 
-          if error_str.contains("units failed") && self.show_systemctl_hints {
-            enhanced.push_str("\n\nTo investigate failed services:");
-            enhanced.push_str("\n  systemctl --failed");
-            enhanced.push_str("\n  journalctl -xe -u <service-name>");
+          let is_service_failure = error_lower.contains("units failed")
+            || (error_lower.contains("failed")
+              && error_lower.contains("service"))
+            || (error_lower.contains("failed") && error_lower.contains("unit"));
+
+          if is_service_failure && self.show_systemctl_hints {
+            e.wrap_err(
+              "Activation (test) failed\n\nTo investigate failed services:\n  \
+               systemctl --failed\n  journalctl -xe -u <service-name>",
+            )
+          } else {
+            e.wrap_err("Activation (test) failed")
           }
-
-          eyre!(enhanced)
         })?;
 
       debug!("Completed {variant:?} operation with output path: {out_path:?}");
