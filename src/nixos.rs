@@ -221,6 +221,12 @@ impl OsRebuildActivateArgs {
       })?;
 
     if let Test | Switch = variant {
+      let variant_label = match variant {
+        Test => "test",
+        Switch => "switch",
+        _ => unreachable!(),
+      };
+
       Command::new(canonical_out_path)
         .arg("test")
         .ssh(self.rebuild.target_host.clone())
@@ -241,12 +247,13 @@ impl OsRebuildActivateArgs {
             || (error_lower.contains("failed") && error_lower.contains("unit"));
 
           if is_service_failure && self.show_systemctl_hints {
-            e.wrap_err(
-              "Activation (test) failed\n\nTo investigate failed services:\n  \
-               systemctl --failed\n  journalctl -xe -u <service-name>",
-            )
+            e.wrap_err(format!(
+              "Activation ({variant_label}) failed\n\nTo investigate failed \
+               services:\n  systemctl --failed\n  journalctl -xe -u \
+               <service-name>"
+            ))
           } else {
-            e.wrap_err("Activation (test) failed")
+            e.wrap_err(format!("Activation ({variant_label}) failed"))
           }
         })?;
 
