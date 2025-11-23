@@ -100,7 +100,7 @@ impl DarwinRebuildArgs {
         attribute,
       }
     } else if let Ok(generic_flake) = env::var("NH_FLAKE") {
-      debug!("Using NH_FLAKE: {}", generic_flake);
+      debug!("Using NH_FLAKE: {generic_flake}");
 
       let mut elems = generic_flake.splitn(2, '#');
       let reference = match elems.next() {
@@ -268,7 +268,8 @@ impl DarwinRebuildArgs {
 
 impl DarwinReplArgs {
   fn run(self) -> Result<()> {
-    // Use NH_DARWIN_FLAKE if available, otherwise use the provided installable
+    // Use NH_DARWIN_FLAKE if available, otherwise NH_FLAKE, otherwise use the
+    // provided installable
     let mut target_installable = if let Ok(darwin_flake) =
       env::var("NH_DARWIN_FLAKE")
     {
@@ -278,6 +279,23 @@ impl DarwinReplArgs {
       let reference = match elems.next() {
         Some(r) => r.to_owned(),
         None => return Err(eyre!("NH_DARWIN_FLAKE missing reference part")),
+      };
+      let attribute = elems
+        .next()
+        .map(crate::installable::parse_attribute)
+        .unwrap_or_default();
+
+      Installable::Flake {
+        reference,
+        attribute,
+      }
+    } else if let Ok(generic_flake) = env::var("NH_FLAKE") {
+      debug!("Using NH_FLAKE: {generic_flake}");
+
+      let mut elems = generic_flake.splitn(2, '#');
+      let reference = match elems.next() {
+        Some(r) => r.to_owned(),
+        None => return Err(eyre!("NH_FLAKE missing reference part")),
       };
       let attribute = elems
         .next()

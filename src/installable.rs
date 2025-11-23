@@ -12,24 +12,26 @@ pub enum Installable {
     reference: String,
     attribute: Vec<String>,
   },
+
   File {
     path:      PathBuf,
     attribute: Vec<String>,
   },
+
   Store {
     path: PathBuf,
   },
+
   Expression {
     expression: String,
     attribute:  Vec<String>,
   },
 
-  /// Represents the case where no installable was provided during CLI parsing
-  ///
   /// This variant is used internally to defer the resolution of default
   /// installables until after the logging system is initialized. It gets
-  /// resolved to a concrete Installable (Flake, File, etc.) by calling
-  /// `try_find_default_for_os()` in the appropriate command module.
+  /// resolved to a concrete `Installable` (Flake, File, etc.) by calling the
+  /// appropriate helper (e.g. `try_find_default_for_os/home/darwin`) in the
+  /// command-specific module.
   Unspecified,
 }
 

@@ -259,16 +259,16 @@ where
             attribute.extend(toplevel.clone());
           }
           return Ok(res);
-        } else {
-          // homeConfigurations.username.something - too specific for
-          // home-manager
-          bail!(
-            "Invalid attribute path for home-manager: {}. Only configuration \
-             names are allowed.\n\nUse: '.#{}' or just '.' for auto-discovery",
-            attribute.join("."),
-            attribute[1]
-          );
         }
+
+        // homeConfigurations.username.something - too specific for
+        // home-manager
+        bail!(
+          "Invalid attribute path for home-manager: {}. Only configuration \
+           names are allowed.\n\nUse: '.#{}' or just '.' for auto-discovery",
+          attribute.join("."),
+          attribute[1]
+        );
       } else {
         // User provided something like ".setup#myconfig"
         // They mean "myconfig" is the configuration name under
@@ -284,16 +284,17 @@ where
           if push_drv {
             attribute.extend(toplevel.clone());
           }
+
           return Ok(res);
-        } else {
-          // Too specific for home-manager after prepending
-          bail!(
-            "Invalid attribute path for home-manager: {}. Only configuration \
-             names are allowed.\n\nUse: '.#{}' or just '.' for auto-discovery",
-            attribute.join("."),
-            attribute[1]
-          );
         }
+
+        // Too specific for home-manager after prepending
+        bail!(
+          "Invalid attribute path for home-manager: {}. Only configuration \
+           names are allowed.\n\nUse: '.#{}' or just '.' for auto-discovery",
+          attribute.join("."),
+          attribute[1]
+        );
       }
 
       // If we reach here, attribute is either empty or just
@@ -389,9 +390,7 @@ where
           };
           tried.push(current_try_attr.clone());
 
-          if let Some("true") =
-            check_res.map(|s| s.trim().to_owned()).as_deref()
-          {
+          if check_res.map(|s| s.trim().to_owned()).as_deref() == Some("true") {
             info!(
               "Inferring home-manager configuration '{attr_name}' for \
                homeConfigurations"
