@@ -3,28 +3,35 @@ use std::path::Path;
 use clap::CommandFactory;
 use roff::{Roff, bold, roman};
 
-pub fn r#gen(out_dir: &str) {
+pub fn generate(out_dir: &str) -> Result<(), String> {
   let gen_dir = Path::new(out_dir);
   if !gen_dir.exists() {
-    std::fs::create_dir_all(gen_dir)
-      .expect("failed to create output directory");
+    std::fs::create_dir_all(gen_dir).map_err(|e| {
+      format!("Failed to create output directory '{}': {}", out_dir, e)
+    })?;
   }
-  gen_man(gen_dir);
-}
 
-fn gen_man(base_dir: &Path) {
-  let man_path = base_dir.join("nh.1");
+  let man_path = gen_dir.join("nh.1");
   let mut buffer: Vec<u8> = Vec::new();
 
   let mut cmd = nh::interface::Main::command();
   let mut man = clap_mangen::Man::new(cmd.clone());
   man = man.manual("nh manual".to_string());
-  man.render_title(&mut buffer).unwrap();
-  man.render_name_section(&mut buffer).unwrap();
-  man.render_synopsis_section(&mut buffer).unwrap();
-  man.render_description_section(&mut buffer).unwrap();
-  render_command_recursive(&mut cmd, 1, &mut buffer);
+  man
+    .render_title(&mut buffer)
+    .map_err(|e| format!("Failed to render title: {}", e))?;
+  man
+    .render_name_section(&mut buffer)
+    .map_err(|e| format!("Failed to render name section: {}", e))?;
+  man
+    .render_synopsis_section(&mut buffer)
+    .map_err(|e| format!("Failed to render synopsis section: {}", e))?;
+  man
+    .render_description_section(&mut buffer)
+    .map_err(|e| format!("Failed to render description section: {}", e))?;
+  render_command_recursive(&mut cmd, 1, &mut buffer)?;
 
+  // EXIT STATUS section
   let statuses = [
     ("0", "Successful program execution."),
     ("1", "Unsuccessful program execution."),
@@ -35,74 +42,69 @@ fn gen_man(base_dir: &Path) {
   for (code, reason) in statuses {
     sect.control("IP", [code]).text([roman(reason)]);
   }
-  sect.to_writer(&mut buffer).unwrap();
+  sect
+    .to_writer(&mut buffer)
+    .map_err(|e| format!("Failed to write exit status section: {}", e))?;
 
   // EXAMPLES section
   let examples = [
     (
       "Switch to a new NixOS configuration",
       "nh os switch --hostname myhost --specialisation dev",
-      "",
     ),
     (
       "Rollback to a previous NixOS generation",
       "nh os rollback --to 42",
-      "",
     ),
     (
       "Switch to a home-manager configuration",
       "nh home switch --configuration alice@work",
-      "",
     ),
     (
       "Build a home-manager configuration with backup",
       "nh home build --backup-extension .bak",
-      "",
     ),
     (
       "Switch to a darwin configuration",
       "nh darwin switch --hostname mymac",
-      "",
     ),
-    ("Search for ripgrep", "nh search ripgrep", ""),
+    ("Search for ripgrep", "nh search ripgrep"),
     (
       "Show supported platforms for a package",
       "nh search --platforms ripgrep",
-      "",
     ),
-    (
-      "Clean all but keep 5 generations",
-      "nh clean all --keep 5",
-      "",
-    ),
+    ("Clean all but keep 5 generations", "nh clean all --keep 5"),
     (
       "Clean a specific profile",
       "nh clean profile /nix/var/nix/profiles/system",
-      "",
     ),
   ];
   let mut sect = Roff::new();
   sect.control("SH", ["EXAMPLES"]);
-  for (desc, command, result) in examples {
+  for (desc, command) in examples {
     sect
       .control("TP", [])
       .text([roman(desc)])
       .text([bold(format!("$ {}", command))])
       .control("br", []);
-    if !result.is_empty() {
-      sect.text([roman(result)]);
-    }
   }
-  sect.to_writer(&mut buffer).unwrap();
+  sect
+    .to_writer(&mut buffer)
+    .map_err(|e| format!("Failed to write examples section: {}", e))?;
 
-  std::fs::write(man_path, buffer).expect("failed to write manpage");
+  std::fs::write(&man_path, buffer).map_err(|e| {
+    format!("Failed to write manpage to '{}': {}", man_path.display(), e)
+  })?;
+
+  println!("Generated manpage to {}", out_dir);
+  Ok(())
 }
 
 fn render_command_recursive(
   cmd: &mut clap::Command,
   depth: usize,
   buffer: &mut Vec<u8>,
-) {
+) -> Result<(), String> {
   let mut sect = Roff::new();
 
   // Section header
@@ -155,10 +157,14 @@ fn render_command_recursive(
     }
   }
 
-  sect.to_writer(buffer).unwrap();
+  sect
+    .to_writer(buffer)
+    .map_err(|e| format!("Failed to render command section: {}", e))?;
 
   // Subcommands
   for sub in cmd.get_subcommands_mut() {
-    render_command_recursive(sub, depth + 1, buffer);
+    render_command_recursive(sub, depth + 1, buffer)?;
   }
+
+  Ok(())
 }

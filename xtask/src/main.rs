@@ -1,11 +1,15 @@
 use std::{
   env,
   path::{Path, PathBuf},
+  process,
 };
 
 use clap::{Parser, Subcommand};
 
+mod comp;
 mod man;
+
+use comp::CompletionShell;
 
 #[derive(Parser)]
 struct Cli {
@@ -18,16 +22,51 @@ enum Command {
   /// Generate manpage
   Man {
     /// Output directory for manpage
-    #[arg(long, default_value = "gen")]
+    #[arg(long, default_value = "man")]
     out_dir: String,
   },
+  /// Generate shell completions
+  Completions {
+    /// Output directory for completions
+    #[arg(long, default_value = "comp")]
+    out_dir: String,
+    /// Shell to generate completions for (generates all if not specified)
+    #[arg(value_enum)]
+    shell:   Option<CompletionShell>,
+  },
+  /// Generate both manpages and completions
+  Dist,
 }
 
 fn main() {
   let Cli { command } = Cli::parse();
-  env::set_current_dir(project_root()).unwrap();
-  match command {
-    Command::Man { out_dir } => man::r#gen(&out_dir),
+
+  if let Err(e) = env::set_current_dir(project_root()) {
+    eprintln!("Error: Failed to change to project root: {e}");
+    process::exit(1);
+  }
+
+  let result = match command {
+    Command::Man { out_dir } => man::generate(&out_dir),
+    Command::Completions { out_dir, shell } => {
+      {}
+      {}
+      comp::generate(&out_dir, shell)
+    },
+    Command::Dist => {
+      let man_handle = std::thread::spawn(|| man::generate("man"));
+      let comp_handle = std::thread::spawn(|| comp::generate("comp", None));
+
+      match (man_handle.join().unwrap(), comp_handle.join().unwrap()) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(e), _) | (_, Err(e)) => Err(e),
+      }
+    },
+  };
+
+  if let Err(e) = result {
+    eprintln!("Error: {}", e);
+    process::exit(1);
   }
 }
 
