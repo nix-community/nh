@@ -50,6 +50,13 @@ functionality, under the "Removed" section.
 - Fixed the whitespace splitting of self-elevated commands so spaces inside
   quotes don't get separated.
 
+### Removed
+
+- Shell completion generation has been moved OUT of the main NH CLI, and is now
+  done via `cargo-xtask` in the packaging step. The `nh completions` command is
+  now fully deprecated and shell completion can be done with
+  `cargo xtask completions` or `cargo xtask dist`.
+
 ## 4.2.0
 
 ### Changed
