@@ -2,7 +2,6 @@
 pub mod checks;
 pub mod clean;
 pub mod commands;
-pub mod completion;
 pub mod darwin;
 pub mod generations;
 pub mod home;

@@ -1401,8 +1401,6 @@ dependencies = [
  "chrono",
  "clap",
  "clap-verbosity-flag",
- "clap_complete",
- "clap_complete_nushell",
  "clap_mangen",
  "color-eyre",
  "dix",
@@ -3232,6 +3230,8 @@ name = "xtask"
 version = "4.2.0"
 dependencies = [
  "clap",
+ "clap_complete",
+ "clap_complete_nushell",
  "clap_mangen",
  "nh",
  "roff",

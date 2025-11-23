@@ -5,7 +5,9 @@ edition.workspace = true
 publish           = false
 
 [dependencies]
-clap.workspace = true
-clap_mangen    = "0.2.28"
-nh             = { path = "../." }
-roff           = "0.2.2"
+clap.workspace        = true
+clap_complete         = "4.5.61"
+clap_complete_nushell = "4.5.10"
+clap_mangen           = "0.2.31"
+nh                    = { path = "../." }
+roff                  = "0.2.2"
