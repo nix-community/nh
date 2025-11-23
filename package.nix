@@ -1,5 +1,6 @@
 {
   lib,
+  stdenv,
   rustPlatform,
   installShellFiles,
   makeBinaryWrapper,
@@ -10,7 +11,7 @@
 assert use-nom -> nix-output-monitor != null;
 let
   runtimeDeps = lib.optionals use-nom [ nix-output-monitor ];
-  cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
+  cargoToml = lib.importTOML ./Cargo.toml;
 in
 rustPlatform.buildRustPackage {
   pname = "nh";
@@ -30,31 +31,27 @@ rustPlatform.buildRustPackage {
   };
 
   strictDeps = true;
-
   nativeBuildInputs = [
     installShellFiles
     makeBinaryWrapper
   ];
 
-  postInstall = ''
-    mkdir completions man
+  cargoLock.lockFile = ./Cargo.lock;
 
-    for shell in bash zsh fish nu; do
-      NH_NO_CHECKS=1 $out/bin/nh completions $shell > completions/nh.$shell
-    done
-
+  postInstall = lib.optionalString (stdenv.buildPlatform.canExecute stdenv.hostPlatform) ''
+    # Run both shell completion and manpage generation tasks. Unlike the
+    # fine-grained variants, the 'dist' command doesn't allow specifying the
+    # path but that's fine, because we can simply install them from the implicit
+    # output directories.
+    cargo xtask dist
     installShellCompletion completions/*
-
-    cargo xtask man --out-dir gen
-    installManPage gen/nh.1
+    installManPage man/nh.1
   '';
 
   postFixup = ''
     wrapProgram $out/bin/nh \
       --prefix PATH : ${lib.makeBinPath runtimeDeps}
   '';
-
-  cargoLock.lockFile = ./Cargo.lock;
 
   env.NH_REV = rev;
 
