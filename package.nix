@@ -31,10 +31,7 @@ rustPlatform.buildRustPackage {
   };
 
   strictDeps = true;
-  nativeBuildInputs = [
-    installShellFiles
-    makeBinaryWrapper
-  ];
+  nativeBuildInputs = [ makeBinaryWrapper ];
 
   cargoLock.lockFile = ./Cargo.lock;
 
@@ -44,8 +41,15 @@ rustPlatform.buildRustPackage {
     # path but that's fine, because we can simply install them from the implicit
     # output directories.
     cargo xtask dist
-    installShellCompletion comp/*
-    installManPage man/nh.1
+
+    # The dist task above should've created
+    #  1. Shell completions in comp/
+    #  2. The NH manpage (nh.1) in man/
+    # Let's install those.
+    for dir in comp man; do
+      mkdir -p "$out/share/$dir"
+      cp -rf "$dir" "$out/share/"
+    done
   '';
 
   postFixup = ''
