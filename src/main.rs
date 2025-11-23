@@ -1,7 +1,6 @@
 mod checks;
 mod clean;
 mod commands;
-mod completion;
 mod darwin;
 mod generations;
 mod home;

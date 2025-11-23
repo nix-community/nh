@@ -16,6 +16,7 @@ use crate::{
     DiffType,
     OsBuildVmArgs,
     OsGenerationsArgs,
+    OsRebuildActivateArgs,
     OsRebuildArgs,
     OsReplArgs,
     OsRollbackArgs,
@@ -35,14 +36,20 @@ impl interface::OsArgs {
   pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
     use OsRebuildVariant::{Boot, Build, Switch, Test};
     match self.subcommand {
-      OsSubcommand::Boot(args) => args.rebuild(&Boot, None, elevation),
-      OsSubcommand::Test(args) => args.rebuild(&Test, None, elevation),
-      OsSubcommand::Switch(args) => args.rebuild(&Switch, None, elevation),
+      OsSubcommand::Boot(args) => {
+        args.rebuild_and_activate(&Boot, None, elevation)
+      },
+      OsSubcommand::Test(args) => {
+        args.rebuild_and_activate(&Test, None, elevation)
+      },
+      OsSubcommand::Switch(args) => {
+        args.rebuild_and_activate(&Switch, None, elevation)
+      },
       OsSubcommand::Build(args) => {
         if args.common.ask || args.common.dry {
           warn!("`--ask` and `--dry` have no effect for `nh os build`");
         }
-        args.rebuild(&Build, None, elevation)
+        args.build_only(&Build, None, elevation)
       },
       OsSubcommand::BuildVm(args) => args.build_vm(elevation),
       OsSubcommand::Repl(args) => args.run(),
@@ -76,9 +83,21 @@ impl OsBuildVmArgs {
       .unwrap_or_else(|| PathBuf::from("result"));
 
     debug!("Building VM with attribute: {}", attr);
-    self
-      .common
-      .rebuild(&OsRebuildVariant::BuildVm, Some(&attr), elevation)?;
+
+    // Show warning if no hostname was explicitly provided for VM builds
+    if self.common.hostname.is_none() {
+      let (_, target_hostname) = self.common.setup_build_context()?;
+      tracing::warn!(
+        "Guessing system is {target_hostname} for a VM image. If this isn't \
+         intended, use --hostname to change."
+      );
+    }
+
+    self.common.build_only(
+      &OsRebuildVariant::BuildVm,
+      Some(&attr),
+      elevation,
+    )?;
 
     // If --run flag is set, execute the VM
     if self.run {
@@ -89,9 +108,9 @@ impl OsBuildVmArgs {
   }
 }
 
-impl OsRebuildArgs {
+impl OsRebuildActivateArgs {
   // final_attr is the attribute of config.system.build.X to evaluate.
-  fn rebuild(
+  fn rebuild_and_activate(
     self,
     variant: &OsRebuildVariant,
     final_attr: Option<&String>,
@@ -99,45 +118,36 @@ impl OsRebuildArgs {
   ) -> Result<()> {
     use OsRebuildVariant::{Build, BuildVm};
 
-    let (elevate, target_hostname) = self.setup_build_context()?;
+    let (elevate, target_hostname) = self.rebuild.setup_build_context()?;
 
-    // Only show the warning if we're explicitly building a VM
-    // and no hostname was explicitly provided (--hostname was None)
-    if self.hostname.is_none()
-      && matches!(variant, OsRebuildVariant::BuildVm)
-      && final_attr
-        .is_some_and(|attr| attr == "vm" || attr == "vmWithBootLoader")
-    {
-      tracing::warn!(
-        "Guessing system is {} for a VM image. If this isn't intended, use \
-         --hostname to change.",
-        target_hostname
-      );
-    }
+    let (out_path, _tempdir_guard) =
+      self.rebuild.determine_output_path(variant)?;
 
-    let (out_path, _tempdir_guard) = self.determine_output_path(variant)?;
-
-    let toplevel =
-      self.resolve_installable_and_toplevel(&target_hostname, final_attr)?;
+    let toplevel = self
+      .rebuild
+      .resolve_installable_and_toplevel(&target_hostname, final_attr)?;
 
     let message = match variant {
       BuildVm => "Building NixOS VM image",
       _ => "Building NixOS configuration",
     };
 
-    self.execute_build_command(toplevel, &out_path, message)?;
+    self
+      .rebuild
+      .execute_build_command(toplevel, &out_path, message)?;
 
-    let target_profile = self.resolve_specialisation_and_profile(&out_path)?;
+    let target_profile =
+      self.rebuild.resolve_specialisation_and_profile(&out_path)?;
 
-    self.handle_dix_diff(&target_profile);
+    self.rebuild.handle_dix_diff(&target_profile);
 
-    if self.common.dry || matches!(variant, Build | BuildVm) {
-      if self.common.ask {
+    if self.rebuild.common.dry || matches!(variant, Build | BuildVm) {
+      if self.rebuild.common.ask {
         warn!("--ask has no effect as dry run was requested");
       }
 
       // For VM builds, print instructions on how to run the VM
-      if matches!(variant, BuildVm) && !self.common.dry {
+      if matches!(variant, BuildVm) && !self.rebuild.common.dry {
         print_vm_instructions(&out_path);
       }
 
@@ -155,6 +165,134 @@ impl OsRebuildArgs {
     Ok(())
   }
 
+  fn activate_rebuilt_config(
+    &self,
+    variant: &OsRebuildVariant,
+    out_path: &Path,
+    target_profile: &Path,
+    elevate: bool,
+    elevation: ElevationStrategy,
+  ) -> Result<()> {
+    use OsRebuildVariant::{Boot, Switch, Test};
+
+    if self.rebuild.common.ask {
+      let confirmation = inquire::Confirm::new("Apply the config?")
+        .with_default(false)
+        .prompt()?;
+
+      if !confirmation {
+        bail!("User rejected the new config");
+      }
+    }
+
+    if let Some(target_host) = &self.rebuild.target_host {
+      Command::new("nix")
+        .args([
+          "copy",
+          "--to",
+          format!("ssh://{target_host}").as_str(),
+          match target_profile.to_str() {
+            Some(s) => s,
+            None => {
+              return Err(eyre!("target_profile path is not valid UTF-8"));
+            },
+          },
+        ])
+        .message("Copying configuration to target")
+        .with_required_env()
+        .run()?;
+    }
+
+    let switch_to_configuration = target_profile
+      .canonicalize()
+      .context("Failed to resolve output path")?
+      .join("bin")
+      .join("switch-to-configuration")
+      .canonicalize()
+      .context("Failed to resolve switch-to-configuration path")?;
+
+    if !switch_to_configuration.exists() {
+      return Err(missing_switch_to_configuration_error());
+    }
+
+    let canonical_out_path =
+      switch_to_configuration.to_str().ok_or_else(|| {
+        eyre!("switch-to-configuration path contains invalid UTF-8")
+      })?;
+
+    if let Test | Switch = variant {
+      let variant_label = match variant {
+        Test => "test",
+        Switch => "switch",
+        _ => unreachable!(),
+      };
+
+      Command::new(canonical_out_path)
+        .arg("test")
+        .ssh(self.rebuild.target_host.clone())
+        .message("Activating configuration")
+        .elevate(elevate.then_some(elevation.clone()))
+        .preserve_envs(["NIXOS_INSTALL_BOOTLOADER"])
+        .with_required_env()
+        .show_output(self.show_systemctl_hints)
+        .run()
+        .map_err(|e| {
+          // Check if this looks like a service/unit failure
+          let error_display = format!("{e:#}");
+          let error_lower = error_display.to_lowercase();
+
+          let is_service_failure = error_lower.contains("units failed")
+            || (error_lower.contains("failed")
+              && error_lower.contains("service"))
+            || (error_lower.contains("failed") && error_lower.contains("unit"));
+
+          if is_service_failure && self.show_systemctl_hints {
+            e.wrap_err(format!(
+              "Activation ({variant_label}) failed\n\nTo investigate failed \
+               services:\n  systemctl --failed\n  journalctl -xe -u \
+               <service-name>"
+            ))
+          } else {
+            e.wrap_err(format!("Activation ({variant_label}) failed"))
+          }
+        })?;
+
+      debug!("Completed {variant:?} operation with output path: {out_path:?}");
+    }
+
+    if let Boot | Switch = variant {
+      Command::new("nix")
+        .elevate(elevate.then_some(elevation.clone()))
+        .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
+        .arg(canonical_out_path)
+        .ssh(self.rebuild.target_host.clone())
+        .with_required_env()
+        .run()
+        .wrap_err("Failed to set system profile")?;
+
+      let mut cmd = Command::new(switch_to_configuration)
+        .arg("boot")
+        .ssh(self.rebuild.target_host.clone())
+        .elevate(elevate.then_some(elevation))
+        .message("Adding configuration to bootloader")
+        .preserve_envs(["NIXOS_INSTALL_BOOTLOADER"]);
+
+      if self.rebuild.install_bootloader {
+        cmd = cmd.set_env("NIXOS_INSTALL_BOOTLOADER", "1");
+      }
+
+      cmd
+        .with_required_env()
+        .run()
+        .wrap_err("Bootloader activation failed")?;
+    }
+
+    debug!("Completed {variant:?} operation with output path: {out_path:?}");
+    Ok(())
+  }
+}
+
+impl OsRebuildArgs {
   /// Performs initial setup and gathers context for an OS rebuild operation.
   ///
   /// This includes:
@@ -307,103 +445,37 @@ impl OsRebuildArgs {
     }
   }
 
-  fn activate_rebuilt_config(
-    &self,
+  // final_attr is the attribute of config.system.build.X to evaluate.
+  // Used by Build and BuildVm subcommands which don't activate
+  fn build_only(
+    self,
     variant: &OsRebuildVariant,
-    out_path: &Path,
-    target_profile: &Path,
-    elevate: bool,
-    elevation: ElevationStrategy,
+    final_attr: Option<&String>,
+    _elevation: ElevationStrategy,
   ) -> Result<()> {
-    use OsRebuildVariant::{Boot, Switch, Test};
+    use OsRebuildVariant::{Build, BuildVm};
 
-    if self.common.ask {
-      let confirmation = inquire::Confirm::new("Apply the config?")
-        .with_default(false)
-        .prompt()?;
+    let (_, target_hostname) = self.setup_build_context()?;
 
-      if !confirmation {
-        bail!("User rejected the new config");
-      }
-    }
+    let (out_path, _tempdir_guard) = self.determine_output_path(variant)?;
 
-    if let Some(target_host) = &self.target_host {
-      Command::new("nix")
-        .args([
-          "copy",
-          "--to",
-          format!("ssh://{target_host}").as_str(),
-          match target_profile.to_str() {
-            Some(s) => s,
-            None => {
-              return Err(eyre!("target_profile path is not valid UTF-8"));
-            },
-          },
-        ])
-        .message("Copying configuration to target")
-        .with_required_env()
-        .run()?;
-    }
+    let toplevel =
+      self.resolve_installable_and_toplevel(&target_hostname, final_attr)?;
 
-    let switch_to_configuration = target_profile
-      .canonicalize()
-      .context("Failed to resolve output path")?
-      .join("bin")
-      .join("switch-to-configuration")
-      .canonicalize()
-      .context("Failed to resolve switch-to-configuration path")?;
+    let message = match variant {
+      BuildVm => "Building NixOS VM image",
+      _ => "Building NixOS configuration",
+    };
 
-    if !switch_to_configuration.exists() {
-      return Err(missing_switch_to_configuration_error());
-    }
+    self.execute_build_command(toplevel, &out_path, message)?;
 
-    let canonical_out_path =
-      switch_to_configuration.to_str().ok_or_else(|| {
-        eyre!("switch-to-configuration path contains invalid UTF-8")
-      })?;
+    let target_profile = self.resolve_specialisation_and_profile(&out_path)?;
 
-    if let Test | Switch = variant {
-      Command::new(canonical_out_path)
-        .arg("test")
-        .ssh(self.target_host.clone())
-        .message("Activating configuration")
-        .elevate(elevate.then_some(elevation.clone()))
-        .preserve_envs(["NIXOS_INSTALL_BOOTLOADER"])
-        .with_required_env()
-        .run()
-        .wrap_err("Activation (test) failed")?;
+    self.handle_dix_diff(&target_profile);
 
-      debug!("Completed {variant:?} operation with output path: {out_path:?}");
-    }
+    // Build and BuildVm subcommands never activate
+    debug_assert!(matches!(variant, Build | BuildVm));
 
-    if let Boot | Switch = variant {
-      Command::new("nix")
-        .elevate(elevate.then_some(elevation.clone()))
-        .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
-        .arg(canonical_out_path)
-        .ssh(self.target_host.clone())
-        .with_required_env()
-        .run()
-        .wrap_err("Failed to set system profile")?;
-
-      let mut cmd = Command::new(switch_to_configuration)
-        .arg("boot")
-        .ssh(self.target_host.clone())
-        .elevate(elevate.then_some(elevation))
-        .message("Adding configuration to bootloader")
-        .preserve_envs(["NIXOS_INSTALL_BOOTLOADER"]);
-
-      if self.install_bootloader {
-        cmd = cmd.set_env("NIXOS_INSTALL_BOOTLOADER", "1");
-      }
-
-      cmd
-        .with_required_env()
-        .run()
-        .wrap_err("Bootloader activation failed")?;
-    }
-
-    debug!("Completed {variant:?} operation with output path: {out_path:?}");
     Ok(())
   }
 }

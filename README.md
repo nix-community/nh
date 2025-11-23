@@ -1,4 +1,4 @@
-<!-- markdownlint-disable no-inline-html first-line-heading line-length -->
+<!-- markdownlint-disable MD033 MD041 -->
 <div align="center">
   <h1 id="header">nh</h1>
   <a alt="CI" href="https://github.com/nix-community/nh/actions">
@@ -31,32 +31,62 @@
 ## What Does it Do?
 
 NH is a modern helper utility that aims to consolidate and reimplement some of
-the commands from various tools within the NixOS ecosystem. Our goal is to
-provide a cohesive, easily-understandable interface with more features, better
-ergonomics and at many times better _speed_. In addition to bringing together
-relevant 3rd party projects, NH also acts a super-convenient all-in-one utility
-that reimplements well known Nix commands.
+the commands and interfaces from various tools within the Nix/NixOS ecosystem.
+Our goal is to provide a **cohesive**, **easily-understandable** interface with
+more features, better ergonomics and at many times better _speed_. In addition
+to acting as a super-convenient, all-in-one utility that reimplements well-known
+and commonly used Nix commands, NH is a _pretty_ tool that brings together
+relevant 3rd party projects that you might be familiar with.
+
+To get started with NH, skip to the [Usage] section.
 
 ## Features
 
-- **Unified CLI**: Consistent, intuitive interface for NixOS, Home Manager, and
-  Darwin workflows.
-- **Rich Interface**: Each major function (`os`, `home`, `darwin`, `search`,
-  `clean`) exposes granular subcommands and flags for fine-tuned control.
+- **Unified CLI**: Consistent, intuitive interface for many **Nix**, **NixOS**,
+  **Home Manager**, and **Darwin** workflows.
+  - **Rich Interface**: Each major function (`os`, `home`, `darwin`, `search`,
+    `clean`) exposes granular subcommands and flags for fine-tuned control.
+  - **Enhanced Garbage Collection**: `nh clean` extends `nix-collect-garbage`
+    with gcroot cleanup, profile targeting, and time-based retention.
+  - **Faster Nix Search**: search Nixpkgs via Elasticsearch for faster results
 - **Eye Candy**: It looks great, without any compromise. I mean who does not
   love some cool looking UIs?
-- **Enhanced Garbage Collection**: `nh clean` extends `nix-collect-garbage` with
-  gcroot cleanup, profile targeting, and time-based retention.
-- **Build-tree Visualization**: `nh os` and similar commands display build trees
-  for clear dependency tracking.
-- **Diff & Change Review**: Integrated, super-fast diffing of derivation changes
-  before activation or switch.
+  - **Build-tree Visualization**: `nh os` and similar commands display build
+    trees for clear dependency tracking.
+  - **Diff & Change Review**: Integrated, super-fast diffing of derivation
+    changes before activation or switch.
 - **Specialisation Support**: Easily select or ignore NixOS & Home-Manager
   specialisations via flags.
 - **Generation Management**: Inspect, rollback, and manage system generations
   with explicit targeting.
 - **Extensible & Futureproof**: Designed for seamless, rapid addition of new
   subcommands and flags.
+
+### Design
+
+[Discussions]: https://github.com/nix-community/nh/discussions
+[Issues]: https://github.com/nix-community/nh/issues
+
+NH is an _unified_ CLI, meaning it aims to bring together core platform support
+into a single, convenient utility. For the time being, this appears in NH's
+interface as support for **NixOS** (first-class), **Home Manager** and
+**Nix-Darwin**. We hope to provide a familiar, convenient and _good looking_
+interface for users of any and all of those projects.
+
+The familiar interface of NH should not be seen as a weakness, however, as NH is
+NOT a nixos-rebuild wrapper, and is not constrained by the limits of such tools.
+Simply put, our goal is to implement _not only_ what is available but instead go
+above and beyond to implement additional commands and flags to **improve the
+experience provided by the default tools**. Which is to say _plumbing_ and _sane
+defaults_ matter. You get to enjoy the very tools that you are accustomed to,
+with the benefits of a faster and safer language.
+
+> [!INFO]
+> Future goals of NH include providing support for lower-levels tools, such as
+> `nixos-install`, and `nixos-generate-config` to become a drop-in replacement
+> for most critical tools with the benefits of Rust. If you would like to
+> provide feedback and create feature requests, those are welcome over at the
+> [Discussions] and [Issues] tabs respectively.
 
 ## Status
 
@@ -77,61 +107,7 @@ backported to the stable branch. Refer to the [installation](#installation)
 section for more details. Make sure you submit an [update request] in Nixpkgs if
 the package is outdated.
 
-## Usage
-
-One of the features and the core principles of NH is to provide a clean, uniform
-and intuitive CLI for its users. The `nh` command offers several subcommands,
-all with their extensive CLI flags for extensive configuration.
-
-### Global Subcommands
-
-- `nh search` - a super-fast package searching tool (powered by an Elasticsearch
-  client) for Nix packages in supported Nixpkgs branches.
-  <p align="center">
-    <img
-      alt="nh search showcase"
-      src="./.github/nh_search_screenshot.png"
-      width="750px"
-    >
-  </p>
-
-- `nh clean` - a re-implementation of `nix-collect-garbage` that also collects
-  gcroots.
-  <p align="center">
-    <img
-      alt="nh clean showcase"
-      src="./.github/nh_clean_screenshot.png"
-      width="750px"
-    >
-  </p>
-
-### Platform Specific Subcommands
-
-- `nh os` - reimplements `nixos-rebuild`[^1] with the addition of
-  - build-tree displays.
-  - diff of changes.
-  - confirmation.
-  <p align="center">
-    <img
-      alt="nh os switch showcase"
-      src="./.github/nh_switch_screenshot.png"
-      width="750px"
-    >
-  </p>
-
-- `nh home` - reimplements `home-manager`.
-- `nh darwin` - reimplements `darwin-rebuild`.
-
-[^1]: `nh os` does not yet provide full feature parity with `nixos-rebuild`.
-    While a large collection of subcommands have been implemented, you might be
-    missing some features. Please visit
-    [#358](https://github.com/nix-community/nh/issues/358) for a roadmap.
-
-> [!TIP]
-> See the help page for individual subcommands, or `man 1 nh` for more
-> information on each subcommand.
-
-## Installation
+### Installation
 
 The latest, tagged version is available in Nixpkgs as **NH stable**. This is
 recommended for most users, as tagged releases will usually undergo more
@@ -217,6 +193,72 @@ The config would look like this:
 }
 ```
 
+## Usage
+
+One of the features and the core principles of NH is to provide a clean, uniform
+and intuitive CLI for its users. The `nh` command offers several subcommands,
+all with their extensive CLI flags for extensive configuration.
+
+Under the `nh` command, there are two types of commands that you'll be
+interested in:
+
+### Global Subcommands
+
+Global subcommands implement functionality around core Nix commands. As it
+stands, we provide a **better search** and **better garbage collection**.
+
+- `nh search` - a super-fast package searching tool (powered by an Elasticsearch
+  client) for Nix packages in supported Nixpkgs branches.
+
+  <p align="center">
+    <img
+      alt="nh search showcase"
+      src="./.github/nh_search_screenshot.png"
+      width="750px"
+    >
+  </p>
+
+- `nh clean` - a re-implementation of `nix-collect-garbage` that also collects
+  gcroots.
+
+  <p align="center">
+    <img
+      alt="nh clean showcase"
+      src="./.github/nh_clean_screenshot.png"
+      width="750px"
+    >
+  </p>
+
+### Platform Specific Subcommands
+
+Platform specific subcommands are those that implement CLI utilities for
+**NixOS**, **Home Manager** and **Nix-Darwin**.
+
+- `nh os` - reimplements `nixos-rebuild`[^1] with the addition of
+  - build-tree displays.
+  - diff of changes.
+  - confirmation.
+
+  <p align="center">
+    <img
+      alt="nh os switch showcase"
+      src="./.github/nh_switch_screenshot.png"
+      width="750px"
+    >
+  </p>
+
+- `nh home` - reimplements `home-manager`.
+- `nh darwin` - reimplements `darwin-rebuild`.
+
+[^1]: `nh os` does not yet provide full feature parity with `nixos-rebuild`.
+    While a large collection of subcommands have been implemented, you might be
+    missing some features. Please visit
+    [#358](https://github.com/nix-community/nh/issues/358) for a roadmap.
+
+> [!TIP]
+> See the help page for individual subcommands, or `man 1 nh` for more
+> information on each subcommand.
+
 ## Environment variables
 
 NH supports several environment variables to control command behaviour. Some of
@@ -224,11 +266,14 @@ the common variables that you may encounter or choose to employ are as follows:
 
 ### Global
 
+- `NIX_SSHOPTS`, `NIX_CONFIG`, `NIX_REMOTE`, `NIX_SSL_CERT_FILE` and
+  `NIX_USER_CONF_FILES` are forwarded in all Nix commands with environment
+  isolation.
 - `NIXOS_INSTALL_BOOTLOADER`
   - This is a variable accepted by `switch-to-configuration`, which handles the
-    system switching behind the scenes. If `true`, `swith-to-configuration` will
-    call the necessary script to force and installation of your bootloader. This
-    behaviour can also be replicated by passing `--install-bootloader` to
+    system switching behind the scenes. If `true`, `switch-to-configuration`
+    will call the necessary script to force and installation of your bootloader.
+    This behaviour can also be replicated by passing `--install-bootloader` to
     `nh os switch` and `nh os boot` commands.
 
 ### NH Specific
@@ -259,6 +304,12 @@ the common variables that you may encounter or choose to employ are as follows:
     elevated commands. Set to `"0"` to disable preservation, `"1"` to force
     preservation. If unset, preservation defaults to enabled.
 
+- `NH_SHOW_SYSTEMCTL_HINTS`
+  - Whether to parse activation logs and isolate specific unit failures to
+    display them at the end of activation. Setting this to `"1"` allows
+    replicating the default behaviour from `nixos-rebuild` where failing units
+    are displayed at the end.
+
 - `NH_LOG`
   - Sets the tracing/log filter for NH. This uses the same format as
     `tracing_subscriber` env filters (for example: `nh=trace`).
@@ -270,7 +321,7 @@ the common variables that you may encounter or choose to employ are as follows:
 ### Notes
 
 - Any environment variables prefixed with `NH_` are explicitly propagated by NH
-  to commands when appropriate.
+  to commands when appropriate, i.e., in environment isolation.
 - For backwards compatibility, if `FLAKE` is present and none of the
   command-specific `NH_*_FLAKE` variables exist, NH will set `NH_FLAKE` from
   `FLAKE` and emit a warning recommending migration to `NH_FLAKE`. `FLAKE` will
@@ -284,33 +335,65 @@ run `nix develop`. We also provide a `.envrc` for Direnv users, who may use
 
 ### Structure
 
-NH consists of two modules. The core of NH is found in the `src` directory, and
-is separated into different modules. Some of the critical modules that you may
-want to be aware of are `nh::commands` for command interfaces, `nh::checks` for
-pre-startup checks and `nh::util` to store shared logic. Platform-specific logic
-is placed in the appropriate platform module, such as `nh::nixos` or
-`nh::darwin` with generic helpers placed in `nh::util`.
+[cargo-xtask]: https://github.com/matklad/cargo-xtask
 
-The `xtask` directory contains the cargo-xtask tasks used by NH, used to
-generate manpages and possibly more in the future. Some of the
+NH is written in the Rust programming language, and consists of two modules. The
+core of NH is found in the `src` directory, and is separated into different
+modules. Some of the critical modules that you may want to be aware of are
+`nh::commands` for command interfaces, `nh::checks` for pre-startup checks and
+`nh::util` to store shared logic. Platform-specific logic is placed in the
+appropriate platform module, such as `nh::nixos` or `nh::darwin` with generic
+helpers placed in `nh::util`.
+
+The `xtask` directory contains the [cargo-xtask] tasks used by NH, used to
+generate manpages and possibly more in the future.
 
 ### Submitting Changes
 
-Once your changes are complete, remember to run [fix.sh](./fix.sh) to apply
-general formatter and linter rules that will be expected by the CI.
+Once your changes are complete, please remember to run the fixup script in
+[fix.sh](./fix.sh) to apply general formatter and linter rules that will be
+expected by the CI. This is optional, but some CI steps (such as formatting) is
+required for a merge.
 
-Lastly, update the [changelog](/CHANGELOG.md) and open your pull request.
+You will also want to update the [changelog](/CHANGELOG.md) with sufficient
+amount of information to detail the new behaviour before you create your
+changes.
+
+This might seem daunting, but it isn't. Even if you _don't_ meet those
+requirements, you'll be gently nudged to make your changes. Friendly
+contributions are always welcome.
 
 ## Attributions
 
-[nix-output-monitor]: https://github.com/maralorn/nix-output-monitor
+[faukah]: https://github.com/faukah
+[ViperML]: https://github.com/viperML
+
+NH has had a long history, and it has grown a lot over the years. I, NotAShelf,
+would first like to extend my thanks to [ViperML] for his immense efforts as the
+creator and the first maintainer of NH. I have recently taken over NH, but none
+of this would be possible without him.
+
+[nvd]: https://sr.ht/~khumba/nvd/
 [dix]: https://github.com/bloxx12/dix
 
-NH would not be possible without all the tools we run under the hood
+Next, I would like to thank the tools we run under the hood. The visualization
+of upgrade diffs are provided by the [dix] crate, which is created by my good
+friend [faukah]. Compared to the previous diffing utility, [nvd], dix is more
+than twice as fast and has been a blessing to NH's diffing experience. Thank
+you!
 
-- Tree of builds with [nix-output-monitor].
-- Visualization of the upgrade diff with [dix].
-- And of course, all the [crates](./Cargo.toml) we depend on.
+[nix-output-monitor]: https://github.com/maralorn/nix-output-monitor
 
-Last but not least, thank you to those who contributed to NH or simply talked
-about it on various channels. NH would not be where it is without you.
+Another utility worth a mention is [nix-output-monitor], which NH under the hood
+for the pretty tree of builds. A big shoutout to nix-output-monitor for
+providing many NH users such as myself with pretty build visuals.
+
+[crates]: ./Cargo.toml
+
+I also would like to extend my thanks to the many Rust [crates] that power NH
+under the hood and give it its signature UX. Without the beautiful Rust
+ecosystem, NH could not be where it is.
+
+Last but not least I would like to thank... YOU! Thank you to everyone who has
+contributed to NH, talked about NH or criticized NH to allow further
+improvement. NH would not be where it is without you.

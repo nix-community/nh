@@ -3,7 +3,7 @@
 # NH Changelog
 
 <!--
-This is the Nh changelog. It aims to describe changes that occurred within the
+This is the NH changelog. It aims to describe changes that occurred within the
 codebase, to the extent that concerns *both users and contributors*. If you are
 a contributor, please add your changes under the "Unreleased" section as tags
 will be created at the discretion of maintainers. If your changes fix an
@@ -18,7 +18,6 @@ functionality, under the "Removed" section.
 
 ### Changed
 
-- `nh completions` now supports [nushell](https://www.nushell.sh/)
 - `nh os info` now hides empty columns.
 - `nh os info` now support `--fields` to select which field(s) to display; also
   add a per-generation "Closure Size" coloumn.
@@ -37,11 +36,26 @@ functionality, under the "Removed" section.
   different.
 - `nh os info` now hides empty fields by default, they can be explicitly shown
   via the `--fields` flag.
+- `nh completions` now supports [nushell](https://www.nushell.sh/)
+- `nh os switch` now accepts a `--show-systemctl-hints` flag that displays
+  failing systemd units at the end of the rebuild log. This flag can be used to
+  replicate the activation behaviour from `nixos-rebuild` where failing units
+  are displayed at the end.
+  - NH also allows making this the global default by setting
+    `NH_SHOW_SYSTEMCTL_HINTS`. This is useful if you miss the behaviour from
+    `nixos-rebuild` where this is default without a way of suppressing those.
 
 ### Fixed
 
-- Fixed the whitespace splitting of self-elevated commands so spaces inside quotes
-  don't get separated.
+- Fixed the whitespace splitting of self-elevated commands so spaces inside
+  quotes don't get separated.
+
+### Removed
+
+- Shell completion generation has been moved OUT of the main NH CLI, and is now
+  done via `cargo-xtask` in the packaging step. The `nh completions` command is
+  now fully deprecated and shell completion can be done with
+  `cargo xtask completions` or `cargo xtask dist`.
 
 ## 4.2.0
 
