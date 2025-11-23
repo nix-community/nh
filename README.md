@@ -48,8 +48,7 @@ To get started with NH, skip to the [Usage] section.
     `clean`) exposes granular subcommands and flags for fine-tuned control.
   - **Enhanced Garbage Collection**: `nh clean` extends `nix-collect-garbage`
     with gcroot cleanup, profile targeting, and time-based retention.
-  - **Faster Nix Search** directly from Elasticsearch for faster searches
-    directly from Nixpkgs
+  - **Faster Nix Search**: search Nixpkgs via Elasticsearch for faster results
 - **Eye Candy**: It looks great, without any compromise. I mean who does not
   love some cool looking UIs?
   - **Build-tree Visualization**: `nh os` and similar commands display build
@@ -272,9 +271,9 @@ the common variables that you may encounter or choose to employ are as follows:
   isolation.
 - `NIXOS_INSTALL_BOOTLOADER`
   - This is a variable accepted by `switch-to-configuration`, which handles the
-    system switching behind the scenes. If `true`, `swith-to-configuration` will
-    call the necessary script to force and installation of your bootloader. This
-    behaviour can also be replicated by passing `--install-bootloader` to
+    system switching behind the scenes. If `true`, `switch-to-configuration`
+    will call the necessary script to force and installation of your bootloader.
+    This behaviour can also be replicated by passing `--install-bootloader` to
     `nh os switch` and `nh os boot` commands.
 
 ### NH Specific
