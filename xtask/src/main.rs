@@ -41,10 +41,7 @@ enum Command {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
   let Cli { command } = Cli::parse();
 
-  if let Err(e) = env::set_current_dir(project_root()) {
-    eprintln!("Error: Failed to change to project root: {e}");
-    process::exit(1);
-  }
+  env::set_current_dir(project_root())?;
 
   match command {
     Command::Man { out_dir } => man::generate(&out_dir).map_err(|e| e.into()),
