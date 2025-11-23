@@ -234,7 +234,7 @@ impl OsRebuildActivateArgs {
         .elevate(elevate.then_some(elevation.clone()))
         .preserve_envs(["NIXOS_INSTALL_BOOTLOADER"])
         .with_required_env()
-        .show_output(true)
+        .show_output(self.show_systemctl_hints)
         .run()
         .map_err(|e| {
           // Check if this looks like a service/unit failure
