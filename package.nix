@@ -44,7 +44,7 @@ rustPlatform.buildRustPackage {
     # path but that's fine, because we can simply install them from the implicit
     # output directories.
     cargo xtask dist
-    installShellCompletion completions/*
+    installShellCompletion comp/*
     installManPage man/nh.1
   '';
 
