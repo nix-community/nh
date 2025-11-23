@@ -59,7 +59,9 @@ impl DarwinRebuildArgs {
     use DarwinRebuildVariant::{Build, Switch};
 
     if nix::unistd::Uid::effective().is_root() && !self.bypass_root_check {
-      bail!("Don't run nh os as root. I will call sudo internally as needed");
+      bail!(
+        "Don't run nh darwin as root. I will call sudo internally as needed"
+      );
     }
 
     if self.update_args.update_all || self.update_args.update_input.is_some() {
@@ -72,7 +74,7 @@ impl DarwinRebuildArgs {
       if let Some(ref p) = self.common.out_link {
         (p.clone(), None)
       } else {
-        let dir = tempfile::Builder::new().prefix("nh-os").tempdir()?;
+        let dir = tempfile::Builder::new().prefix("nh-darwin").tempdir()?;
         (dir.as_ref().join("result"), Some(dir))
       };
 
