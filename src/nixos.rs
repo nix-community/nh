@@ -83,6 +83,16 @@ impl OsBuildVmArgs {
       .unwrap_or_else(|| PathBuf::from("result"));
 
     debug!("Building VM with attribute: {}", attr);
+
+    // Show warning if no hostname was explicitly provided for VM builds
+    if self.common.hostname.is_none() {
+      let (_, target_hostname) = self.common.setup_build_context()?;
+      tracing::warn!(
+        "Guessing system is {target_hostname} for a VM image. If this isn't \
+         intended, use --hostname to change."
+      );
+    }
+
     self.common.build_only(
       &OsRebuildVariant::BuildVm,
       Some(&attr),
@@ -109,19 +119,6 @@ impl OsRebuildActivateArgs {
     use OsRebuildVariant::{Build, BuildVm};
 
     let (elevate, target_hostname) = self.rebuild.setup_build_context()?;
-
-    // Only show the warning if we're explicitly building a VM
-    // and no hostname was explicitly provided (--hostname was None)
-    if self.rebuild.hostname.is_none()
-      && matches!(variant, OsRebuildVariant::BuildVm)
-      && final_attr
-        .is_some_and(|attr| attr == "vm" || attr == "vmWithBootLoader")
-    {
-      tracing::warn!(
-        "Guessing system is {target_hostname} for a VM image. If this isn't \
-         intended, use --hostname to change."
-      );
-    }
 
     let (out_path, _tempdir_guard) =
       self.rebuild.determine_output_path(variant)?;
@@ -442,7 +439,7 @@ impl OsRebuildArgs {
   }
 
   // final_attr is the attribute of config.system.build.X to evaluate.
-  // Used by Build subcommand which doesn't activate
+  // Used by Build and BuildVm subcommands which don't activate
   fn build_only(
     self,
     variant: &OsRebuildVariant,
@@ -469,8 +466,8 @@ impl OsRebuildArgs {
 
     self.handle_dix_diff(&target_profile);
 
-    // Build subcommand never activates
-    debug_assert!(matches!(variant, Build));
+    // Build and BuildVm subcommands never activate
+    debug_assert!(matches!(variant, Build | BuildVm));
 
     Ok(())
   }
