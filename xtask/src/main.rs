@@ -38,7 +38,7 @@ enum Command {
   Dist,
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
   let Cli { command } = Cli::parse();
 
   if let Err(e) = env::set_current_dir(project_root()) {
@@ -46,27 +46,27 @@ fn main() {
     process::exit(1);
   }
 
-  let result = match command {
-    Command::Man { out_dir } => man::generate(&out_dir),
+  match command {
+    Command::Man { out_dir } => man::generate(&out_dir).map_err(|e| e.into()),
     Command::Completions { out_dir, shell } => {
-      {}
-      {}
-      comp::generate(&out_dir, shell)
+      comp::generate(&out_dir, shell).map_err(|e| e.into())
     },
     Command::Dist => {
       let man_handle = std::thread::spawn(|| man::generate("man"));
       let comp_handle = std::thread::spawn(|| comp::generate("comp", None));
 
-      match (man_handle.join().unwrap(), comp_handle.join().unwrap()) {
+      let man_result = man_handle
+        .join()
+        .map_err(|_| "man thread panicked".to_string())?;
+      let comp_result = comp_handle
+        .join()
+        .map_err(|_| "comp thread panicked".to_string())?;
+
+      match (man_result, comp_result) {
         (Ok(()), Ok(())) => Ok(()),
-        (Err(e), _) | (_, Err(e)) => Err(e),
+        (Err(e), _) | (_, Err(e)) => Err(e.into()),
       }
     },
-  };
-
-  if let Err(e) = result {
-    eprintln!("Error: {}", e);
-    process::exit(1);
   }
 }
 
