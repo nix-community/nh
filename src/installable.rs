@@ -57,7 +57,7 @@ impl FromArgMatches for Installable {
 
     if let Some(e) = expr {
       return Ok(Self::Expression {
-        expression: e.to_string(),
+        expression: e.clone(),
         attribute:  parse_attribute(installable.cloned().unwrap_or_default()),
       });
     }
@@ -286,7 +286,7 @@ impl Installable {
         attribute,
       } => {
         res.push(String::from("--expr"));
-        res.push(expression.to_string());
+        res.push(expression.clone());
         res.push(join_attribute(attribute));
       },
       Self::Store { path } => {

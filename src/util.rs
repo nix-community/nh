@@ -14,7 +14,7 @@ use tracing::{debug, info};
 
 use crate::commands::{Command, ElevationStrategy};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NixVariant {
   Nix,
   Lix,

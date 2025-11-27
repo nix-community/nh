@@ -135,7 +135,7 @@ impl HomeRebuildArgs {
     let target_profile: PathBuf = if let Some(spec) = &target_specialisation {
       out_path.join("specialisation").join(spec)
     } else {
-      out_path.clone()
+      out_path
     };
 
     // just do nothing for None case (fresh installs)
@@ -316,9 +316,7 @@ where
           };
           tried.push(current_try_attr.clone());
 
-          if let Some("true") =
-            check_res.map(|s| s.trim().to_owned()).as_deref()
-          {
+          if check_res.map(|s| s.trim().to_owned()).as_deref() == Some("true") {
             debug!("Using automatically detected configuration: {}", attr_name);
             attribute.push(attr_name);
             if push_drv {

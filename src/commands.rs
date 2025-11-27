@@ -131,8 +131,8 @@ pub enum ElevationStrategy {
 impl ElevationStrategy {
   pub fn resolve(&self) -> Result<PathBuf> {
     match self {
-      ElevationStrategy::Auto => Self::choice(),
-      ElevationStrategy::Prefer(program) => {
+      Self::Auto => Self::choice(),
+      Self::Prefer(program) => {
         which(program).or_else(|_| {
           let auto = Self::choice()?;
           warn!(
@@ -143,7 +143,7 @@ impl ElevationStrategy {
           Ok(auto)
         })
       },
-      ElevationStrategy::Force(program) => Ok(program.into()),
+      Self::Force(program) => Ok(program.into()),
     }
   }
 
@@ -224,14 +224,14 @@ impl Command {
 
   /// Set whether to perform a dry run.
   #[must_use]
-  pub fn dry(mut self, dry: bool) -> Self {
+  pub const fn dry(mut self, dry: bool) -> Self {
     self.dry = dry;
     self
   }
 
   /// Set whether to show command output.
   #[must_use]
-  pub fn show_output(mut self, show_output: bool) -> Self {
+  pub const fn show_output(mut self, show_output: bool) -> Self {
     self.show_output = show_output;
     self
   }

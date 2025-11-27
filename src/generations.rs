@@ -70,7 +70,7 @@ struct ColumnWidths {
 }
 
 impl Field {
-  fn column_info(&self, width: ColumnWidths) -> (&'static str, usize) {
+  const fn column_info(&self, width: ColumnWidths) -> (&'static str, usize) {
     match self {
       Self::Id => ("Generation No", width.id),
       Self::Date => ("Build Date", width.date),
@@ -173,6 +173,7 @@ pub fn get_closure_size(generation_dir: &Path) -> String {
   )
 }
 
+#[must_use]
 pub fn describe(generation_dir: &Path) -> Option<GenerationInfo> {
   let generation_number = from_dir(generation_dir)?;
   let closure_size = get_closure_size(generation_dir);

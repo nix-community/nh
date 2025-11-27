@@ -329,10 +329,8 @@ impl OsRebuildArgs {
     target_hostname: &str,
     final_attr: Option<&String>,
   ) -> Result<Installable> {
-    let installable = (get_nh_os_flake_env()?).map_or_else(
-      || self.common.installable.clone(),
-      |flake_installable| flake_installable,
-    );
+    let installable = (get_nh_os_flake_env()?)
+      .unwrap_or_else(|| self.common.installable.clone());
 
     Ok(toplevel_for(
       target_hostname,

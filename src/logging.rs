@@ -31,15 +31,15 @@ where
 
     match *level {
       Level::ERROR => {
-        write!(writer, "{} ", Paint::new("ERROR").fg(Color::Red))?
+        write!(writer, "{} ", Paint::new("ERROR").fg(Color::Red))?;
       },
       Level::WARN => write!(writer, "{} ", Paint::new("!").fg(Color::Yellow))?,
       Level::INFO => write!(writer, "{} ", Paint::new(">").fg(Color::Green))?,
       Level::DEBUG => {
-        write!(writer, "{} ", Paint::new("DEBUG").fg(Color::Blue))?
+        write!(writer, "{} ", Paint::new("DEBUG").fg(Color::Blue))?;
       },
       Level::TRACE => {
-        write!(writer, "{} ", Paint::new("TRACE").fg(Color::Cyan))?
+        write!(writer, "{} ", Paint::new("TRACE").fg(Color::Cyan))?;
       },
     }
 
