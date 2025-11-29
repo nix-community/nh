@@ -33,7 +33,7 @@ impl<'v> Value<'v> {
   #[must_use]
   pub const fn new(value: &'v serde_json::Value) -> Self {
     Self {
-      inner:     value,
+      inner: value,
       get_stack: vec![],
     }
   }
@@ -43,12 +43,10 @@ impl<'v> Value<'v> {
     get_stack.push(index.to_owned());
 
     match self.inner.get(index) {
-      Some(value) => {
-        Ok(Self {
-          inner: value,
-          get_stack,
-        })
-      },
+      Some(value) => Ok(Self {
+        inner: value,
+        get_stack,
+      }),
       None => Err(Error { get_stack }),
     }
   }

@@ -4,16 +4,11 @@ use color_eyre::eyre::{Context, bail, eyre};
 use tracing::{debug, info, warn};
 
 use crate::{
-  Result,
-  commands,
+  Result, commands,
   commands::{Command, ElevationStrategy},
   installable::Installable,
   interface::{
-    DarwinArgs,
-    DarwinRebuildArgs,
-    DarwinReplArgs,
-    DarwinSubcommand,
-    DiffType,
+    DarwinArgs, DarwinRebuildArgs, DarwinReplArgs, DarwinSubcommand, DiffType,
   },
   update::update,
   util::{get_hostname, print_dix_diff},

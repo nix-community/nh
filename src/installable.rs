@@ -13,7 +13,7 @@ pub enum Installable {
     attribute: Vec<String>,
   },
   File {
-    path:      PathBuf,
+    path: PathBuf,
     attribute: Vec<String>,
   },
   Store {
@@ -21,7 +21,7 @@ pub enum Installable {
   },
   Expression {
     expression: String,
-    attribute:  Vec<String>,
+    attribute: Vec<String>,
   },
 
   /// Represents a deferred resolution of a missing installable.
@@ -54,7 +54,7 @@ impl FromArgMatches for Installable {
 
     if let Some(f) = file {
       return Ok(Self::File {
-        path:      PathBuf::from(f),
+        path: PathBuf::from(f),
         attribute: parse_attribute(installable.cloned().unwrap_or_default()),
       });
     }
@@ -62,7 +62,7 @@ impl FromArgMatches for Installable {
     if let Some(e) = expr {
       return Ok(Self::Expression {
         expression: e.clone(),
-        attribute:  parse_attribute(installable.cloned().unwrap_or_default()),
+        attribute: parse_attribute(installable.cloned().unwrap_or_default()),
       });
     }
 
@@ -136,7 +136,7 @@ impl FromArgMatches for Installable {
 
     if let Ok(f) = env::var("NH_FILE") {
       return Ok(Self::File {
-        path:      PathBuf::from(f),
+        path: PathBuf::from(f),
         attribute: parse_attribute(env::var("NH_ATTRP").unwrap_or_default()),
       });
     }
@@ -328,7 +328,7 @@ fn test_installable_to_args() {
 
   assert_eq!(
     (Installable::File {
-      path:      PathBuf::from("w"),
+      path: PathBuf::from("w"),
       attribute: ["x", "y.z"].into_iter().map(str::to_string).collect(),
     })
     .to_args(),

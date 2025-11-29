@@ -68,15 +68,15 @@ pub fn setup_logging(
     .install()?;
 
   let fallback_level =
-    verbosity.log_level().map_or(LevelFilter::WARN, |level| {
-      match level {
+    verbosity
+      .log_level()
+      .map_or(LevelFilter::WARN, |level| match level {
         clap_verbosity_flag::log::Level::Error => LevelFilter::ERROR,
         clap_verbosity_flag::log::Level::Warn => LevelFilter::WARN,
         clap_verbosity_flag::log::Level::Info => LevelFilter::INFO,
         clap_verbosity_flag::log::Level::Debug => LevelFilter::DEBUG,
         clap_verbosity_flag::log::Level::Trace => LevelFilter::TRACE,
-      }
-    });
+      });
 
   let layer = fmt::layer()
     .with_writer(std::io::stderr)

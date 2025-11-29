@@ -32,7 +32,7 @@ enum Command {
     out_dir: String,
     /// Shell to generate completions for (generates all if not specified)
     #[arg(value_enum)]
-    shell:   Option<CompletionShell>,
+    shell: Option<CompletionShell>,
   },
   /// Generate both manpages and completions
   Dist,

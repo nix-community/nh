@@ -1,7 +1,6 @@
 use std::{
   collections::HashSet,
-  fmt,
-  io,
+  fmt, io,
   os::unix::process::CommandExt,
   path::Path,
   process::{Command as StdCommand, Stdio},

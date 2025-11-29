@@ -40,9 +40,9 @@ static GENERATION_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 struct Generation {
-  number:        u32,
+  number: u32,
   last_modified: SystemTime,
-  path:          PathBuf,
+  path: PathBuf,
 }
 
 type ToBeRemoved = bool;
@@ -227,16 +227,14 @@ impl interface::CleanMode {
           AtFlags::AT_SYMLINK_NOFOLLOW,
         ) {
           Ok(()) => true,
-          Err(errno) => {
-            match errno {
-              Errno::EACCES | Errno::ENOENT => false,
-              _ => {
-                bail!(
-                  eyre!("Checking access for gcroot {:?}, unknown error", dst)
-                    .wrap_err(errno)
-                )
-              },
-            }
+          Err(errno) => match errno {
+            Errno::EACCES | Errno::ENOENT => false,
+            _ => {
+              bail!(
+                eyre!("Checking access for gcroot {:?}, unknown error", dst)
+                  .wrap_err(errno)
+              )
+            },
           },
         } {
           let dur = now.duration_since(

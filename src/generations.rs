@@ -60,13 +60,13 @@ pub enum Field {
 
 #[derive(Clone, Copy)]
 struct ColumnWidths {
-  id:      usize,
-  date:    usize,
-  nver:    usize,
-  kernel:  usize,
+  id: usize,
+  date: usize,
+  nver: usize,
+  kernel: usize,
   confrev: usize,
-  spec:    usize,
-  size:    usize,
+  spec: usize,
+  size: usize,
 }
 
 impl Field {
@@ -368,12 +368,10 @@ pub fn print_info(
 
       all_fields
         .into_iter()
-        .filter(|f| {
-          match f {
-            Confrev => has_confrev,
-            Spec => has_spec,
-            _ => true,
-          }
+        .filter(|f| match f {
+          Confrev => has_confrev,
+          Spec => has_spec,
+          _ => true,
         })
         .collect()
     },
@@ -400,13 +398,13 @@ pub fn print_info(
     .unwrap_or(5);
 
   let widths = ColumnWidths {
-    id:      max_generation_no + 10, // "Generation No"
-    date:    20,                     // "Build Date"
-    nver:    max_nixos_version_len,
-    kernel:  max_kernel_len,
+    id: max_generation_no + 10, // "Generation No"
+    date: 20,                   // "Build Date"
+    nver: max_nixos_version_len,
+    kernel: max_kernel_len,
     confrev: 22, // "Configuration Revision"
-    spec:    15, // "Specialisations"
-    size:    12, // "Closure Size"
+    spec: 15,    // "Specialisations"
+    size: 12,    // "Closure Size"
   };
 
   let header = visible_fields
@@ -449,12 +447,10 @@ pub fn print_info(
           Field::Date => formatted_date.clone(),
           Field::Nver => generation.nixos_version.clone(),
           Field::Kernel => generation.kernel_version.clone(),
-          Field::Confrev => {
-            generation
-              .configuration_revision
-              .clone()
-              .unwrap_or_default()
-          },
+          Field::Confrev => generation
+            .configuration_revision
+            .clone()
+            .unwrap_or_default(),
           Field::Spec => specialisations.clone().unwrap_or_default(),
           Field::Size => generation.closure_size.clone(),
         };

@@ -1,6 +1,5 @@
 use std::{
-  env,
-  fs,
+  env, fs,
   path::{Path, PathBuf},
 };
 
@@ -12,14 +11,8 @@ use crate::{
   generations,
   installable::Installable,
   interface::{
-    self,
-    DiffType,
-    OsBuildVmArgs,
-    OsGenerationsArgs,
-    OsRebuildActivateArgs,
-    OsRebuildArgs,
-    OsReplArgs,
-    OsRollbackArgs,
+    self, DiffType, OsBuildVmArgs, OsGenerationsArgs, OsRebuildActivateArgs,
+    OsRebuildArgs, OsReplArgs, OsRollbackArgs,
     OsSubcommand::{self},
   },
   update::update,
@@ -656,14 +649,12 @@ fn find_vm_script(out_path: &Path) -> Result<PathBuf> {
     .wrap_err_with(|| {
       format!("Failed to read directory {}", bin_dir.display())
     })?
-    .filter_map(|entry_result| {
-      match entry_result {
-        Ok(entry) => Some(entry),
-        Err(e) => {
-          warn!("Error reading entry in {}: {}", bin_dir.display(), e);
-          None
-        },
-      }
+    .filter_map(|entry_result| match entry_result {
+      Ok(entry) => Some(entry),
+      Err(e) => {
+        warn!("Error reading entry in {}: {}", bin_dir.display(), e);
+        None
+      },
     })
     .find_map(|entry| {
       let fname = entry.file_name();

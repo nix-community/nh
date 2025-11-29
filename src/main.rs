@@ -14,7 +14,8 @@ mod update;
 mod util;
 
 use color_eyre::Result;
-#[cfg(feature = "hotpath")] use hotpath;
+#[cfg(feature = "hotpath")]
+use hotpath;
 
 use crate::commands::ElevationStrategy;
 

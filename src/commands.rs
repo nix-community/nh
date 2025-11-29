@@ -132,17 +132,15 @@ impl ElevationStrategy {
   pub fn resolve(&self) -> Result<PathBuf> {
     match self {
       Self::Auto => Self::choice(),
-      Self::Prefer(program) => {
-        which(program).or_else(|_| {
-          let auto = Self::choice()?;
-          warn!(
-            "{} not found. Using {} instead",
-            program.to_string_lossy(),
-            auto.to_string_lossy()
-          );
-          Ok(auto)
-        })
-      },
+      Self::Prefer(program) => which(program).or_else(|_| {
+        let auto = Self::choice()?;
+        warn!(
+          "{} not found. Using {} instead",
+          program.to_string_lossy(),
+          auto.to_string_lossy()
+        );
+        Ok(auto)
+      }),
       Self::Force(program) => Ok(program.into()),
     }
   }
@@ -191,27 +189,27 @@ impl ElevationStrategy {
 
 #[derive(Debug)]
 pub struct Command {
-  dry:         bool,
-  message:     Option<String>,
-  command:     OsString,
-  args:        Vec<OsString>,
-  elevate:     Option<ElevationStrategy>,
-  ssh:         Option<String>,
+  dry: bool,
+  message: Option<String>,
+  command: OsString,
+  args: Vec<OsString>,
+  elevate: Option<ElevationStrategy>,
+  ssh: Option<String>,
   show_output: bool,
-  env_vars:    HashMap<String, EnvAction>,
+  env_vars: HashMap<String, EnvAction>,
 }
 
 impl Command {
   pub fn new<S: AsRef<OsStr>>(command: S) -> Self {
     Self {
-      dry:         false,
-      message:     None,
-      command:     command.as_ref().to_os_string(),
-      args:        vec![],
-      elevate:     None,
-      ssh:         None,
+      dry: false,
+      message: None,
+      command: command.as_ref().to_os_string(),
+      args: vec![],
+      elevate: None,
+      ssh: None,
       show_output: false,
-      env_vars:    HashMap::new(),
+      env_vars: HashMap::new(),
     }
   }
 
@@ -432,18 +430,18 @@ impl Command {
     // Insert 'env' command to explicitly pass environment variables to the
     // elevated command
     cmd = cmd.arg("env");
-    for arg in self.env_vars.iter().filter_map(|(key, action)| {
-      match action {
+    for arg in self
+      .env_vars
+      .iter()
+      .filter_map(|(key, action)| match action {
         EnvAction::Set(value) => Some(format!("{key}={value}")),
-        EnvAction::Preserve if preserve_env => {
-          match std::env::var(key) {
-            Ok(value) => Some(format!("{key}={value}")),
-            Err(_) => None,
-          }
+        EnvAction::Preserve if preserve_env => match std::env::var(key) {
+          Ok(value) => Some(format!("{key}={value}")),
+          Err(_) => None,
         },
         _ => None,
-      }
-    }) {
+      })
+    {
       cmd = cmd.arg(arg);
     }
 
@@ -653,11 +651,11 @@ impl Command {
 
 #[derive(Debug)]
 pub struct Build {
-  message:     Option<String>,
+  message: Option<String>,
   installable: Installable,
-  extra_args:  Vec<OsString>,
-  nom:         bool,
-  builder:     Option<String>,
+  extra_args: Vec<OsString>,
+  nom: bool,
+  builder: Option<String>,
 }
 
 impl Build {
@@ -780,7 +778,7 @@ mod tests {
 
   // Safely manage environment variables in tests
   struct EnvGuard {
-    key:      String,
+    key: String,
     original: Option<String>,
   }
 
@@ -854,11 +852,14 @@ mod tests {
     assert_eq!(cmd.elevate, Some(ElevationStrategy::Force("sudo")));
     assert_eq!(cmd.ssh, Some("host".to_string()));
     assert_eq!(cmd.message, Some("test message".to_string()));
-    assert_eq!(cmd.args, vec![
-      OsString::from("arg1"),
-      OsString::from("arg2"),
-      OsString::from("arg3")
-    ]);
+    assert_eq!(
+      cmd.args,
+      vec![
+        OsString::from("arg1"),
+        OsString::from("arg2"),
+        OsString::from("arg3")
+      ]
+    );
   }
 
   #[test]
@@ -1216,12 +1217,15 @@ mod tests {
       .builder(Some("build-host".to_string()));
 
     assert_eq!(build.message, Some("Building package".to_string()));
-    assert_eq!(build.extra_args, vec![
-      OsString::from("--verbose"),
-      OsString::from("--option"),
-      OsString::from("setting"),
-      OsString::from("value")
-    ]);
+    assert_eq!(
+      build.extra_args,
+      vec![
+        OsString::from("--verbose"),
+        OsString::from("--option"),
+        OsString::from("setting"),
+        OsString::from("value")
+      ]
+    );
     assert!(build.nom);
     assert_eq!(build.builder, Some("build-host".to_string()));
   }
@@ -1281,24 +1285,20 @@ mod tests {
     let result = parse_cmdline_with_quotes(
       r#"cmd 'single quoted' "double quoted" normal"#,
     );
-    assert_eq!(result, vec![
-      "cmd",
-      "single quoted",
-      "double quoted",
-      "normal"
-    ]);
+    assert_eq!(
+      result,
+      vec!["cmd", "single quoted", "double quoted", "normal"]
+    );
   }
 
   #[test]
   fn test_parse_cmdline_with_equals_in_quotes() {
     let result =
       parse_cmdline_with_quotes("sudo env 'PATH=/path/with spaces' /bin/cmd");
-    assert_eq!(result, vec![
-      "sudo",
-      "env",
-      "PATH=/path/with spaces",
-      "/bin/cmd"
-    ]);
+    assert_eq!(
+      result,
+      vec!["sudo", "env", "PATH=/path/with spaces", "/bin/cmd"]
+    );
   }
 
   #[test]
@@ -1330,14 +1330,17 @@ mod tests {
     let cmdline =
       r#"/usr/bin/sudo env 'PATH=/path with spaces' /usr/bin/nh clean all"#;
     let result = parse_cmdline_with_quotes(cmdline);
-    assert_eq!(result, vec![
-      "/usr/bin/sudo",
-      "env",
-      "PATH=/path with spaces",
-      "/usr/bin/nh",
-      "clean",
-      "all"
-    ]);
+    assert_eq!(
+      result,
+      vec![
+        "/usr/bin/sudo",
+        "env",
+        "PATH=/path with spaces",
+        "/usr/bin/nh",
+        "clean",
+        "all"
+      ]
+    );
   }
 
   #[test]

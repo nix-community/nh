@@ -7,13 +7,8 @@ use clap_verbosity_flag::InfoLevel;
 use crate::{
   Result,
   checks::{
-    DarwinReplFeatures,
-    FeatureRequirements,
-    FlakeFeatures,
-    HomeReplFeatures,
-    LegacyFeatures,
-    NoFeatures,
-    OsReplFeatures,
+    DarwinReplFeatures, FeatureRequirements, FlakeFeatures, HomeReplFeatures,
+    LegacyFeatures, NoFeatures, OsReplFeatures,
   },
   commands::ElevationStrategy,
   generations::Field,
