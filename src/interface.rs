@@ -75,8 +75,7 @@ impl NHCommand {
       Self::Os(args) => args.get_feature_requirements(),
       Self::Home(args) => args.get_feature_requirements(),
       Self::Darwin(args) => args.get_feature_requirements(),
-      Self::Search(_) => Box::new(NoFeatures),
-      Self::Clean(_) => Box::new(NoFeatures),
+      Self::Search(..) | Self::Clean(..) => Box::new(NoFeatures),
     }
   }
 

@@ -21,8 +21,11 @@ use crate::{Result, interface};
 const DEPRECATED_VERSIONS: &[&str] =
   &["nixos-23.11", "nixos-24.05", "nixos-24.11"];
 
+// Support for current version pattern
+static SUPPORTED_BRANCH_REGEX: OnceLock<Regex> = OnceLock::new();
+
 #[derive(Debug, Deserialize, Serialize)]
-#[allow(non_snake_case, dead_code)]
+#[allow(non_snake_case, dead_code, clippy::struct_field_names)]
 struct SearchResult {
   // r#type: String,
   package_attr_name:       String,
@@ -73,6 +76,7 @@ struct JSONOutput {
 
 impl SearchArgs {
   #[cfg_attr(feature = "hotpath", hotpath::measure)]
+  #[allow(clippy::missing_errors_doc)]
   pub fn run(&self) -> Result<()> {
     trace!("args: {self:?}");
 
@@ -334,11 +338,10 @@ fn supported_branch<S: AsRef<str>>(branch: S) -> bool {
     return false;
   }
 
-  // Support for current version pattern
-  static SUPPORTED_BRANCH_REGEX: OnceLock<Regex> = OnceLock::new();
   let re = SUPPORTED_BRANCH_REGEX.get_or_init(|| {
     Regex::new(r"^nixos-\d+\.\d+$").unwrap_or_else(|e| {
       warn!("invalid regex in supported_branch: {e}");
+      #[allow(clippy::expect_used)]
       Regex::new("$^").expect("Regex $^ should always be valid")
     })
   });

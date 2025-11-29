@@ -567,7 +567,7 @@ impl Command {
               elev_cmd = elev_cmd.arg(format!("{key}={value}"));
             }
           },
-          _ => {},
+          EnvAction::Remove => {},
         }
       }
 
