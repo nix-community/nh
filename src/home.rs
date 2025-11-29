@@ -381,12 +381,8 @@ where
     },
     Installable::File {
       ref mut attribute, ..
-    } => {
-      if push_drv {
-        attribute.extend(toplevel);
-      }
-    },
-    Installable::Expression {
+    }
+    | Installable::Expression {
       ref mut attribute, ..
     } => {
       if push_drv {

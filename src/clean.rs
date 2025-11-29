@@ -27,14 +27,17 @@ use crate::{
 // https://github.com/NixOS/nix/blob/master/src/nix-collect-garbage/nix-collect-garbage.cc
 
 static DIRENV_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+  #[allow(clippy::expect_used)]
   Regex::new(r".*/.direnv/.*").expect("Failed to compile direnv regex")
 });
 
 static RESULT_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+  #[allow(clippy::expect_used)]
   Regex::new(r".*result.*").expect("Failed to compile result regex")
 });
 
 static GENERATION_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+  #[allow(clippy::expect_used)]
   Regex::new(r"^(.*)-(\d+)-link$").expect("Failed to compile generation regex")
 });
 
