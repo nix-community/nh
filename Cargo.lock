@@ -748,6 +748,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e5c1b78ca4aae1ac06c48a526a655760685149f0d465d21f37abfe57ce075c6"
 
 [[package]]
+name = "futures-macro"
+version = "0.3.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "162ee34ebcb7c64a8abebc059ce0fee27c2262618d7b60ed8faf72fef13c3650"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "futures-sink"
 version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -768,6 +779,7 @@ dependencies = [
  "futures-channel",
  "futures-core",
  "futures-io",
+ "futures-macro",
  "futures-sink",
  "futures-task",
  "memchr",
@@ -874,9 +886,9 @@ dependencies = [
 
 [[package]]
 name = "hotpath"
-version = "0.6.0"
+version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef44238d7007bbd3c41ce7dbf3d7a4fb224bbf70d6cf3162479138dda0cd6a9e"
+checksum = "08382b985a19a79d95d35e2e201b02cc4b99efe2f47d82f3fd4301bb0005bb68"
 dependencies = [
  "arc-swap",
  "base64",
@@ -885,10 +897,15 @@ dependencies = [
  "colored",
  "crossbeam-channel",
  "eyre",
+ "futures-util",
  "hdrhistogram",
  "hotpath-macros",
+ "libc",
+ "mach2",
+ "pin-project-lite",
  "prettytable-rs",
  "quanta",
+ "regex",
  "serde",
  "serde_json",
  "tiny_http",
@@ -898,9 +915,9 @@ dependencies = [
 
 [[package]]
 name = "hotpath-macros"
-version = "0.6.0"
+version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e7e3443c6f4e5cc69e6b701f7bfca8a5502f0080e94629413346e7b4518d730"
+checksum = "7d618063f89423ebe079a69f5435a13d4909219d4e359757118b75fd05ae65d0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1355,6 +1372,12 @@ name = "lru-slab"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
+
+[[package]]
+name = "mach2"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dae608c151f68243f2b000364e1f7b186d9c29845f7d2d85bd31b9ad77ad552b"
 
 [[package]]
 name = "matchers"
