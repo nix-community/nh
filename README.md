@@ -388,6 +388,35 @@ This might seem daunting, but it isn't. Even if you _don't_ meet those
 requirements, you'll be gently nudged to make your changes. Friendly
 contributions are always welcome.
 
+### Profiling Allocations and Timing
+
+[Hotpath]: https://github.com/pawurb/hotpath
+
+NH has an experimental (as in, we're still experimenting with the idea) of
+[Hotpath] for profiling function execution timing and heap allocations. This
+helps identify performance bottlenecks and track optimization progress.
+
+Unfortunately, due to the nature of NH, it is a little difficult to keep track
+of timings but allocation tracking is generally helpful in identifying possible
+optimizations.
+
+To profile allocations:
+
+```bash
+HOTPATH_JSON=true cargo run --features=hotpath,hotpath-alloc
+```
+
+To profile timing:
+
+```bash
+HOTPATH_JSON=true cargo run --features=hotpath
+```
+
+The JSON output can be analyzed with the `hotpath` CLI tool for detailed
+performance metrics. On pull requests, GitHub Actions automatically profiles
+both timing and allocations, posting comparison comments to help catch
+performance regressions.
+
 ## Attributions
 
 [faukah]: https://github.com/faukah
