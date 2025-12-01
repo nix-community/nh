@@ -855,35 +855,37 @@ fn get_current_generation_number() -> Result<u64> {
 }
 
 fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
+  use rayon::prelude::*;
   let profile_path = PathBuf::from(SYSTEM_PROFILE);
   let profiles_dir = profile_path
     .parent()
     .unwrap_or_else(|| Path::new("/nix/var/nix/profiles"));
 
-  let mut generations = Vec::new();
-  for entry in fs::read_dir(profiles_dir)? {
-    let entry = match entry {
-      Ok(e) => e,
+  let generations: Vec<_> = fs::read_dir(profiles_dir)?
+    .par_bridge()
+    .filter_map(|entry| match entry {
+      Ok(e) => Some(e),
       Err(e) => {
         warn!("Failed to read entry in profile directory: {}", e);
-        continue;
+        None
       },
-    };
-
-    let path = entry.path();
-    if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
+    })
+    .filter_map(|entry| {
+      let path = entry.path();
+      let name = path.file_name().and_then(|s| s.to_str())?;
       if name.starts_with("system-") && name.ends_with("-link") {
-        if let Some(gen_info) = generations::describe(&path) {
-          generations.push(gen_info);
-        }
+        generations::describe(&path)
+      } else {
+        None
       }
-    }
-  }
+    })
+    .collect();
 
   if generations.is_empty() {
     bail!("No generations found");
   }
 
+  let mut generations = generations;
   generations.sort_by_key(|g| g.number.parse::<u64>().unwrap_or(0));
 
   Ok(generations)
