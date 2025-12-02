@@ -269,7 +269,7 @@ Platform specific subcommands are those that implement CLI utilities for
 | ------------ | ---------------------------------------- | ------------------------------ |
 | NixOS        | `nixos-rebuild switch --flake .#myHost`  | `nh os switch . -H myHost`     |
 | Darwin       | `darwin-rebuild switch --flake .#myHost` | `nh darwin switch . -H myHost` |
-| Home Manager | `home-manager switch --flake .#myHost`   | `nh home switch . -C myHome`   |
+| Home Manager | `home-manager switch --flake .#myHost`   | `nh home switch . -c myHome`   |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -278,7 +278,7 @@ This is done automatically in the modules for NH in the NixOS and Home-Manager
 modules if `programs.nh.flake` is set.
 
 NH also allows omitting the hostname (`-H`) for NixOS/Darwin and the
-configuration (`-C`) parameters when it can be autodiscovered on the system. For
+configuration (`-c`) parameters when it can be autodiscovered on the system. For
 example, if `NH_FLAKE` or `NH_OS_FLAKE` is set you may simply run `nh os switch`
 with no additional arguments, and it will automatically resolve
 `nixosConfigurations.<myHost>`.
