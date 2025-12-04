@@ -657,7 +657,6 @@ pub struct Build {
   installable: Installable,
   extra_args:  Vec<OsString>,
   nom:         bool,
-  builder:     Option<String>,
 }
 
 impl Build {
@@ -668,7 +667,6 @@ impl Build {
       installable,
       extra_args: vec![],
       nom: false,
-      builder: None,
     }
   }
 
@@ -687,12 +685,6 @@ impl Build {
   #[must_use]
   pub const fn nom(mut self, yes: bool) -> Self {
     self.nom = yes;
-    self
-  }
-
-  #[must_use]
-  pub fn builder(mut self, builder: Option<String>) -> Self {
-    self.builder = builder;
     self
   }
 
@@ -729,12 +721,6 @@ impl Build {
     let base_command = Exec::cmd("nix")
       .arg("build")
       .args(&installable_args)
-      .args(&match &self.builder {
-        Some(host) => {
-          vec!["--builders".to_string(), format!("ssh://{host} - - - 100")]
-        },
-        None => vec![],
-      })
       .args(&self.extra_args);
 
     let exit = if self.nom {
@@ -1198,7 +1184,6 @@ mod tests {
     assert_eq!(build.installable.to_args(), installable.to_args());
     assert!(build.extra_args.is_empty());
     assert!(!build.nom);
-    assert!(build.builder.is_none());
   }
 
   #[test]
@@ -1212,8 +1197,7 @@ mod tests {
       .message("Building package")
       .extra_arg("--verbose")
       .extra_args(["--option", "setting", "value"])
-      .nom(true)
-      .builder(Some("build-host".to_string()));
+      .nom(true);
 
     assert_eq!(build.message, Some("Building package".to_string()));
     assert_eq!(build.extra_args, vec![
@@ -1223,7 +1207,6 @@ mod tests {
       OsString::from("value")
     ]);
     assert!(build.nom);
-    assert_eq!(build.builder, Some("build-host".to_string()));
   }
 
   #[test]

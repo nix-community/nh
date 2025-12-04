@@ -11,6 +11,7 @@ use crate::{
   commands::Command,
   installable::Installable,
   interface::{self, DiffType, HomeRebuildArgs, HomeReplArgs, HomeSubcommand},
+  remote::{self, RemoteBuildConfig, RemoteHost},
   update::update,
   util::{get_hostname, print_dix_diff},
 };

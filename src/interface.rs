@@ -543,6 +543,10 @@ pub struct HomeRebuildArgs {
   /// Show activation logs
   #[arg(long, env = "NH_SHOW_ACTIVATION_LOGS")]
   pub show_activation_logs: bool,
+
+  /// Build the configuration on a different host over ssh
+  #[arg(long)]
+  pub build_host: Option<String>,
 }
 
 impl HomeRebuildArgs {
@@ -649,6 +653,10 @@ pub struct DarwinRebuildArgs {
   /// Show activation logs
   #[arg(long, env = "NH_SHOW_ACTIVATION_LOGS")]
   pub show_activation_logs: bool,
+
+  /// Build the configuration on a different host over ssh
+  #[arg(long)]
+  pub build_host: Option<String>,
 }
 
 impl DarwinRebuildArgs {
