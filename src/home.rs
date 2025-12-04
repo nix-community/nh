@@ -1,4 +1,4 @@
-use std::{env, ffi::OsString, path::PathBuf};
+use std::{convert::Into, env, ffi::OsString, path::PathBuf};
 
 use color_eyre::{
   Result,
@@ -111,14 +111,14 @@ impl HomeRebuildArgs {
         extra_args: self
           .extra_args
           .iter()
-          .map(|s| s.into())
+          .map(Into::into)
           .chain(
             self
               .common
               .passthrough
               .generate_passthrough_args()
               .into_iter()
-              .map(|s| s.into()),
+              .map(Into::into),
           )
           .collect(),
       };

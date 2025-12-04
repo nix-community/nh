@@ -1,4 +1,4 @@
-use std::{env, path::PathBuf};
+use std::{convert::Into, env, path::PathBuf};
 
 use color_eyre::eyre::{Context, bail, eyre};
 use tracing::{debug, info, warn};
@@ -124,14 +124,14 @@ impl DarwinRebuildArgs {
         extra_args: self
           .extra_args
           .iter()
-          .map(|s| s.into())
+          .map(Into::into)
           .chain(
             self
               .common
               .passthrough
               .generate_passthrough_args()
               .into_iter()
-              .map(|s| s.into()),
+              .map(Into::into),
           )
           .collect(),
       };
