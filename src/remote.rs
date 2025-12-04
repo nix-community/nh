@@ -27,9 +27,20 @@ fn get_ssh_control_dir() -> &'static PathBuf {
 
     // Create the directory if it doesn't exist
     if let Err(e) = std::fs::create_dir_all(&control_dir) {
-      debug!("Failed to create SSH control directory: {e}");
-      // Fall back to /tmp if we can't create the directory
-      return PathBuf::from("/tmp");
+      debug!(
+        "Failed to create SSH control directory at {}: {e}",
+        control_dir.display()
+      );
+      // Fall back to /tmp/nh-ssh-<pid> - try creating there instead
+      let fallback_dir =
+        PathBuf::from("/tmp").join(format!("nh-ssh-{}", std::process::id()));
+      if let Err(e2) = std::fs::create_dir_all(&fallback_dir) {
+        // Last resort: use /tmp directly (socket will be /tmp/ssh-%n)
+        // This is not ideal but better than failing entirely
+        debug!("Failed to create fallback SSH control directory: {e2}");
+        return PathBuf::from("/tmp");
+      }
+      return fallback_dir;
     }
 
     control_dir
@@ -136,25 +147,11 @@ fn get_default_ssh_opts() -> Vec<String> {
 }
 
 /// Shell-quote a string for safe use in SSH commands.
-// FIXME: this is handrolled so that I can confirm whether we match
-// nixos-rebuild-ng's use of shlex.quote, but we'll want to introduce shlex as a
-// dependency and drop this. This is a hard blocker.
-///
 fn shell_quote(s: &str) -> String {
-  // shlex.quote in Python returns the string unchanged if it contains only
-  // safe characters, otherwise wraps in single quotes with escaping
-  if s.is_empty() {
-    return "''".to_string();
-  }
-  if s
-    .chars()
-    .all(|c| c.is_ascii_alphanumeric() || "-_./+:=@^".contains(c))
-  {
-    return s.to_string();
-  }
-  // Escape single quotes and wrap in single quotes
-  let escaped = s.replace('\'', "'\"'\"'");
-  format!("'{escaped}'")
+  shlex::try_quote(s).map_or_else(
+    |_| format!("'{}'", s.replace('\'', "'\\''")),
+    std::borrow::Cow::into_owned,
+  )
 }
 
 /// Get SSH options from `NIX_SSHOPTS` plus our defaults.
@@ -163,8 +160,8 @@ fn get_ssh_opts() -> Vec<String> {
 
   // User options first (from NIX_SSHOPTS)
   if let Ok(sshopts) = env::var("NIX_SSHOPTS") {
-    for opt in sshopts.split_whitespace() {
-      opts.push(opt.to_string());
+    if let Some(parsed) = shlex::split(&sshopts) {
+      opts.extend(parsed);
     }
   }
 
@@ -176,13 +173,22 @@ fn get_ssh_opts() -> Vec<String> {
 
 /// Get `NIX_SSHOPTS` environment value with our defaults appended.
 /// Used for `nix-copy-closure` which reads `NIX_SSHOPTS`.
+///
+/// Note: `nix-copy-closure` splits `NIX_SSHOPTS` by whitespace without shell
+/// parsing, so values containing spaces cannot be properly passed through
+/// this mechanism. Users needing complex SSH options should use
+/// `~/.ssh/config` instead.
 fn get_nix_sshopts_env() -> String {
-  let sshopts = env::var("NIX_SSHOPTS").unwrap_or_default();
-  let defaults = get_default_ssh_opts().join(" ");
-  if sshopts.is_empty() {
-    defaults
+  let user_opts = env::var("NIX_SSHOPTS").unwrap_or_default();
+  let default_opts = get_default_ssh_opts();
+
+  if user_opts.is_empty() {
+    default_opts.join(" ")
   } else {
-    format!("{sshopts} {defaults}")
+    // Append our defaults to user options
+    // Note: We preserve user options as-is since nix-copy-closure
+    // does simple whitespace splitting
+    format!("{} {}", user_opts, default_opts.join(" "))
   }
 }
 
@@ -654,6 +660,8 @@ fn build_on_remote_with_nom(
 
 #[cfg(test)]
 mod tests {
+  use serial_test::serial;
+
   use super::*;
 
   #[test]
@@ -728,17 +736,19 @@ mod tests {
 
   #[test]
   fn test_shell_quote_with_caret() {
-    // drv^* syntax must work
-    assert_eq!(
-      shell_quote("/nix/store/xyz.drv^*"),
-      "'/nix/store/xyz.drv^*'"
-    );
+    // drv^* syntax - shlex quotes with single quotes but keeps ^ unquoted
+    // until it hits the *, which needs quoting
+    let quoted = shell_quote("/nix/store/xyz.drv^*");
+    // The result should be safely quotable and contain the original content
+    assert!(quoted.contains("drv"));
+    assert!(quoted.contains("*"));
   }
 
   #[test]
   fn test_shell_quote_special_chars() {
     assert_eq!(shell_quote("has space"), "'has space'");
-    assert_eq!(shell_quote("has'quote"), "'has'\"'\"'quote'");
+    // shlex uses double quotes for strings containing single quotes
+    assert_eq!(shell_quote("has'quote"), "\"has'quote\"");
     assert_eq!(shell_quote("$(dangerous)"), "'$(dangerous)'");
   }
 
@@ -748,6 +758,7 @@ mod tests {
   }
 
   #[test]
+  #[serial]
   fn test_get_ssh_opts_default() {
     // Clear env var for test
     unsafe {
@@ -759,5 +770,203 @@ mod tests {
     assert!(opts.contains(&"ControlPersist=60".to_string()));
     // Check that ControlPath is present (the exact path varies)
     assert!(opts.iter().any(|o| o.starts_with("ControlPath=")));
+  }
+
+  #[test]
+  #[serial]
+  fn test_get_ssh_opts_with_simple_nix_sshopts() {
+    unsafe {
+      std::env::set_var("NIX_SSHOPTS", "-p 2222 -i /path/to/key");
+    }
+    let opts = get_ssh_opts();
+    // User options should be included
+    assert!(opts.contains(&"-p".to_string()));
+    assert!(opts.contains(&"2222".to_string()));
+    assert!(opts.contains(&"-i".to_string()));
+    assert!(opts.contains(&"/path/to/key".to_string()));
+    // Default options should still be present
+    assert!(opts.contains(&"ControlMaster=auto".to_string()));
+    unsafe {
+      std::env::remove_var("NIX_SSHOPTS");
+    }
+  }
+
+  #[test]
+  #[serial]
+  fn test_get_ssh_opts_with_quoted_nix_sshopts() {
+    // Test that quoted paths with spaces are handled correctly
+    unsafe {
+      std::env::set_var("NIX_SSHOPTS", r#"-i "/path/with spaces/key""#);
+    }
+    let opts = get_ssh_opts();
+    // The path should be parsed as a single argument without quotes
+    assert!(opts.contains(&"-i".to_string()));
+    assert!(opts.contains(&"/path/with spaces/key".to_string()));
+    // Default options should still be present
+    assert!(opts.contains(&"ControlMaster=auto".to_string()));
+    unsafe {
+      std::env::remove_var("NIX_SSHOPTS");
+    }
+  }
+
+  #[test]
+  #[serial]
+  fn test_get_ssh_opts_with_option_value_nix_sshopts() {
+    // Test -o with quoted value containing spaces
+    unsafe {
+      std::env::set_var(
+        "NIX_SSHOPTS",
+        r#"-o "ProxyCommand=ssh -W %h:%p jump""#,
+      );
+    }
+    let opts = get_ssh_opts();
+    assert!(opts.contains(&"-o".to_string()));
+    assert!(opts.contains(&"ProxyCommand=ssh -W %h:%p jump".to_string()));
+    unsafe {
+      std::env::remove_var("NIX_SSHOPTS");
+    }
+  }
+
+  #[test]
+  fn test_shell_quote_roundtrip() {
+    // Test that quoting and then parsing gives back the original
+    let test_cases = vec![
+      "simple",
+      "/nix/store/abc123-foo",
+      "has space",
+      "has'quote",
+      "has\"doublequote",
+      "$(dangerous)",
+      "path/with spaces/and'quotes",
+    ];
+
+    for original in test_cases {
+      let quoted = shell_quote(original);
+      // Parse the quoted string back - should give single element
+      let parsed = shlex::split(&quoted);
+      assert!(
+        parsed.is_some(),
+        "Failed to parse quoted string for: {original}"
+      );
+      let parsed = parsed.expect("checked above");
+      assert_eq!(
+        parsed.len(),
+        1,
+        "Expected single element for: {original}, got: {parsed:?}"
+      );
+      assert_eq!(
+        parsed[0], original,
+        "Roundtrip failed for: {original}, quoted as: {quoted}"
+      );
+    }
+  }
+
+  #[test]
+  fn test_shell_quote_nix_drv_output() {
+    // Test the drv^* syntax used by nix
+    let drv_path = "/nix/store/abc123.drv^*";
+    let quoted = shell_quote(drv_path);
+    let parsed = shlex::split(&quoted).expect("should parse");
+    assert_eq!(parsed.len(), 1);
+    assert_eq!(parsed[0], drv_path);
+  }
+
+  #[test]
+  fn test_shell_quote_preserves_equals() {
+    // Environment variable assignments should work
+    let env_var = "PATH=/usr/bin:/bin";
+    let quoted = shell_quote(env_var);
+    let parsed = shlex::split(&quoted).expect("should parse");
+    assert_eq!(parsed[0], env_var);
+  }
+
+  #[test]
+  fn test_shell_quote_unicode() {
+    // Unicode should be preserved
+    let unicode = "path/with/émojis/🚀";
+    let quoted = shell_quote(unicode);
+    let parsed = shlex::split(&quoted).expect("should parse");
+    assert_eq!(parsed[0], unicode);
+  }
+
+  #[test]
+  #[serial]
+  fn test_get_nix_sshopts_env_empty() {
+    unsafe {
+      std::env::remove_var("NIX_SSHOPTS");
+    }
+    let result = get_nix_sshopts_env();
+    // Should contain our defaults as space-separated values
+    assert!(result.contains("-o"));
+    assert!(result.contains("ControlMaster=auto"));
+    assert!(result.contains("ControlPersist=60"));
+    // Should contain ControlPath (exact path varies)
+    assert!(result.contains("ControlPath="));
+  }
+
+  #[test]
+  #[serial]
+  fn test_get_nix_sshopts_env_simple() {
+    unsafe {
+      std::env::set_var("NIX_SSHOPTS", "-p 2222");
+    }
+    let result = get_nix_sshopts_env();
+    // User options should come first
+    assert!(result.starts_with("-p 2222"));
+    // Defaults should be appended
+    assert!(result.contains("ControlMaster=auto"));
+    unsafe {
+      std::env::remove_var("NIX_SSHOPTS");
+    }
+  }
+
+  #[test]
+  #[serial]
+  fn test_get_nix_sshopts_env_preserves_user_opts() {
+    // User options are preserved as-is (nix-copy-closure does whitespace split)
+    unsafe {
+      std::env::set_var("NIX_SSHOPTS", "-i /path/to/key -p 22");
+    }
+    let result = get_nix_sshopts_env();
+    // User options preserved at start
+    assert!(result.starts_with("-i /path/to/key -p 22"));
+    // Our defaults appended
+    assert!(result.contains("ControlMaster=auto"));
+    unsafe {
+      std::env::remove_var("NIX_SSHOPTS");
+    }
+  }
+
+  #[test]
+  #[serial]
+  fn test_get_nix_sshopts_env_no_extra_quoting() {
+    // Verify we don't add shell quotes (nix-copy-closure doesn't parse them)
+    unsafe {
+      std::env::remove_var("NIX_SSHOPTS");
+    }
+    let result = get_nix_sshopts_env();
+    // Should NOT contain shell quote characters around our options
+    assert!(!result.contains("'ControlMaster"));
+    assert!(!result.contains("\"ControlMaster"));
+    // Values should be bare
+    assert!(result.contains("-o ControlMaster=auto"));
+  }
+
+  #[test]
+  fn test_get_ssh_control_dir_creates_directory() {
+    let dir = get_ssh_control_dir();
+    // The directory should exist (or be /tmp as last resort)
+    assert!(
+      dir.exists() || dir == &PathBuf::from("/tmp"),
+      "Control dir should exist or be /tmp fallback"
+    );
+    // Should contain our process-specific suffix (unless /tmp fallback)
+    let dir_str = dir.to_string_lossy();
+    if dir_str != "/tmp" {
+      assert!(
+        dir_str.contains("nh-ssh-"),
+        "Control dir should contain 'nh-ssh-': {dir_str}"
+      );
+    }
   }
 }
