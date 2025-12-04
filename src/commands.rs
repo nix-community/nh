@@ -687,8 +687,8 @@ impl Build {
       .args(&installable_args)
       .args(&self.extra_args);
 
-    let exit = if self.nom {
-      let cmd = {
+    if self.nom {
+      let pipeline = {
         base_command
           .args(&["--log-format", "internal-json", "--verbose"])
           .stderr(Redirection::Merge)
@@ -696,20 +696,41 @@ impl Build {
           | Exec::cmd("nom").args(&["--json"])
       }
       .stdout(Redirection::None);
-      debug!(?cmd);
-      cmd.join()
+      debug!(?pipeline);
+
+      // Use popen() to get access to individual processes so we can check
+      // nix's exit status, not nom's. The pipeline's join() only returns
+      // the exit status of the last command (nom), which always succeeds
+      // even when nix fails.
+      let mut processes = pipeline.popen()?;
+
+      // Wait for all processes to finish
+      for proc in &mut processes {
+        proc.wait()?;
+      }
+
+      // Check the exit status of the FIRST process (nix build)
+      // This is the one that matters - if nix fails, we should fail too
+      if let Some(nix_proc) = processes.first() {
+        if let Some(exit_status) = nix_proc.exit_status() {
+          match exit_status {
+            ExitStatus::Exited(0) => (),
+            other => bail!(ExitError(other)),
+          }
+        }
+      }
     } else {
       let cmd = base_command
         .stderr(Redirection::Merge)
         .stdout(Redirection::None);
 
       debug!(?cmd);
-      cmd.join()
-    };
+      let exit = cmd.join();
 
-    match exit? {
-      ExitStatus::Exited(0) => (),
-      other => bail!(ExitError(other)),
+      match exit? {
+        ExitStatus::Exited(0) => (),
+        other => bail!(ExitError(other)),
+      }
     }
 
     Ok(())
