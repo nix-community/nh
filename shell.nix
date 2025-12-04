@@ -9,13 +9,16 @@ mkShell {
     cargo
     rustc
 
-    rust-analyzer-unwrapped
     (rustfmt.override { asNightly = true; })
+    rust-analyzer-unwrapped
     clippy
-    nix-output-monitor
     taplo
-    yaml-language-server
+
     lldb
+    yaml-language-server
+    cargo-nextest
+
+    nix-output-monitor
   ];
 
   buildInputs = lib.optionals stdenv.isDarwin [

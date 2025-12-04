@@ -1,7 +1,6 @@
 use std::{
   env,
   path::{Path, PathBuf},
-  process,
 };
 
 use clap::{Parser, Subcommand};

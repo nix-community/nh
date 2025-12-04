@@ -24,8 +24,8 @@ pub fn check_nix_version() -> Result<()> {
   // without the understanding of stable/unstable branches. What do we check
   // for, whether upstream made an announcement? No thanks.
   // TODO: Set up a CI to automatically update those in the future.
-  const MIN_LIX_VERSION: &str = "2.91.3";
-  const MIN_NIX_VERSION: &str = "2.28.4";
+  const MIN_LIX_VERSION: &str = "2.93.3";
+  const MIN_NIX_VERSION: &str = "2.31.2";
 
   if env::var("NH_NO_CHECKS").is_ok() {
     return Ok(());
@@ -42,11 +42,17 @@ pub fn check_nix_version() -> Result<()> {
   // A: First of all to make sure we do not make baseless assumptions
   // about the user's system; we should only work around APIs that we
   // are fully aware of, and not try to work around every edge case.
-  // Also, nh should be responsible for nudging the user to use the
+  // Also, NH should be responsible for nudging the user to use the
   // relevant versions of the software it wraps, so that we do not have
   // to try and support too many versions. NixOS stable and unstable
   // will ALWAYS be supported, but outdated versions will not. If your
   // Nix fork uses a different versioning scheme, please open an issue.
+  //
+  // Also note: Determinate Nix is considered mainline Nix here and is
+  // not made an exception for. This is because Determinate Nix is not
+  // available in Nixpkgs, and even if I were they do not strike me as
+  // responsible enough to provide timely security updates. In other
+  // words I simply don't care about DetNix.
   let min_version = match nix_variant {
     util::NixVariant::Lix => MIN_LIX_VERSION,
     _ => MIN_NIX_VERSION,
@@ -68,14 +74,13 @@ pub fn check_nix_version() -> Result<()> {
   match current.cmp(&required) {
     Ordering::Less => {
       let binary_name = match nix_variant {
-        util::NixVariant::Lix => "Lix",
-        util::NixVariant::Determinate => "Determinate Nix",
-        util::NixVariant::Nix => "Nix",
+        NixVariant::Lix => "Lix",
+        NixVariant::Determinate => "Determinate Nix",
+        NixVariant::Nix => "Nix",
       };
       warn!(
-        "Warning: {} version {} is older than the recommended minimum version \
-         {}. You may encounter issues.",
-        binary_name, version, min_version
+        "Warning: {binary_name} version {version} is older than the \
+         recommended minimum version {min_version}. You may encounter issues."
       );
       Ok(())
     },

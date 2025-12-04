@@ -269,7 +269,7 @@ Platform specific subcommands are those that implement CLI utilities for
 | ------------ | ---------------------------------------- | ------------------------------ |
 | NixOS        | `nixos-rebuild switch --flake .#myHost`  | `nh os switch . -H myHost`     |
 | Darwin       | `darwin-rebuild switch --flake .#myHost` | `nh darwin switch . -H myHost` |
-| Home Manager | `home-manager switch --flake .#myHost`   | `nh home switch . -C myHome`   |
+| Home Manager | `home-manager switch --flake .#myHost`   | `nh home switch . -c myHome`   |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -278,7 +278,7 @@ This is done automatically in the modules for NH in the NixOS and Home-Manager
 modules if `programs.nh.flake` is set.
 
 NH also allows omitting the hostname (`-H`) for NixOS/Darwin and the
-configuration (`-C`) parameters when it can be autodiscovered on the system. For
+configuration (`-c`) parameters when it can be autodiscovered on the system. For
 example, if `NH_FLAKE` or `NH_OS_FLAKE` is set you may simply run `nh os switch`
 with no additional arguments, and it will automatically resolve
 `nixosConfigurations.<myHost>`.
@@ -387,6 +387,35 @@ changes.
 This might seem daunting, but it isn't. Even if you _don't_ meet those
 requirements, you'll be gently nudged to make your changes. Friendly
 contributions are always welcome.
+
+### Profiling Allocations and Timing
+
+[Hotpath]: https://github.com/pawurb/hotpath
+
+NH has an experimental (as in, we're still experimenting with the idea) of
+[Hotpath] for profiling function execution timing and heap allocations. This
+helps identify performance bottlenecks and track optimization progress.
+
+Unfortunately, due to the nature of NH, it is a little difficult to keep track
+of timings but allocation tracking is generally helpful in identifying possible
+optimizations.
+
+To profile allocations:
+
+```bash
+HOTPATH_JSON=true cargo run --features=hotpath,hotpath-alloc
+```
+
+To profile timing:
+
+```bash
+HOTPATH_JSON=true cargo run --features=hotpath
+```
+
+The JSON output can be analyzed with the `hotpath` CLI tool for detailed
+performance metrics. On pull requests, GitHub Actions automatically profiles
+both timing and allocations, posting comparison comments to help catch
+performance regressions.
 
 ## Attributions
 

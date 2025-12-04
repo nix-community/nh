@@ -1,5 +1,5 @@
 {
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
 
   outputs =
     {
@@ -12,7 +12,6 @@
         nixpkgs.lib.genAttrs [
           "x86_64-linux"
           "aarch64-linux"
-          # experimental
           "x86_64-darwin"
           "aarch64-darwin"
         ] (system: function nixpkgs.legacyPackages.${system});

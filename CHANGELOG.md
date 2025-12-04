@@ -59,6 +59,15 @@ functionality, under the "Removed" section.
     negatively affected user experience. NH will now _instead_ fall back to
     common installable locations _and_ tell you what exactly is missing in the
     error with instructions.
+  - If the fallback directory is a symlink, NH will now resolve it to the
+    canonical path for correct flake handling. If the fallback directory is real
+    but `flake.nix` inside it is a symlink, NH will resolve the symlink and use
+    its parent directory as the flake reference. This matches how
+    `nixos-rebuild` handles symlinked flake files.
+  - Permission errors and other I/O errors are now surfaced with clear,
+    actionable messages.
+  - All fallback errors now include a hint to check `man nh` or the GitHub repo
+    for more details.
   - NH also refused to handle references that contained hostname as a part of
     the installable such as (`./flake.nix#myHost`) in the past and lead to
     confusing behaviour for those unfamiliar. Such arguments are now normalized
