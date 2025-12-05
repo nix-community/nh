@@ -1,4 +1,5 @@
 use std::{
+  convert::Into,
   env,
   fs,
   path::{Path, PathBuf},
@@ -22,7 +23,7 @@ use crate::{
     OsRollbackArgs,
     OsSubcommand::{self},
   },
-  remote::{self, RemoteBuildConfig, RemoteHost},
+  remote::{self, RemoteBuildConfig, RemoteHost, check_ssh_reachability},
   update::update,
   util::{ensure_ssh_key_login, get_hostname, print_dix_diff},
 };
@@ -133,9 +134,7 @@ impl OsRebuildActivateArgs {
       _ => "Building NixOS configuration",
     };
 
-    self
-      .rebuild
-      .execute_build_command(toplevel, &out_path, message)?;
+    self.rebuild.execute_build(toplevel, &out_path, message)?;
 
     let target_profile =
       self.rebuild.resolve_specialisation_and_profile(&out_path)?;
@@ -284,7 +283,9 @@ impl OsRebuildArgs {
   /// - Resolving the target hostname for the build.
   ///
   /// # Returns
-  /// A `Result` containing a tuple:
+  ///
+  /// `Result` containing a tuple:
+  ///
   /// - `bool`: `true` if elevation is required, `false` otherwise.
   /// - `String`: The resolved target hostname.
   fn setup_build_context(&self) -> Result<(bool, String)> {
@@ -345,20 +346,20 @@ impl OsRebuildArgs {
     )
   }
 
-  fn execute_build_command(
+  fn execute_build(
     &self,
     toplevel: Installable,
     out_path: &Path,
     message: &str,
   ) -> Result<()> {
-    // If a build host is specified, use proper remote build semantics
-    // This matches nixos-rebuild --build-host behavior:
+    // If a build host is specified, use proper remote build semantics:
+    //
     // 1. Evaluate derivation locally
     // 2. Copy derivation to build host (user-initiated SSH)
     // 3. Build on remote host
     // 4. Copy result back (to localhost or target_host)
     if let Some(ref build_host_str) = self.build_host {
-      info!("{}", message);
+      info!("{message}");
 
       let build_host = RemoteHost::parse(build_host_str)
         .wrap_err("Invalid build host specification")?;
@@ -370,6 +371,19 @@ impl OsRebuildArgs {
         .transpose()
         .wrap_err("Invalid target host specification")?;
 
+      // Check SSH connectivity BEFORE starting expensive evaluation. This
+      // provides early feedback if remote hosts are unreachable and allows
+      // us to handle the error instead of letting Nix throw its own.
+      info!("Checking SSH connectivity to remote hosts...");
+      check_ssh_reachability(&build_host)
+        .wrap_err(format!("Build host ({build_host}) is not reachable"))?;
+
+      if let Some(ref target) = target_host {
+        check_ssh_reachability(target)
+          .wrap_err(format!("Target host ({target}) is not reachable"))?;
+      }
+      debug!("SSH connectivity verified");
+
       let config = RemoteBuildConfig {
         build_host,
         target_host,
@@ -378,14 +392,14 @@ impl OsRebuildArgs {
         extra_args: self
           .extra_args
           .iter()
-          .map(|s| s.into())
+          .map(Into::into)
           .chain(
             self
               .common
               .passthrough
               .generate_passthrough_args()
               .into_iter()
-              .map(|s| s.into()),
+              .map(Into::into),
           )
           .collect(),
       };
@@ -496,7 +510,7 @@ impl OsRebuildArgs {
       _ => "Building NixOS configuration",
     };
 
-    self.execute_build_command(toplevel, &out_path, message)?;
+    self.execute_build(toplevel, &out_path, message)?;
 
     let target_profile = self.resolve_specialisation_and_profile(&out_path)?;
 

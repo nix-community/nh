@@ -130,6 +130,48 @@ impl std::fmt::Display for RemoteHost {
   }
 }
 
+/// Check if a remote host is reachable via SSH.
+///
+/// Performs a quick connectivity test before expensive operations like
+/// evaluation or building.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The SSH command fails to execute
+/// - The remote host is unreachable or rejects the connection
+pub fn check_ssh_reachability(host: &RemoteHost) -> Result<()> {
+  debug!("Checking SSH connectivity to {}", host);
+
+  let ssh_opts = get_ssh_opts();
+
+  // Use ssh with a simple 'true' command and short timeout
+  // ConnectTimeout ensures we don't wait too long for unreachable hosts
+  let exit = Exec::cmd("ssh")
+    .args(&ssh_opts)
+    .args(&["-o", "ConnectTimeout=10", "-o", "BatchMode=yes"])
+    .arg(host.host())
+    .arg("true")
+    .stdout(Redirection::None)
+    .stderr(Redirection::Pipe)
+    .capture()
+    .wrap_err_with(|| format!("Failed to execute SSH command to {host}"))?;
+
+  if exit.success() {
+    debug!("SSH connectivity to {} confirmed", host);
+    Ok(())
+  } else {
+    let stderr = exit.stderr_str();
+    bail!(
+      "Cannot reach host '{}' via SSH. Please verify:\n- The hostname is \
+       correct\n- SSH key authentication is configured\n- The remote host is \
+       online and accepting connections\nSSH error: {}",
+      host,
+      stderr.trim()
+    )
+  }
+}
+
 /// Get the default SSH options for connection multiplexing.
 /// Includes a `ControlPath` pointing to our control socket directory.
 fn get_default_ssh_opts() -> Vec<String> {
@@ -506,17 +548,22 @@ pub fn build_remote(
       &out_path,
       use_substitutes,
     )?;
-  } else {
-    copy_closure_from(build_host, &out_path, use_substitutes)?;
+  }
 
-    // Create local out-link if requested (only when copying to localhost)
-    if let Some(link) = out_link {
-      debug!("Creating out-link: {} -> {}", link.display(), out_path);
-      // Remove existing symlink/file if present
-      let _ = std::fs::remove_file(link);
-      std::os::unix::fs::symlink(&out_path, link)
-        .wrap_err("Failed to create out-link")?;
-    }
+  // Always copy to localhost if we need to create a local out-link
+  // This is necessary even when target_host is set, because the calling code
+  // (e.g., nixos.rs) needs to resolve specialisations from the local path.
+  if out_link.is_some() || config.target_host.is_none() {
+    copy_closure_from(build_host, &out_path, use_substitutes)?;
+  }
+
+  // Create local out-link if requested
+  if let Some(link) = out_link {
+    debug!("Creating out-link: {} -> {}", link.display(), out_path);
+    // Remove existing symlink/file if present
+    let _ = std::fs::remove_file(link);
+    std::os::unix::fs::symlink(&out_path, link)
+      .wrap_err("Failed to create out-link")?;
   }
 
   Ok(PathBuf::from(out_path))
@@ -630,11 +677,28 @@ fn build_on_remote_with_nom(
 
   debug!(?pipeline, "Running remote build with nom");
 
-  let exit = pipeline.join().wrap_err("Remote build with nom failed")?;
+  // Use popen() to get access to individual processes so we can check
+  // ssh's exit status, not nom's. The pipeline's join() only returns
+  // the exit status of the last command (nom), which always succeeds
+  // even when the remote nix command fails.
+  let mut processes =
+    pipeline.popen().wrap_err("Remote build with nom failed")?;
 
-  match exit {
-    ExitStatus::Exited(0) => {},
-    other => bail!("Remote build failed with exit status: {other:?}"),
+  // Wait for all processes to finish
+  for proc in &mut processes {
+    proc.wait()?;
+  }
+
+  // Check the exit status of the FIRST process (ssh -> nix build)
+  // This is the one that matters - if the remote build fails, we should fail
+  // too
+  if let Some(ssh_proc) = processes.first() {
+    if let Some(exit_status) = ssh_proc.exit_status() {
+      match exit_status {
+        ExitStatus::Exited(0) => {},
+        other => bail!("Remote build failed with exit status: {other:?}"),
+      }
+    }
   }
 
   // nom consumed the output, so we need to query the output path separately
