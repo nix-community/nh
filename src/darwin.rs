@@ -15,6 +15,7 @@ use crate::{
     DarwinSubcommand,
     DiffType,
   },
+  remote::{self, RemoteBuildConfig, RemoteHost},
   update::update,
   util::{get_hostname, print_dix_diff},
 };
@@ -108,15 +109,46 @@ impl DarwinRebuildArgs {
 
     let toplevel = toplevel_for(hostname, installable, "toplevel")?;
 
-    commands::Build::new(toplevel)
-      .extra_arg("--out-link")
-      .extra_arg(&out_path)
-      .extra_args(&self.extra_args)
-      .passthrough(&self.common.passthrough)
-      .message("Building Darwin configuration")
-      .nom(!self.common.no_nom)
-      .run()
-      .wrap_err("Failed to build Darwin configuration")?;
+    // If a build host is specified, use remote build semantics
+    if let Some(ref build_host_str) = self.build_host {
+      info!("Building Darwin configuration");
+
+      let build_host = RemoteHost::parse(build_host_str)
+        .wrap_err("Invalid build host specification")?;
+
+      let config = RemoteBuildConfig {
+        build_host,
+        target_host: None,
+        use_nom: !self.common.no_nom,
+        use_substitutes: self.common.passthrough.use_substitutes,
+        extra_args: self
+          .extra_args
+          .iter()
+          .map(|s| s.into())
+          .chain(
+            self
+              .common
+              .passthrough
+              .generate_passthrough_args()
+              .into_iter()
+              .map(|s| s.into()),
+          )
+          .collect(),
+      };
+
+      remote::build_remote(&toplevel, &config, Some(&out_path))
+        .wrap_err("Failed to build Darwin configuration")?;
+    } else {
+      commands::Build::new(toplevel)
+        .extra_arg("--out-link")
+        .extra_arg(&out_path)
+        .extra_args(&self.extra_args)
+        .passthrough(&self.common.passthrough)
+        .message("Building Darwin configuration")
+        .nom(!self.common.no_nom)
+        .run()
+        .wrap_err("Failed to build Darwin configuration")?;
+    }
 
     let target_profile = out_path.clone();
 

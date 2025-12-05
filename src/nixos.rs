@@ -22,6 +22,7 @@ use crate::{
     OsRollbackArgs,
     OsSubcommand::{self},
   },
+  remote::{self, RemoteBuildConfig, RemoteHost},
   update::update,
   util::{ensure_ssh_key_login, get_hostname, print_dix_diff},
 };
@@ -350,16 +351,60 @@ impl OsRebuildArgs {
     out_path: &Path,
     message: &str,
   ) -> Result<()> {
-    commands::Build::new(toplevel)
-      .extra_arg("--out-link")
-      .extra_arg(out_path)
-      .extra_args(&self.extra_args)
-      .passthrough(&self.common.passthrough)
-      .builder(self.build_host.clone())
-      .message(message)
-      .nom(!self.common.no_nom)
-      .run()
-      .wrap_err("Failed to build configuration")
+    // If a build host is specified, use proper remote build semantics
+    // This matches nixos-rebuild --build-host behavior:
+    // 1. Evaluate derivation locally
+    // 2. Copy derivation to build host (user-initiated SSH)
+    // 3. Build on remote host
+    // 4. Copy result back (to localhost or target_host)
+    if let Some(ref build_host_str) = self.build_host {
+      info!("{}", message);
+
+      let build_host = RemoteHost::parse(build_host_str)
+        .wrap_err("Invalid build host specification")?;
+
+      let target_host = self
+        .target_host
+        .as_ref()
+        .map(|s| RemoteHost::parse(s))
+        .transpose()
+        .wrap_err("Invalid target host specification")?;
+
+      let config = RemoteBuildConfig {
+        build_host,
+        target_host,
+        use_nom: !self.common.no_nom,
+        use_substitutes: self.common.passthrough.use_substitutes,
+        extra_args: self
+          .extra_args
+          .iter()
+          .map(|s| s.into())
+          .chain(
+            self
+              .common
+              .passthrough
+              .generate_passthrough_args()
+              .into_iter()
+              .map(|s| s.into()),
+          )
+          .collect(),
+      };
+
+      remote::build_remote(&toplevel, &config, Some(out_path))?;
+
+      Ok(())
+    } else {
+      // Local build - use the existing path
+      commands::Build::new(toplevel)
+        .extra_arg("--out-link")
+        .extra_arg(out_path)
+        .extra_args(&self.extra_args)
+        .passthrough(&self.common.passthrough)
+        .message(message)
+        .nom(!self.common.no_nom)
+        .run()
+        .wrap_err("Failed to build configuration")
+    }
   }
 
   fn resolve_specialisation_and_profile(

@@ -47,6 +47,7 @@ secrecy = { features = [ "serde" ], version = "0.10.3" }
 semver = "1.0.27"
 serde = { features = [ "derive" ], version = "1.0.228" }
 serde_json = "1.0.145"
+shlex = "1.3.0"
 subprocess = "0.2.9"
 supports-hyperlinks = "3.1.0"
 tempfile = "3.23.0"
