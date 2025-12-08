@@ -95,6 +95,9 @@ pub fn check_nix_version() -> Result<()> {
 ///
 /// - `Result<()>` - Ok under all conditions. The user will only receive a
 ///   warning when their variable is determined to be outdated.
+// clippy warning suppressed to allow for this function to returning meaningful
+// errors in the future
+#[allow(clippy::unnecessary_wraps, clippy::missing_errors_doc)]
 pub fn verify_variables() -> Result<()> {
   if let Ok(f) = std::env::var("FLAKE") {
     // Set NH_FLAKE if it's not already set

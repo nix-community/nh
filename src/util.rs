@@ -241,15 +241,11 @@ pub fn get_hostname(supplied_hostname: Option<String>) -> Result<String> {
   #[cfg(not(target_os = "macos"))]
   {
     use color_eyre::eyre::Context;
-    Ok(
-      hostname::get()
-        .context("Failed to get hostname, and no hostname supplied")?
-        .to_str()
-        .map_or_else(
-          || String::from("unknown-hostname"),
-          std::string::ToString::to_string,
-        ),
-    )
+
+    nix::unistd::gethostname()
+      .context("Failed to get hostname, and no hostname supplied")?
+      .into_string()
+      .map_err(|_| eyre::eyre!("Hostname contains invalid UTF-8"))
   }
   #[cfg(target_os = "macos")]
   {

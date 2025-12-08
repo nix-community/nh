@@ -2,87 +2,64 @@ name: hotpath-profile
 
 on:
   pull_request:
+    branches: [ "master" ]
 
-permissions:
-  contents: read
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
   profile:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout PR HEAD
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-targets: true
-          cache-bin: true
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
 
-      - name: Install Nix
-        uses: cachix/install-nix-action@v31
-        with:
-          nix_path: nixpkgs=channel:nixos-unstable
-
-      - id: head_timing_metrics
+      - name: Run timing profiling on HEAD
         env:
-          HOTPATH_JSON: true
+          HOTPATH_JSON: "true"
         run: |
-          # Extract timing metrics from head branch
-          {
-            echo 'metrics<<EOF'
-            cargo run --features 'hotpath' --release -- search "nix" | grep '^{"hotpath_profiling_mode"'
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
+          cargo run --features='hotpath' 2>&1 | grep '^{"hotpath_profiling_mode"' > /tmp/head_timing.json
 
-      - id: base_timing_metrics
+      - name: Run allocation profiling on HEAD
         env:
-          HOTPATH_JSON: true
+          HOTPATH_JSON: "true"
         run: |
-          # Extract timing metrics from base branch
+          cargo run --features='hotpath,hotpath-alloc' 2>&1 | grep '^{"hotpath_profiling_mode"' > /tmp/head_alloc.json
+
+      - name: Checkout base branch
+        run: |
           git checkout ${{ github.event.pull_request.base.sha }}
-          {
-            echo 'metrics<<EOF'
-            cargo run --features 'hotpath' --release -- search "nix" | grep '^{"hotpath_profiling_mode"'
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
 
-      - id: head_alloc_metrics
+      - name: Run timing profiling on base
         env:
-          HOTPATH_JSON: true
+          HOTPATH_JSON: "true"
         run: |
-          # Extract alloc bytes metrics from head branch
-          git checkout ${{ github.event.pull_request.head.sha }}
-          {
-            echo 'metrics<<EOF'
-            cargo run --features 'hotpath,hotpath-alloc-bytes-total' --release -- search "nix" | grep '^{"hotpath_profiling_mode"'
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
+          cargo run --features='hotpath' 2>&1 | grep '^{"hotpath_profiling_mode"' > /tmp/base_timing.json || echo '{}' > /tmp/base_timing.json
 
-      - id: base_alloc_metrics
+      - name: Run allocation profiling on base
         env:
-          HOTPATH_JSON: true
+          HOTPATH_JSON: "true"
         run: |
-          # Extract alloc bytes metrics from base branch
-          git checkout ${{ github.event.pull_request.base.sha }}
-          {
-            echo 'metrics<<EOF'
-            cargo run --features 'hotpath,hotpath-alloc-bytes-total' --release -- search "nix" | grep '^{"hotpath_profiling_mode"'
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
+          cargo run --features='hotpath,hotpath-alloc' 2>&1 | grep '^{"hotpath_profiling_mode"' > /tmp/base_alloc.json || echo '{}' > /tmp/base_alloc.json
 
-      - name: Save metrics to artifact
+      - name: Save PR number
         run: |
-          mkdir -p /tmp/metrics
-          echo '${{ steps.head_timing_metrics.outputs.metrics }}' > /tmp/metrics/head_timing.json
-          echo '${{ steps.base_timing_metrics.outputs.metrics }}' > /tmp/metrics/base_timing.json
-          echo '${{ steps.head_alloc_metrics.outputs.metrics }}' > /tmp/metrics/head_alloc.json
-          echo '${{ steps.base_alloc_metrics.outputs.metrics }}' > /tmp/metrics/base_alloc.json
-          echo '${{ github.event.pull_request.number }}' > /tmp/metrics/pr_number.txt
+          echo '${{ github.event.pull_request.number }}' > /tmp/pr_number.txt
 
-      - uses: actions/upload-artifact@v5
+      - name: Upload profiling results
+        uses: actions/upload-artifact@v5
         with:
-          name: profile-metrics
-          path: /tmp/metrics/
+          name: hotpath-results
+          path: |
+            /tmp/head_timing.json
+            /tmp/head_alloc.json
+            /tmp/base_timing.json
+            /tmp/base_alloc.json
+            /tmp/pr_number.txt
           retention-days: 1

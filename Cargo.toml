@@ -33,11 +33,10 @@ clap-verbosity-flag = { default-features = false, features = [ "tracing" ], vers
 color-eyre = { default-features = false, features = [ "track-caller" ], version = "0.6.5" }
 dix = "1.3.0"
 elasticsearch-dsl = "0.4.24"
-hostname = "0.4.1"
 hotpath = { optional = true, version = "0.7.5" }
 humantime = "2.3.0"
 inquire = { default-features = false, features = [ "crossterm" ], version = "0.9.1" }
-nix = { default-features = false, features = [ "fs", "user" ], version = "0.30.1" }
+nix = { default-features = false, features = [ "fs", "user", "hostname" ], version = "0.30.1" }
 regex = "1.12.2"
 reqwest = { default-features = false, features = [
   "rustls-tls-native-roots",

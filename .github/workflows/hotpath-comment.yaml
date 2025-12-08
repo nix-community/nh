@@ -14,39 +14,47 @@ jobs:
   comment:
     runs-on: ubuntu-latest
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
     steps:
-      - uses: actions/download-artifact@v6
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download profiling results
+        uses: actions/download-artifact@v6
         with:
-          name: profile-metrics
-          path: /tmp/metrics/
+          name: hotpath-results
+          path: /tmp/
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
 
       - name: Install hotpath CLI
         run: cargo install hotpath
 
-      - name: Post timing PR comment
+      - name: Post timing comparison comment
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          HEAD_METRICS=$(cat /tmp/metrics/head_timing.json)
-          BASE_METRICS=$(cat /tmp/metrics/base_timing.json)
-          PR_NUMBER=$(cat /tmp/metrics/pr_number.txt)
+          HEAD_METRICS=$(cat /tmp/head_timing.json)
+          BASE_METRICS=$(cat /tmp/base_timing.json)
+          PR_NUMBER=$(cat /tmp/pr_number.txt)
           hotpath profile-pr \
             --head-metrics "$HEAD_METRICS" \
             --base-metrics "$BASE_METRICS" \
             --github-token "$GH_TOKEN" \
             --pr-number "$PR_NUMBER"
 
-      - name: Post alloc PR comment
+      - name: Post allocation comparison comment
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          HEAD_METRICS=$(cat /tmp/metrics/head_alloc.json)
-          BASE_METRICS=$(cat /tmp/metrics/base_alloc.json)
-          PR_NUMBER=$(cat /tmp/metrics/pr_number.txt)
+          HEAD_METRICS=$(cat /tmp/head_alloc.json)
+          BASE_METRICS=$(cat /tmp/base_alloc.json)
+          PR_NUMBER=$(cat /tmp/pr_number.txt)
           hotpath profile-pr \
             --head-metrics "$HEAD_METRICS" \
             --base-metrics "$BASE_METRICS" \
