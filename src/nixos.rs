@@ -186,21 +186,25 @@ impl OsRebuildActivateArgs {
     }
 
     if let Some(target_host) = &self.rebuild.target_host {
-      Command::new("nix")
-        .args([
-          "copy",
-          "--to",
-          format!("ssh://{target_host}").as_str(),
-          match target_profile.to_str() {
-            Some(s) => s,
-            None => {
-              return Err(eyre!("target_profile path is not valid UTF-8"));
+      // Only copy if the output path exists locally (i.e., was copied back from
+      // remote build)
+      if out_path.exists() {
+        Command::new("nix")
+          .args([
+            "copy",
+            "--to",
+            format!("ssh://{target_host}").as_str(),
+            match target_profile.to_str() {
+              Some(s) => s,
+              None => {
+                return Err(eyre!("target_profile path is not valid UTF-8"));
+              },
             },
-          },
-        ])
-        .message("Copying configuration to target")
-        .with_required_env()
-        .run()?;
+          ])
+          .message("Copying configuration to target")
+          .with_required_env()
+          .run()?;
+      }
     }
 
     let switch_to_configuration = target_profile
@@ -431,16 +435,23 @@ impl OsRebuildArgs {
 
     debug!("Output path: {out_path:?}");
     debug!("Target profile path: {}", target_profile.display());
-    debug!("Target profile exists: {}", target_profile.exists());
 
-    if !target_profile
-      .try_exists()
-      .context("Failed to check if target profile exists")?
-    {
-      return Err(eyre!(
-        "Target profile path does not exist: {}",
-        target_profile.display()
-      ));
+    // If out_path doesn't exist locally, assume it's remote and skip existence
+    // check
+    if out_path.exists() {
+      debug!("Target profile exists: {}", target_profile.exists());
+
+      if !target_profile
+        .try_exists()
+        .context("Failed to check if target profile exists")?
+      {
+        return Err(eyre!(
+          "Target profile path does not exist: {}",
+          target_profile.display()
+        ));
+      }
+    } else {
+      debug!("Output path is remote, skipping local existence check");
     }
 
     Ok(target_profile)

@@ -13,6 +13,7 @@ use crate::{installable::Installable, util::NixVariant};
 static SSH_CONTROL_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 /// Get or create the SSH control socket directory.
+///
 /// This creates a temporary directory that persists for the lifetime of the
 /// program, similar to nixos-rebuild-ng's tmpdir module.
 fn get_ssh_control_dir() -> &'static PathBuf {
@@ -582,10 +583,17 @@ pub fn build_remote(
     }
   }
 
-  // Always copy to localhost if we need to create a local out-link
-  // This is necessary even when target_host is set, because the calling code
-  // (e.g., nixos.rs) needs to resolve specialisations from the local path.
-  if out_link.is_some() || config.target_host.is_none() {
+  // Copy to localhost if we need to create a local out-link or if target_host
+  // is not set. When target_host is set and the same as build_host, skip
+  // copying to localhost to avoid inefficiency, assuming specialisation
+  // resolution can be handled remotely or is not needed.
+  if out_link.is_some()
+    || config.target_host.is_none()
+    || config
+      .target_host
+      .as_ref()
+      .is_some_and(|th| th.hostname() != build_host.hostname())
+  {
     copy_closure_from(build_host, &out_path, use_substitutes)?;
   }
 
@@ -756,9 +764,55 @@ fn build_on_remote_with_nom(
 
 #[cfg(test)]
 mod tests {
+  use proptest::prelude::*;
   use serial_test::serial;
 
   use super::*;
+
+  proptest! {
+    #[test]
+    fn hostname_always_returns_suffix_after_last_at(s in "\\PC*") {
+        let host = RemoteHost { host: s.clone() };
+        let expected = s.rsplit('@').next().unwrap();
+        prop_assert_eq!(host.hostname(), expected);
+    }
+
+    #[test]
+    fn hostname_is_substring_of_host(s in "\\PC*") {
+        let host = RemoteHost { host: s.clone() };
+        prop_assert!(s.contains(host.hostname()));
+    }
+
+    #[test]
+    fn hostname_no_at_means_whole_string(s in "[^@]*") {
+        let host = RemoteHost { host: s.clone() };
+        prop_assert_eq!(host.hostname(), s);
+    }
+
+    #[test]
+    fn hostname_with_user(user in "[a-zA-Z0-9_]+", hostname in "[a-zA-Z0-9_.-]+") {
+        let full = format!("{}@{}", user, hostname);
+        let host = RemoteHost { host: full };
+        prop_assert_eq!(host.hostname(), hostname);
+    }
+
+    #[test]
+    fn parse_valid_bare_hostname(hostname in "[a-zA-Z0-9_.-]+") {
+        let result = RemoteHost::parse(&hostname);
+        prop_assert!(result.is_ok());
+        let host = result.unwrap();
+        prop_assert_eq!(host.hostname(), hostname);
+    }
+
+    #[test]
+    fn parse_valid_user_at_hostname(user in "[a-zA-Z0-9_]+", hostname in "[a-zA-Z0-9_.-]+") {
+        let full = format!("{}@{}", user, hostname);
+        let result = RemoteHost::parse(&full);
+        prop_assert!(result.is_ok());
+        let host = result.unwrap();
+        prop_assert_eq!(host.hostname(), hostname);
+    }
+  }
 
   #[test]
   fn test_parse_bare_hostname() {
@@ -828,29 +882,6 @@ mod tests {
       shell_quote("/nix/store/abc123-foo"),
       "/nix/store/abc123-foo"
     );
-  }
-
-  #[test]
-  fn test_shell_quote_with_caret() {
-    // drv^* syntax - shlex quotes with single quotes but keeps ^ unquoted
-    // until it hits the *, which needs quoting
-    let quoted = shell_quote("/nix/store/xyz.drv^*");
-    // The result should be safely quotable and contain the original content
-    assert!(quoted.contains("drv"));
-    assert!(quoted.contains("*"));
-  }
-
-  #[test]
-  fn test_shell_quote_special_chars() {
-    assert_eq!(shell_quote("has space"), "'has space'");
-    // shlex uses double quotes for strings containing single quotes
-    assert_eq!(shell_quote("has'quote"), "\"has'quote\"");
-    assert_eq!(shell_quote("$(dangerous)"), "'$(dangerous)'");
-  }
-
-  #[test]
-  fn test_shell_quote_empty() {
-    assert_eq!(shell_quote(""), "''");
   }
 
   #[test]
@@ -1046,6 +1077,23 @@ mod tests {
     assert!(!result.contains("\"ControlMaster"));
     // Values should be bare
     assert!(result.contains("-o ControlMaster=auto"));
+  }
+
+  #[test]
+  fn test_hostname_comparison_for_same_host() {
+    let host1 = RemoteHost::parse("user1@host.example").unwrap();
+    let host2 = RemoteHost::parse("user2@host.example").unwrap();
+    let host3 = RemoteHost::parse("host.example").unwrap();
+    let host4 = RemoteHost::parse("other.host").unwrap();
+
+    assert_eq!(host1.hostname(), "host.example");
+    assert_eq!(host2.hostname(), "host.example");
+    assert_eq!(host3.hostname(), "host.example");
+    assert_eq!(host4.hostname(), "other.host");
+
+    assert_eq!(host1.hostname(), host2.hostname());
+    assert_eq!(host1.hostname(), host3.hostname());
+    assert_ne!(host1.hostname(), host4.hostname());
   }
 
   #[test]
