@@ -61,6 +61,13 @@ pub struct RemoteHost {
 }
 
 impl RemoteHost {
+  /// Get the hostname part (without user@ prefix).
+  #[must_use]
+  pub fn hostname(&self) -> &str {
+    #[allow(clippy::unwrap_used)]
+    self.host.rsplit('@').next().unwrap()
+  }
+
   /// Parse a host specification string.
   ///
   /// Accepts:
@@ -562,15 +569,17 @@ pub fn build_remote(
   let out_path = build_on_remote(build_host, &drv_path, config)?;
 
   // Step 4: Copy result to destination
-  // If target_host is set, copy directly from build_host to target_host.
-  // Otherwise, copy back to localhost.
+  // If target_host is set and different from build_host, copy directly from
+  // build_host to target_host. Otherwise, copy back to localhost.
   if let Some(ref target_host) = config.target_host {
-    copy_closure_between_remotes(
-      build_host,
-      target_host,
-      &out_path,
-      use_substitutes,
-    )?;
+    if build_host.hostname() != target_host.hostname() {
+      copy_closure_between_remotes(
+        build_host,
+        target_host,
+        &out_path,
+        use_substitutes,
+      )?;
+    }
   }
 
   // Always copy to localhost if we need to create a local out-link
