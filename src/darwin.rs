@@ -136,6 +136,8 @@ impl DarwinRebuildArgs {
           .collect(),
       };
 
+      remote::check_remote_connectivity(&config)?;
+
       remote::build_remote(&toplevel, &config, Some(&out_path))
         .wrap_err("Failed to build Darwin configuration")?;
     } else {

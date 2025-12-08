@@ -506,12 +506,35 @@ pub struct RemoteBuildConfig {
   pub extra_args: Vec<OsString>,
 }
 
+/// Check SSH connectivity to remote hosts specified in the build config.
+///
+/// Checks connectivity to the build host and optionally the target host.
+/// Provides early feedback before starting expensive operations.
+///
+/// # Errors
+///
+/// Returns an error if any host is unreachable.
+pub fn check_remote_connectivity(config: &RemoteBuildConfig) -> Result<()> {
+  info!("Checking SSH connectivity to remote hosts...");
+  check_ssh_reachability(&config.build_host).wrap_err(format!(
+    "Build host ({}) is not reachable",
+    config.build_host
+  ))?;
+
+  if let Some(ref target) = config.target_host {
+    check_ssh_reachability(target)
+      .wrap_err(format!("Target host ({target}) is not reachable"))?;
+  }
+  debug!("SSH connectivity verified");
+  Ok(())
+}
+
 /// Perform a remote build of a flake installable.
 ///
 /// This implements the `build_remote_flake` workflow from nixos-rebuild-ng:
 /// 1. Evaluate drvPath locally via `nix eval --raw`
 /// 2. Copy the derivation to the build host via `nix-copy-closure`
-/// 3. Build on remote via `nix build <drv>^* --print-out-paths`
+/// 3. Build on remote host via `nix build <drv>^* --print-out-paths`
 /// 4. Copy the result back (to localhost or `target_host`)
 ///
 /// Returns the output path in the Nix store.

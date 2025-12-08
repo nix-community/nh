@@ -23,7 +23,7 @@ use crate::{
     OsRollbackArgs,
     OsSubcommand::{self},
   },
-  remote::{self, RemoteBuildConfig, RemoteHost, check_ssh_reachability},
+  remote::{self, RemoteBuildConfig, RemoteHost},
   update::update,
   util::{ensure_ssh_key_login, get_hostname, print_dix_diff},
 };
@@ -371,19 +371,6 @@ impl OsRebuildArgs {
         .transpose()
         .wrap_err("Invalid target host specification")?;
 
-      // Check SSH connectivity BEFORE starting expensive evaluation. This
-      // provides early feedback if remote hosts are unreachable and allows
-      // us to handle the error instead of letting Nix throw its own.
-      info!("Checking SSH connectivity to remote hosts...");
-      check_ssh_reachability(&build_host)
-        .wrap_err(format!("Build host ({build_host}) is not reachable"))?;
-
-      if let Some(ref target) = target_host {
-        check_ssh_reachability(target)
-          .wrap_err(format!("Target host ({target}) is not reachable"))?;
-      }
-      debug!("SSH connectivity verified");
-
       let config = RemoteBuildConfig {
         build_host,
         target_host,
@@ -403,6 +390,8 @@ impl OsRebuildArgs {
           )
           .collect(),
       };
+
+      remote::check_remote_connectivity(&config)?;
 
       remote::build_remote(&toplevel, &config, Some(out_path))?;
 
