@@ -242,23 +242,32 @@ impl interface::CleanMode {
             }
           },
         } {
-          let dur = now.duration_since(
-            dst
-              .symlink_metadata()
-              .wrap_err("Reading gcroot metadata")?
-              .modified()?,
-          );
-          debug!(?dur);
-          match dur {
-            Err(err) => {
-              warn!(?err, ?now, "Failed to compare time!");
-            },
-            Ok(val) if val <= args.keep_since.into() => {
-              gcroots_tagged.insert(dst, false);
-            },
-            Ok(_) => {
-              gcroots_tagged.insert(dst, true);
-            },
+          let is_direnv_root = DIRENV_REGEX.is_match(&dst.to_string_lossy());
+          if args.keep_one && is_direnv_root {
+            // If --keep-one is specified AND this is a direnv gcroot, always
+            // keep it.
+            gcroots_tagged.insert(dst, false);
+          } else {
+            // For other gcroots (non-direnv, or if --keep-one is not
+            // specified), apply time-based culling.
+            let dur = now.duration_since(
+              dst
+                .symlink_metadata()
+                .wrap_err("Reading gcroot metadata")?
+                .modified()?,
+            );
+            debug!(?dur);
+            match dur {
+              Err(err) => {
+                warn!(?err, ?now, "Failed to compare time!");
+              },
+              Ok(val) if val <= args.keep_since.into() => {
+                gcroots_tagged.insert(dst, false);
+              },
+              Ok(_) => {
+                gcroots_tagged.insert(dst, true);
+              },
+            }
           }
         } else {
           debug!("dst doesn't exist or is not writable, skipping");
@@ -273,6 +282,9 @@ impl interface::CleanMode {
       "Keeping {} generation(s)",
       Paint::new(args.keep).fg(Color::Green)
     );
+    if args.keep_one {
+      println!("Keeping one gcroot per direnv project",);
+    }
     println!(
       "Keeping paths newer than {}",
       Paint::new(args.keep_since).fg(Color::Green)
