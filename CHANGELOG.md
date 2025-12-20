@@ -18,6 +18,7 @@ functionality, under the "Removed" section.
 
 ### Changed
 
+- Added `--keep-one` flag to `nh clean` which keeps one gcroot per direnv project.
 - `nh os info` now hides empty columns.
 - `nh os info` now support `--fields` to select which field(s) to display; also
   add a per-generation "Closure Size" coloumn.
