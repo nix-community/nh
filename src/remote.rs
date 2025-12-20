@@ -641,12 +641,16 @@ fn build_on_remote_simple(
   args.extend(flake_flags);
   args.extend(["build", drv_with_outputs, "--print-out-paths"]);
 
-  // Collect extra args that are valid strings
+  // Convert extra args to strings, fail if any are non-UTF-8
   let extra_args_strings: Vec<String> = config
     .extra_args
     .iter()
-    .filter_map(|s| s.to_str().map(String::from))
-    .collect();
+    .map(|s| {
+      s.to_str()
+        .map(String::from)
+        .ok_or_else(|| eyre!("Extra argument is not valid UTF-8: {:?}", s))
+    })
+    .collect::<Result<Vec<_>>>()?;
   for arg in &extra_args_strings {
     args.push(arg);
   }
@@ -686,11 +690,16 @@ fn build_on_remote_with_nom(
     "--verbose",
   ]);
 
+  // Convert extra args to strings, fail if any are non-UTF-8
   let extra_args_strings: Vec<String> = config
     .extra_args
     .iter()
-    .filter_map(|s| s.to_str().map(String::from))
-    .collect();
+    .map(|s| {
+      s.to_str()
+        .map(String::from)
+        .ok_or_else(|| eyre!("Extra argument is not valid UTF-8: {:?}", s))
+    })
+    .collect::<Result<Vec<_>>>()?;
   for arg in &extra_args_strings {
     remote_args.push(arg);
   }
