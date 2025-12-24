@@ -9,6 +9,94 @@ use tracing::{debug, info};
 
 use crate::{installable::Installable, util::NixVariant};
 
+/// Guard that cleans up SSH `ControlMaster` sockets on drop.
+///
+/// This ensures SSH control connections are properly closed when remote
+/// operations complete, preventing lingering SSH processes.
+#[must_use]
+pub struct SshControlGuard {
+  control_dir: PathBuf,
+}
+
+impl Drop for SshControlGuard {
+  fn drop(&mut self) {
+    cleanup_ssh_control_sockets(&self.control_dir);
+  }
+}
+
+/// Clean up SSH `ControlMaster` sockets in the control directory.
+///
+/// Iterates through all ssh-* control sockets and sends the "exit" command
+/// to close the master connection. Errors are logged but not propagated.
+fn cleanup_ssh_control_sockets(control_dir: &std::path::Path) {
+  debug!(
+    "Cleaning up SSH control sockets in {}",
+    control_dir.display()
+  );
+
+  // Read directory entries
+  let entries = match std::fs::read_dir(control_dir) {
+    Ok(entries) => entries,
+    Err(e) => {
+      // Directory might not exist if no SSH connections were made
+      debug!(
+        "Could not read SSH control directory {}: {}",
+        control_dir.display(),
+        e
+      );
+      return;
+    },
+  };
+
+  for entry in entries.flatten() {
+    let path = entry.path();
+
+    // Only process files starting with "ssh-"
+    if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+      if filename.starts_with("ssh-") {
+        debug!("Closing SSH control socket: {}", path.display());
+
+        // Run: ssh -o ControlPath=<socket> -O exit dummyhost
+        let result = Exec::cmd("ssh")
+          .args(&["-o", &format!("ControlPath={}", path.display())])
+          .args(&["-O", "exit", "dummyhost"])
+          .stdout(Redirection::Pipe)
+          .stderr(Redirection::Pipe)
+          .capture();
+
+        match result {
+          Ok(capture) => {
+            if !capture.exit_status.success() {
+              // This is normal if the connection was already closed
+              debug!(
+                "SSH control socket cleanup exited with status {:?} for {}",
+                capture.exit_status,
+                path.display()
+              );
+            }
+          },
+          Err(e) => {
+            tracing::warn!(
+              "Failed to close SSH control socket at {}: {}",
+              path.display(),
+              e
+            );
+          },
+        }
+      }
+    }
+  }
+}
+
+/// Initialize SSH control socket management.
+///
+/// Returns a guard that will clean up SSH `ControlMaster` connections when
+/// dropped. The guard should be held for the duration of remote operations.
+pub fn init_ssh_control() -> SshControlGuard {
+  let control_dir = get_ssh_control_dir().clone();
+  SshControlGuard { control_dir }
+}
+
 /// Cache for the SSH control socket directory.
 static SSH_CONTROL_DIR: OnceLock<PathBuf> = OnceLock::new();
 
@@ -135,48 +223,6 @@ impl RemoteHost {
 impl std::fmt::Display for RemoteHost {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}", self.host)
-  }
-}
-
-/// Check if a remote host is reachable via SSH.
-///
-/// Performs a quick connectivity test before expensive operations like
-/// evaluation or building.
-///
-/// # Errors
-///
-/// Returns an error if:
-/// - The SSH command fails to execute
-/// - The remote host is unreachable or rejects the connection
-pub fn check_ssh_reachability(host: &RemoteHost) -> Result<()> {
-  debug!("Checking SSH connectivity to {}", host);
-
-  let ssh_opts = get_ssh_opts();
-
-  // Use ssh with a simple 'true' command and short timeout
-  // ConnectTimeout ensures we don't wait too long for unreachable hosts
-  let exit = Exec::cmd("ssh")
-    .args(&ssh_opts)
-    .args(&["-o", "ConnectTimeout=10", "-o", "BatchMode=yes"])
-    .arg(host.host())
-    .arg("true")
-    .stdout(Redirection::None)
-    .stderr(Redirection::Pipe)
-    .capture()
-    .wrap_err_with(|| format!("Failed to execute SSH command to {host}"))?;
-
-  if exit.success() {
-    debug!("SSH connectivity to {} confirmed", host);
-    Ok(())
-  } else {
-    let stderr = exit.stderr_str();
-    bail!(
-      "Cannot reach host '{}' via SSH. Please verify:\n- The hostname is \
-       correct\n- SSH key authentication is configured\n- The remote host is \
-       online and accepting connections\nSSH error: {}",
-      host,
-      stderr.trim()
-    )
   }
 }
 
@@ -512,29 +558,6 @@ pub struct RemoteBuildConfig {
 
   /// Extra arguments to pass to the build command
   pub extra_args: Vec<OsString>,
-}
-
-/// Check SSH connectivity to remote hosts specified in the build config.
-///
-/// Checks connectivity to the build host and optionally the target host.
-/// Provides early feedback before starting expensive operations.
-///
-/// # Errors
-///
-/// Returns an error if any host is unreachable.
-pub fn check_remote_connectivity(config: &RemoteBuildConfig) -> Result<()> {
-  info!("Checking SSH connectivity to remote hosts...");
-  check_ssh_reachability(&config.build_host).wrap_err(format!(
-    "Build host ({}) is not reachable",
-    config.build_host
-  ))?;
-
-  if let Some(ref target) = config.target_host {
-    check_ssh_reachability(target)
-      .wrap_err(format!("Target host ({target}) is not reachable"))?;
-  }
-  debug!("SSH connectivity verified");
-  Ok(())
 }
 
 /// Perform a remote build of a flake installable.
@@ -1135,5 +1158,26 @@ mod tests {
         "Control dir should contain 'nh-ssh-': {dir_str}"
       );
     }
+  }
+
+  #[test]
+  fn test_init_ssh_control_returns_guard() {
+    // Verify that init_ssh_control() returns a guard
+    // and that the guard holds the correct control directory
+    let guard = init_ssh_control();
+    let expected_dir = get_ssh_control_dir();
+
+    // Verify the guard holds the same directory
+    assert_eq!(guard.control_dir, *expected_dir);
+  }
+
+  #[test]
+  fn test_ssh_control_guard_drop() {
+    // Verify that dropping the guard doesn't panic
+    // We can't easily test the actual cleanup without creating real SSH
+    // connections, but we can at least verify the Drop implementation runs
+    let guard = init_ssh_control();
+    drop(guard);
+    // If this completes without panic, the Drop impl is at least safe
   }
 }

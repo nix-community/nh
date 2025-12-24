@@ -123,7 +123,8 @@ impl HomeRebuildArgs {
           .collect(),
       };
 
-      remote::check_remote_connectivity(&config)?;
+      // Initialize SSH control - guard will cleanup connections on drop
+      let _ssh_guard = remote::init_ssh_control();
 
       remote::build_remote(&toplevel, &config, Some(&out_path))
         .wrap_err("Failed to build Home-Manager configuration")?;
