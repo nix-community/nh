@@ -570,10 +570,25 @@ pub fn build_remote(
   let out_path = build_on_remote(build_host, &drv_path, config)?;
 
   // Step 4: Copy result to destination
-  // If target_host is set and different from build_host, copy directly from
-  // build_host to target_host. Otherwise, copy back to localhost.
+  //
+  // Optimizes copy paths based on hostname comparison:
+  // - When build_host != target_host: copy build -> target, then build -> local
+  // - When build_host == target_host: skip redundant copies, only copy to local
+  //   if out-link is needed
+  // - When target_host is None: always copy build -> local
+  let target_is_build_host = config
+    .target_host
+    .as_ref()
+    .is_some_and(|th| th.hostname() == build_host.hostname());
+
+  // Copy from build_host to target_host if they differ
   if let Some(ref target_host) = config.target_host {
-    if build_host.hostname() != target_host.hostname() {
+    if target_is_build_host {
+      debug!(
+        "Skipping copy from build host to target host (same host: {})",
+        build_host.hostname()
+      );
+    } else {
       copy_closure_between_remotes(
         build_host,
         target_host,
@@ -583,18 +598,17 @@ pub fn build_remote(
     }
   }
 
-  // Copy to localhost if we need to create a local out-link or if target_host
-  // is not set. When target_host is set and the same as build_host, skip
-  // copying to localhost to avoid inefficiency, assuming specialisation
-  // resolution can be handled remotely or is not needed.
-  if out_link.is_some()
-    || config.target_host.is_none()
-    || config
-      .target_host
-      .as_ref()
-      .is_some_and(|th| th.hostname() != build_host.hostname())
-  {
+  // Copy to localhost only when necessary to avoid ping-pong effect
+  let need_local_copy =
+    config.target_host.is_none() || !target_is_build_host || out_link.is_some();
+
+  if need_local_copy {
     copy_closure_from(build_host, &out_path, use_substitutes)?;
+  } else {
+    debug!(
+      "Skipping copy to localhost (build_host == target_host, no out-link \
+       needed)"
+    );
   }
 
   // Create local out-link if requested
