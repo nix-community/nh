@@ -49,6 +49,7 @@ functionality, under the "Removed" section.
   - `nh search` displays a link to the `package.nix` file on the nixpkgs GitHub,
     and also fixes the existing links so that they no longer brokenly point to a
     non-existent file path on nix flake systems.
+- A new `nh os build-image` subcommand has been added to allow building specific nixos images or just a nixos image. See `nh os build-image --help` to see more details on this subcommand. 
 
 ### Fixed
 
