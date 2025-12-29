@@ -53,7 +53,7 @@ jobs:
           echo '${{ github.event.pull_request.number }}' > /tmp/pr_number.txt
 
       - name: Upload profiling results
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: hotpath-results
           path: |
