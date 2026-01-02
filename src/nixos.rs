@@ -1,4 +1,5 @@
 use std::{
+  convert::Into,
   env,
   fs,
   path::{Path, PathBuf},
@@ -22,6 +23,7 @@ use crate::{
     OsRollbackArgs,
     OsSubcommand::{self},
   },
+  remote::{self, RemoteBuildConfig, RemoteHost},
   update::update,
   util::{ensure_ssh_key_login, get_hostname, print_dix_diff},
 };
@@ -132,9 +134,7 @@ impl OsRebuildActivateArgs {
       _ => "Building NixOS configuration",
     };
 
-    self
-      .rebuild
-      .execute_build_command(toplevel, &out_path, message)?;
+    self.rebuild.execute_build(toplevel, &out_path, message)?;
 
     let target_profile =
       self.rebuild.resolve_specialisation_and_profile(&out_path)?;
@@ -186,34 +186,79 @@ impl OsRebuildActivateArgs {
     }
 
     if let Some(target_host) = &self.rebuild.target_host {
-      Command::new("nix")
-        .args([
-          "copy",
-          "--to",
-          format!("ssh://{target_host}").as_str(),
-          match target_profile.to_str() {
-            Some(s) => s,
-            None => {
-              return Err(eyre!("target_profile path is not valid UTF-8"));
+      // Only copy if the output path exists locally (i.e., was copied back from
+      // remote build)
+      if out_path.exists() {
+        Command::new("nix")
+          .args([
+            "copy",
+            "--to",
+            format!("ssh://{target_host}").as_str(),
+            match target_profile.to_str() {
+              Some(s) => s,
+              None => {
+                return Err(eyre!("target_profile path is not valid UTF-8"));
+              },
             },
-          },
-        ])
-        .message("Copying configuration to target")
-        .with_required_env()
-        .run()?;
+          ])
+          .message("Copying configuration to target")
+          .with_required_env()
+          .run()?;
+      }
     }
 
-    let switch_to_configuration = target_profile
-      .canonicalize()
-      .context("Failed to resolve output path")?
-      .join("bin")
-      .join("switch-to-configuration")
-      .canonicalize()
-      .context("Failed to resolve switch-to-configuration path")?;
+    // Validate system closure before activation, unless bypassed. For remote
+    // builds where `out_path` doesn't exist locally, we can't canonicalize
+    // `target_profile`. Instead we use the path as-is for remote operations.
+    let is_remote_build = self.rebuild.target_host.is_some();
+    let resolved_profile: PathBuf = if is_remote_build && !out_path.exists() {
+      // Remote build with no local result. Skip canonicalization, use original
+      // path
+      target_profile.to_path_buf()
+    } else {
+      target_profile
+        .canonicalize()
+        .context("Failed to resolve output path to actual store path")?
+    };
 
-    if !switch_to_configuration.exists() {
-      return Err(missing_switch_to_configuration_error());
+    let should_skip = self.rebuild.no_validate;
+
+    if should_skip {
+      warn!(
+        "Skipping pre-activation validation (--no-validate or NH_NO_VALIDATE \
+         set)"
+      );
+      warn!(
+        "This may result in activation failures if the system closure is \
+         incomplete"
+      );
+    } else if let Some(target_host) = &self.rebuild.target_host {
+      // For remote activation, validate on the remote host using the resolved
+      // store path
+      validate_system_closure_remote(
+        &resolved_profile,
+        target_host,
+        self.rebuild.build_host.as_deref(),
+      )?;
+    } else {
+      // For local activation, validate locally
+      validate_system_closure(&resolved_profile)?;
     }
+
+    // Resolve switch-to-configuration path for activation commands. For
+    // remote-only builds where out_path doesn't exist locally, skip this
+    // since we'll execute these commands via SSH on the remote host
+    let switch_to_configuration_path =
+      resolved_profile.join("bin").join("switch-to-configuration");
+
+    let switch_to_configuration = if is_remote_build && !out_path.exists() {
+      // Remote build with no local result. Use uncanonicalized path for SSH
+      switch_to_configuration_path
+    } else {
+      switch_to_configuration_path
+        .canonicalize()
+        .context("Failed to resolve switch-to-configuration path")?
+    };
 
     let canonical_out_path =
       switch_to_configuration.to_str().ok_or_else(|| {
@@ -224,6 +269,7 @@ impl OsRebuildActivateArgs {
       let variant_label = match variant {
         Test => "test",
         Switch => "switch",
+        #[allow(clippy::unreachable, reason = "Should never happen.")]
         _ => unreachable!(),
       };
 
@@ -283,7 +329,9 @@ impl OsRebuildArgs {
   /// - Resolving the target hostname for the build.
   ///
   /// # Returns
-  /// A `Result` containing a tuple:
+  ///
+  /// `Result` containing a tuple:
+  ///
   /// - `bool`: `true` if elevation is required, `false` otherwise.
   /// - `String`: The resolved target hostname.
   fn setup_build_context(&self) -> Result<(bool, String)> {
@@ -344,22 +392,69 @@ impl OsRebuildArgs {
     )
   }
 
-  fn execute_build_command(
+  fn execute_build(
     &self,
     toplevel: Installable,
     out_path: &Path,
     message: &str,
   ) -> Result<()> {
-    commands::Build::new(toplevel)
-      .extra_arg("--out-link")
-      .extra_arg(out_path)
-      .extra_args(&self.extra_args)
-      .passthrough(&self.common.passthrough)
-      .builder(self.build_host.clone())
-      .message(message)
-      .nom(!self.common.no_nom)
-      .run()
-      .wrap_err("Failed to build configuration")
+    // If a build host is specified, use proper remote build semantics:
+    //
+    // 1. Evaluate derivation locally
+    // 2. Copy derivation to build host (user-initiated SSH)
+    // 3. Build on remote host
+    // 4. Copy result back (to localhost or target_host)
+    if let Some(ref build_host_str) = self.build_host {
+      info!("{message}");
+
+      let build_host = RemoteHost::parse(build_host_str)
+        .wrap_err("Invalid build host specification")?;
+
+      let target_host = self
+        .target_host
+        .as_ref()
+        .map(|s| RemoteHost::parse(s))
+        .transpose()
+        .wrap_err("Invalid target host specification")?;
+
+      let config = RemoteBuildConfig {
+        build_host,
+        target_host,
+        use_nom: !self.common.no_nom,
+        use_substitutes: self.common.passthrough.use_substitutes,
+        extra_args: self
+          .extra_args
+          .iter()
+          .map(Into::into)
+          .chain(
+            self
+              .common
+              .passthrough
+              .generate_passthrough_args()
+              .into_iter()
+              .map(Into::into),
+          )
+          .collect(),
+      };
+
+      // Initialize SSH control - guard will cleanup connections on drop
+      let _ssh_guard = remote::init_ssh_control();
+
+      remote::build_remote(&toplevel, &config, Some(out_path))?;
+
+      Ok(())
+    } else {
+      // Local build - use the existing path
+      commands::Build::new(toplevel)
+        .extra_arg("--out-link")
+        .extra_arg(out_path)
+        .extra_args(&self.extra_args)
+        .passthrough(&self.common.passthrough)
+        .message(message)
+        .nom(!self.common.no_nom)
+        .run()
+        .wrap_err("Failed to build configuration")
+    }
   }
 
   fn resolve_specialisation_and_profile(
@@ -383,16 +478,23 @@ impl OsRebuildArgs {
 
     debug!("Output path: {out_path:?}");
     debug!("Target profile path: {}", target_profile.display());
-    debug!("Target profile exists: {}", target_profile.exists());
 
-    if !target_profile
-      .try_exists()
-      .context("Failed to check if target profile exists")?
-    {
-      return Err(eyre!(
-        "Target profile path does not exist: {}",
-        target_profile.display()
-      ));
+    // If out_path doesn't exist locally, assume it's remote and skip existence
+    // check
+    if out_path.exists() {
+      debug!("Target profile exists: {}", target_profile.exists());
+
+      if !target_profile
+        .try_exists()
+        .context("Failed to check if target profile exists")?
+      {
+        return Err(eyre!(
+          "Target profile path does not exist: {}",
+          target_profile.display()
+        ));
+      }
+    } else {
+      debug!("Output path is remote, skipping local existence check");
     }
 
     Ok(target_profile)
@@ -451,7 +553,7 @@ impl OsRebuildArgs {
       _ => "Building NixOS configuration",
     };
 
-    self.execute_build_command(toplevel, &out_path, message)?;
+    self.execute_build(toplevel, &out_path, message)?;
 
     let target_profile = self.resolve_specialisation_and_profile(&out_path)?;
 
@@ -749,6 +851,90 @@ fn run_vm(out_path: &Path) -> Result<()> {
   Ok(())
 }
 
+/// Validates that essential files exist in the system closure.
+///
+/// Checks for a few critical files that must be present in a complete NixOS
+/// system. This is essentially in-line with what nixos-rebuild-ng checks for.
+///
+/// - bin/switch-to-configuration: activation script
+/// - nixos-version: system version identifier
+/// - init: system init script
+/// - sw/bin: system path binaries
+///
+/// # Returns
+///
+/// `Ok(())` if all files exist, or an error listing missing files.
+fn validate_system_closure(system_path: &Path) -> Result<()> {
+  let essential_files = [
+    ("bin/switch-to-configuration", "activation script"),
+    ("nixos-version", "system version identifier"),
+    ("init", "system init script"),
+    ("sw/bin", "system path"),
+  ];
+
+  let mut missing = Vec::new();
+  for (file, description) in &essential_files {
+    let path = system_path.join(file);
+    if !path.exists() {
+      missing.push(format!("  - {file} ({description})"));
+    }
+  }
+
+  if !missing.is_empty() {
+    let missing_list = missing.join("\n");
+    return Err(eyre!(
+      "System closure validation failed. Missing essential files:\n{}\n\nThis \
+       typically happens when:\n1. 'system.switch.enable' is set to false in \
+       your configuration\n2. The build was incomplete or corrupted\n3. \
+       You're using an incomplete derivation\n\nTo fix this:\n1. Check if \
+       'system.switch.enable = false' is set and remove it\n2. Rebuild your \
+       system configuration\n3. If the problem persists, verify your system \
+       closure is complete\n\nSystem path checked: {}",
+      missing_list,
+      system_path.display()
+    ));
+  }
+
+  Ok(())
+}
+
+/// Validates essential files on a remote host via SSH.
+///
+/// Similar to [`validate_system_closure`] but executes checks on a remote host.
+fn validate_system_closure_remote(
+  system_path: &Path,
+  target_host: &str,
+  build_host: Option<&str>,
+) -> Result<()> {
+  let essential_files = [
+    ("bin/switch-to-configuration", "activation script"),
+    ("nixos-version", "system version identifier"),
+    ("init", "system init script"),
+    ("sw/bin", "system path"),
+  ];
+
+  // Parse the target host
+  let target = remote::RemoteHost::parse(target_host)
+    .wrap_err("Invalid target host specification")?;
+
+  // Build context string for error messages
+  let context = build_host.map(|build| {
+    if build == target_host {
+      "also build host".to_string()
+    } else {
+      format!("built on '{build}'")
+    }
+  });
+
+  // Delegate to the generic remote validation function
+  remote::validate_closure_remote(
+    &target,
+    system_path,
+    &essential_files,
+    context.as_deref(),
+  )
+}
+
 /// Returns an error indicating that the 'switch-to-configuration' binary is
 /// missing, along with common reasons and solutions.
 fn missing_switch_to_configuration_error() -> color_eyre::eyre::Report {
@@ -796,10 +982,12 @@ fn get_nh_os_flake_env() -> Result<Option<Installable>> {
 /// `bypass_root_check` is true).
 ///
 /// # Arguments
+///
 /// * `bypass_root_check` - If true, bypasses the root check and assumes no
 ///   elevation is needed.
 ///
 /// # Errors
+///
 /// Returns an error if `bypass_root_check` is false and the user is root,
 /// as `nh os` subcommands should not be run directly as root.
 fn has_elevation_status(bypass_root_check: bool) -> Result<bool> {

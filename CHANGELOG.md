@@ -18,10 +18,25 @@ functionality, under the "Removed" section.
 
 ### Changed
 
-- `nh os info` now hides empty columns.
-- `nh os info` now support `--fields` to select which field(s) to display; also
-  add a per-generation "Closure Size" coloumn.
-  ([#375](https://github.com/nix-community/nh/issues/375))
+- Platform commands (`nh os`, `nh home`, `nh darwin`) now support SSH-based
+  remote builds via `--build-host`. The flag now uses proper remote build
+  semantics: derivations are copied to the remote host via `nix-copy-closure`,
+  built remotely, and results are transferred back. This matches `nixos-rebuild`
+  behavior, and is significantly more robust than the previous implementation
+  where `--build-host` would use Nix's `--builders` flag inefficiently.
+  ([#428](https://github.com/nix-community/nh/issues/428),
+  [#497](https://github.com/nix-community/nh/pull/497))
+  - A new `--no-validate` flag skips pre-activation system validation checks.
+    Can also be set via the `NH_NO_VALIDATE` environment variable.
+  - Added `NH_REMOTE_CLEANUP` environment variable. When set, NH will attempt to
+    terminate remote Nix processes on interrupt (Ctrl+C). Opt-in due to
+    fragility.
+- Shell argument splitting now uses `shlex` for proper quote handling in complex
+  command arguments.
+- `nh os info` now support `--fields` to select which field(s) to display
+  ([#375](https://github.com/nix-community/nh/issues/375)).
+  - Empty columns are now hidden by default to avoid visual clutter.
+  - A new, per-generation "Closure Size" column has been added
 - `nh os switch` and `nh os boot` now support the `--install-bootloader` flag,
   which will explicitly set `NIXOS_INSTALL_BOOTLOADER` for
   `switch-to-configuration`. Bootloader behaviour was previously supported by

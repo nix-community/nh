@@ -200,6 +200,7 @@ pub struct OsBuildVmArgs {
 }
 
 #[derive(Debug, Args)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct OsRebuildArgs {
   #[command(flatten)]
   pub common: CommonRebuildArgs,
@@ -232,13 +233,17 @@ pub struct OsRebuildArgs {
   #[arg(short = 'R', long, env = "NH_BYPASS_ROOT_CHECK")]
   pub bypass_root_check: bool,
 
-  /// Deploy the configuration to a different host over ssh
+  /// Deploy the built configuration to a different host over SSH
   #[arg(long)]
   pub target_host: Option<String>,
 
-  /// Build the configuration to a different host over ssh
+  /// Build the configuration on a different host over SSH
   #[arg(long)]
   pub build_host: Option<String>,
+
+  /// Skip pre-activation system validation checks
+  #[arg(long, env = "NH_NO_VALIDATE")]
+  pub no_validate: bool,
 }
 
 #[derive(Debug, Args)]
@@ -543,6 +548,10 @@ pub struct HomeRebuildArgs {
   /// Show activation logs
   #[arg(long, env = "NH_SHOW_ACTIVATION_LOGS")]
   pub show_activation_logs: bool,
+
+  /// Build the configuration on a different host over ssh
+  #[arg(long)]
+  pub build_host: Option<String>,
 }
 
 impl HomeRebuildArgs {
@@ -649,6 +658,10 @@ pub struct DarwinRebuildArgs {
   /// Show activation logs
   #[arg(long, env = "NH_SHOW_ACTIVATION_LOGS")]
   pub show_activation_logs: bool,
+
+  /// Build the configuration on a different host over ssh
+  #[arg(long)]
+  pub build_host: Option<String>,
 }
 
 impl DarwinRebuildArgs {

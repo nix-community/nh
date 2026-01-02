@@ -46,6 +46,122 @@ pub fn generate(out_dir: &str) -> Result<(), String> {
     .to_writer(&mut buffer)
     .map_err(|e| format!("Failed to write exit status section: {}", e))?;
 
+  // ENVIRONMENT section
+  let env_vars = [
+    (
+      "NH_NO_CHECKS",
+      "When set (any non-empty value), skips startup checks such as Nix \
+       version and experimental feature validation. Useful for generating \
+       completions or running in constrained build environments.",
+    ),
+    (
+      "NH_FLAKE",
+      "Preferred path/reference to a directory containing your flake.nix used \
+       by NH when running flake-based commands. Historically FLAKE was used; \
+       NH will migrate FLAKE into NH_FLAKE if present.",
+    ),
+    (
+      "NH_OS_FLAKE",
+      "Command-specific flake reference for nh os commands. Takes precedence \
+       over NH_FLAKE.",
+    ),
+    (
+      "NH_HOME_FLAKE",
+      "Command-specific flake reference for nh home commands. Takes \
+       precedence over NH_FLAKE.",
+    ),
+    (
+      "NH_DARWIN_FLAKE",
+      "Command-specific flake reference for nh darwin commands. Takes \
+       precedence over NH_FLAKE.",
+    ),
+    (
+      "NH_SUDO_ASKPASS",
+      "Path to a program used as SUDO_ASKPASS when NH self-elevates with sudo.",
+    ),
+    (
+      "NH_PRESERVE_ENV",
+      "Controls whether environment variables marked for preservation are \
+       passed to elevated commands. Set to \"0\" to disable, \"1\" to force. \
+       If unset, defaults to enabled.",
+    ),
+    (
+      "NH_SHOW_ACTIVATION_LOGS",
+      "Controls whether activation output is displayed. By default, \
+       activation output is hidden. Setting to \"1\" shows full logs.",
+    ),
+    (
+      "NH_LOG",
+      "Sets the tracing/log filter for NH. Uses tracing_subscriber format \
+       (e.g., nh=trace).",
+    ),
+    (
+      "NH_NOM",
+      "Control whether nix-output-monitor (nom) is enabled for build \
+       processes. Equivalent of --no-nom.",
+    ),
+    (
+      "NH_REMOTE_CLEANUP",
+      "Whether to clean up remote processes on interrupt via pkill. Opt-in \
+       due to fragile behavior.",
+    ),
+    (
+      "NIXOS_INSTALL_BOOTLOADER",
+      "Forwarded to switch-to-configuration. If true, forces bootloader \
+       installation. Also available via --install-bootloader.",
+    ),
+    (
+      "NIX_SSHOPTS",
+      "SSH options passed to Nix commands for remote builds.",
+    ),
+    (
+      "NIX_CONFIG",
+      "Nix configuration options passed to all Nix commands.",
+    ),
+    (
+      "NIX_REMOTE",
+      "Remote store configuration for Nix operations.",
+    ),
+    (
+      "NIX_SSL_CERT_FILE",
+      "SSL certificate file for Nix HTTPS operations.",
+    ),
+    ("NIX_USER_CONF_FILES", "User configuration files for Nix."),
+  ];
+  let mut sect = Roff::new();
+  sect.control("SH", ["ENVIRONMENT"]);
+  for (var, desc) in env_vars {
+    sect.control("IP", [var]).text([roman(desc)]);
+  }
+  sect
+    .to_writer(&mut buffer)
+    .map_err(|e| format!("Failed to write environment section: {}", e))?;
+
+  // FILES section
+  let files = [
+    (
+      "/nix/var/nix/profiles/system",
+      "System profile directory containing system generations.",
+    ),
+    (
+      "/run/current-system",
+      "Symlink to the currently active system profile.",
+    ),
+    (
+      "/etc/specialisation",
+      "NixOS specialisation detection. Contains the active specialisation \
+       name.",
+    ),
+  ];
+  let mut sect = Roff::new();
+  sect.control("SH", ["FILES"]);
+  for (path, desc) in files {
+    sect.control("IP", [path]).text([roman(desc)]);
+  }
+  sect
+    .to_writer(&mut buffer)
+    .map_err(|e| format!("Failed to write files section: {}", e))?;
+
   // EXAMPLES section
   let examples = [
     (
