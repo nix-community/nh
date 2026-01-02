@@ -438,6 +438,10 @@ pub struct CleanArgs {
   /// At least keep gcroots and generations in this time range since now.
   pub keep_since: humantime::Duration,
 
+  /// Keep at least one gcroot per direnv project
+  #[arg(long)]
+  pub keep_one: bool,
+
   /// Only print actions, without performing them
   #[arg(long, short = 'n')]
   pub dry: bool,
