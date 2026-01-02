@@ -143,11 +143,7 @@ pkgs.testers.nixosTest {
         };
 
         system.switch.enable = true;
-        users.users = {
-          root.openssh.authorizedKeys.keys = [ nodes.deployer.system.build.publicKey ];
-          alice.openssh.authorizedKeys.keys = [ nodes.deployer.system.build.publicKey ];
-          bob.openssh.authorizedKeys.keys = [ nodes.deployer.system.build.publicKey ];
-        };
+        users.users.root.openssh.authorizedKeys.keys = [ nodes.deployer.system.build.publicKey ];
 
         services.openssh.enable = true;
         environment.systemPackages = [ nh ];
