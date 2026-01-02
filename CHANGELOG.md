@@ -33,10 +33,10 @@ functionality, under the "Removed" section.
     fragility.
 - Shell argument splitting now uses `shlex` for proper quote handling in complex
   command arguments.
-- `nh os info` now support `--fields` to select which field(s) to display; also
-  add a per-generation "Closure Size" column.
-  ([#375](https://github.com/nix-community/nh/issues/375))
+- `nh os info` now support `--fields` to select which field(s) to display
+  ([#375](https://github.com/nix-community/nh/issues/375)).
   - Empty columns are now hidden by default to avoid visual clutter.
+  - A new, per-generation "Closure Size" column has been added
 - `nh os switch` and `nh os boot` now support the `--install-bootloader` flag,
   which will explicitly set `NIXOS_INSTALL_BOOTLOADER` for
   `switch-to-configuration`. Bootloader behaviour was previously supported by
