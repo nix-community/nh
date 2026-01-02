@@ -14,6 +14,7 @@ use crate::{
   interface::{
     self,
     DiffType,
+    OsBuildImageArgs,
     OsBuildVmArgs,
     OsGenerationsArgs,
     OsRebuildActivateArgs,
@@ -52,6 +53,7 @@ impl interface::OsArgs {
         args.build_only(&Build, None, elevation)
       },
       OsSubcommand::BuildVm(args) => args.build_vm(elevation),
+      OsSubcommand::BuildImage(args) => args.build_image(elevation),
       OsSubcommand::Repl(args) => args.run(),
       OsSubcommand::Info(args) => args.info(),
       OsSubcommand::Rollback(args) => args.rollback(elevation),
@@ -66,6 +68,28 @@ enum OsRebuildVariant {
   Boot,
   Test,
   BuildVm,
+  BuildImage,
+}
+
+impl OsBuildImageArgs {
+  fn build_image(self, elevation: ElevationStrategy) -> Result<()> {
+    let attr = format!("images.{}", self.image_varient);
+    if self.common.hostname.is_none() {
+      let (_, target_hostname) = self.common.setup_build_context()?;
+      tracing::warn!(
+        "Guessing system is {target_hostname} for a VM image. If this isn't \
+         intended, use --hostname to change."
+      );
+    }
+
+    self.common.build_only(
+      &OsRebuildVariant::BuildImage,
+      Some(&attr),
+      elevation,
+    )?;
+
+    Ok(())
+  }
 }
 
 impl OsBuildVmArgs {
@@ -116,7 +140,7 @@ impl OsRebuildActivateArgs {
     final_attr: Option<&String>,
     elevation: ElevationStrategy,
   ) -> Result<()> {
-    use OsRebuildVariant::{Build, BuildVm};
+    use OsRebuildVariant::{Build, BuildImage, BuildVm};
 
     let (elevate, target_hostname) = self.rebuild.setup_build_context()?;
 
@@ -129,6 +153,7 @@ impl OsRebuildActivateArgs {
 
     let message = match variant {
       BuildVm => "Building NixOS VM image",
+      BuildImage => "Building NixOS image",
       _ => "Building NixOS configuration",
     };
 
@@ -141,7 +166,9 @@ impl OsRebuildActivateArgs {
 
     self.rebuild.handle_dix_diff(&target_profile);
 
-    if self.rebuild.common.dry || matches!(variant, Build | BuildVm) {
+    if self.rebuild.common.dry
+      || matches!(variant, Build | BuildVm | BuildImage)
+    {
       if self.rebuild.common.ask {
         warn!("--ask has no effect as dry run was requested");
       }
@@ -437,7 +464,7 @@ impl OsRebuildArgs {
     final_attr: Option<&String>,
     _elevation: ElevationStrategy,
   ) -> Result<()> {
-    use OsRebuildVariant::{Build, BuildVm};
+    use OsRebuildVariant::{Build, BuildImage, BuildVm};
 
     let (_, target_hostname) = self.setup_build_context()?;
 
@@ -448,6 +475,7 @@ impl OsRebuildArgs {
 
     let message = match variant {
       BuildVm => "Building NixOS VM image",
+      BuildImage => "Building NixOS image",
       _ => "Building NixOS configuration",
     };
 
@@ -458,7 +486,7 @@ impl OsRebuildArgs {
     self.handle_dix_diff(&target_profile);
 
     // Build and BuildVm subcommands never activate
-    debug_assert!(matches!(variant, Build | BuildVm));
+    debug_assert!(matches!(variant, Build | BuildVm | BuildImage));
 
     Ok(())
   }
