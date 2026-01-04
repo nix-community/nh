@@ -52,9 +52,9 @@ functionality, under the "Removed" section.
 
 ### Fixed
 
-- `nh os info` support show current generation flag,
-  when actived with a specialisation  [#508](https://github.com/nix-community/nh/issues/508).
-  `nh os info` now only prefixed specialisation name with '\*' when specialisation is actived.
+- `nh os info` now shows the current generation flag,
+  when activated with a specialisation  [#508](https://github.com/nix-community/nh/issues/508).
+  `nh os info` now only prefixes the specialisation name with '\*' when the specialisation is activated.
 - `nh os info` now gracefully handles out-of-sync profiles. When a previous
   switch failed during activation (e.g., a Systemd service failed), the profile
   may be out of sync with `/run/current-system` while in "test mode" via
