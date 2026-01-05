@@ -257,7 +257,7 @@ pub fn describe(generation_dir: &Path) -> Option<GenerationInfo> {
   let specialisations = {
     let specialisation_path = generation_dir.join("specialisation");
     if specialisation_path.exists() {
-      // Only prefixed specialisation name by '*' when it's currently actived
+      // Only prefix specialisation name with '*' when it's currently active
       let specs = fs::read_dir(specialisation_path)
         .map(|entries| {
           let mut specs_vec = entries
