@@ -17,7 +17,7 @@ use crate::{
   },
   remote::{self, RemoteBuildConfig, RemoteHost},
   update::update,
-  util::{get_hostname, print_dix_diff},
+  util::{ensure_ssh_key_login, get_hostname, print_dix_diff},
 };
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
@@ -82,6 +82,10 @@ impl DarwinRebuildArgs {
       update(&self.common.installable, self.update_args.update_input)?;
     }
 
+    if self.build_host.is_some() || self.target_host.is_some() {
+      ensure_ssh_key_login()?;
+    }
+
     let hostname = get_hostname(self.hostname)?;
 
     let (out_path, _tempdir_guard): (PathBuf, Option<tempfile::TempDir>) =
@@ -123,6 +127,21 @@ impl DarwinRebuildArgs {
 
     let toplevel = toplevel_for(hostname, installable, "toplevel")?;
 
+    // Initialize SSH control - guard will cleanup connections on drop
+    let _ssh_guard = if self.build_host.is_some() || self.target_host.is_some()
+    {
+      Some(remote::init_ssh_control())
+    } else {
+      None
+    };
+
+    let target_host = self
+      .target_host
+      .as_ref()
+      .map(|s| RemoteHost::parse(s))
+      .transpose()
+      .wrap_err("Invalid target host specification")?;
+
     // If a build host is specified, use remote build semantics
     if let Some(ref build_host_str) = self.build_host {
       info!("Building Darwin configuration");
@@ -132,7 +151,7 @@ impl DarwinRebuildArgs {
 
       let config = RemoteBuildConfig {
         build_host,
-        target_host: None,
+        target_host,
         use_nom: !self.common.no_nom,
         use_substitutes: self.common.passthrough.use_substitutes,
         extra_args: self
@@ -149,9 +168,6 @@ impl DarwinRebuildArgs {
           )
           .collect(),
       };
-
-      // Initialize SSH control - guard will cleanup connections on drop
-      let _ssh_guard = remote::init_ssh_control();
 
       remote::build_remote(&toplevel, &config, Some(&out_path))
         .wrap_err("Failed to build Darwin configuration")?;
@@ -198,36 +214,63 @@ impl DarwinRebuildArgs {
     }
 
     if matches!(variant, Switch) {
-      Command::new("nix")
-        .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
-        .arg(&out_path)
-        .elevate(Some(elevation.clone()))
-        .dry(self.common.dry)
-        .with_required_env()
-        .run()
-        .wrap_err("Failed to set Darwin system profile")?;
+      if let Some(ref target_host_str) = self.target_host {
+        let target = RemoteHost::parse(target_host_str)
+          .wrap_err("Invalid target host specification")?;
 
-      let darwin_rebuild = out_path.join("sw/bin/darwin-rebuild");
-      let activate_user = out_path.join("activate-user");
+        if out_path.exists() {
+          remote::copy_to_remote(
+            &target,
+            &out_path,
+            self.common.passthrough.use_substitutes,
+          )
+          .context("Failed to copy configuration to target host")?;
+        }
 
-      // Determine if we need to elevate privileges
-      let needs_elevation = !activate_user
-        .try_exists()
-        .context("Failed to check if activate-user file exists")?
-        || std::fs::read_to_string(&activate_user)
-          .context("Failed to read activate-user file")?
-          .contains("# nix-darwin: deprecated");
+        remote::activate_remote(
+          &target,
+          &out_path,
+          &remote::ActivateRemoteConfig {
+            platform:           remote::Platform::Darwin,
+            activation_type:    remote::ActivationType::Switch,
+            install_bootloader: false,
+            show_logs:          self.show_activation_logs,
+            elevation:          Some(elevation),
+          },
+        )
+        .wrap_err("Activation failed")?;
+      } else {
+        Command::new("nix")
+          .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
+          .arg(&out_path)
+          .elevate(Some(elevation.clone()))
+          .dry(self.common.dry)
+          .with_required_env()
+          .run()
+          .wrap_err("Failed to set Darwin system profile")?;
 
-      // Create and run the activation command with or without elevation
-      Command::new(darwin_rebuild)
-        .arg("activate")
-        .message("Activating configuration")
-        .elevate(needs_elevation.then_some(elevation))
-        .dry(self.common.dry)
-        .show_output(self.show_activation_logs)
-        .with_required_env()
-        .run()
-        .wrap_err("Darwin activation failed")?;
+        let darwin_rebuild = out_path.join("sw/bin/darwin-rebuild");
+        let activate_user = out_path.join("activate-user");
+
+        // Determine if we need to elevate privileges
+        let needs_elevation = !activate_user
+          .try_exists()
+          .context("Failed to check if activate-user file exists")?
+          || std::fs::read_to_string(&activate_user)
+            .context("Failed to read activate-user file")?
+            .contains("# nix-darwin: deprecated");
+
+        // Create and run the activation command with or without elevation
+        Command::new(darwin_rebuild)
+          .arg("activate")
+          .message("Activating configuration")
+          .elevate(needs_elevation.then_some(elevation))
+          .dry(self.common.dry)
+          .show_output(self.show_activation_logs)
+          .with_required_env()
+          .run()
+          .wrap_err("Darwin activation failed")?;
+      }
     }
 
     debug!("Completed operation with output path: {out_path:?}");

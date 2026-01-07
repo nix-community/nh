@@ -1100,15 +1100,8 @@ impl ActivationType {
 pub enum Platform {
   /// NixOS system configuration
   NixOS,
-  // TODO: Add Darwin and HomeManager support
-  //
-  // To add support for other platforms:
-  //
-  // 1. Add the platform variant to this enum
-  // 2. Implement platform-specific activation logic in a (private) function
-  // 3. Update `activate_remote()` to dispatch to the new platform handler
-  // Darwin,
-  // HomeManager,
+  /// Darwin system configuration
+  Darwin,
 }
 
 /// Configuration for remote activation operations.
@@ -1155,10 +1148,7 @@ pub fn activate_remote(
 ) -> Result<()> {
   match config.platform {
     Platform::NixOS => activate_nixos_remote(host, system_profile, config),
-    // TODO:
-    // Platform::Darwin => activate_darwin_remote(host, system_profile, config),
-    // Platform::HomeManager => activate_home_remote(host, system_profile,
-    // config),
+    Platform::Darwin => activate_darwin_remote(host, system_profile, config),
   }
 }
 
@@ -1351,6 +1341,86 @@ fn activate_nixos_remote(
         );
       }
     },
+  }
+
+  Ok(())
+}
+
+fn activate_darwin_remote(
+  host: &RemoteHost,
+  system_profile: &Path,
+  config: &ActivateRemoteConfig,
+) -> Result<()> {
+  let ssh_opts = get_ssh_opts();
+
+  let sudo_password = if let Some(ref strategy) = config.elevation {
+    if matches!(
+      strategy,
+      ElevationStrategy::None | ElevationStrategy::Passwordless
+    ) {
+      None
+    } else {
+      let host_str = host.ssh_host();
+      if let Some(cached_password) = get_cached_password(&host_str)? {
+        Some(cached_password)
+      } else {
+        let password =
+          inquire::Password::new(&format!("[sudo] password for {host_str}:"))
+            .without_confirmation()
+            .prompt()
+            .context("Failed to read sudo password")?;
+        if password.is_empty() {
+          bail!("Password cannot be empty");
+        }
+        let secret_password = SecretString::new(password.into());
+        cache_password(&host_str, secret_password.clone())?;
+        Some(secret_password)
+      }
+    }
+  } else {
+    None
+  };
+
+  let darwin_rebuild = system_profile.join("sw/bin/darwin-rebuild");
+
+  let rebuild_path_str = darwin_rebuild
+    .to_str()
+    .ok_or_else(|| eyre!("darwin-rebuild path contains invalid UTF-8"))?;
+
+  let mut ssh_cmd = Exec::cmd("ssh");
+  for opt in &ssh_opts {
+    ssh_cmd = ssh_cmd.arg(opt);
+  }
+  ssh_cmd = ssh_cmd.arg("-T");
+  ssh_cmd = ssh_cmd.arg(host.ssh_host());
+
+  let base_cmd = format!(
+    "{} profile={} activate",
+    shell_quote(rebuild_path_str),
+    shell_quote(&system_profile.to_string_lossy())
+  );
+  let remote_cmd = build_remote_command(config.elevation.as_ref(), &base_cmd)?;
+
+  ssh_cmd = ssh_cmd.arg(remote_cmd);
+
+  if let Some(ref password) = sudo_password {
+    ssh_cmd = ssh_cmd.stdin(format!("{}\n", password.expose_secret()).as_str());
+  }
+
+  if config.show_logs {
+    ssh_cmd = ssh_cmd
+      .stdout(Redirection::Merge)
+      .stderr(Redirection::Merge);
+  }
+
+  debug!(?ssh_cmd, "Activating Darwin configuration");
+
+  let capture = ssh_cmd
+    .capture()
+    .wrap_err("Failed to activate Darwin configuration")?;
+
+  if !capture.exit_status.success() {
+    bail!("Activation failed on '{}':\n{}", host, capture.stderr_str());
   }
 
   Ok(())
