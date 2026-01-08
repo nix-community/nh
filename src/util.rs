@@ -9,7 +9,10 @@ use std::{
   sync::{LazyLock, OnceLock},
 };
 
-use color_eyre::{Result, eyre};
+use color_eyre::{
+  Result,
+  eyre::{self, Context, eyre},
+};
 use regex::Regex;
 use tracing::{debug, info, warn};
 
@@ -354,6 +357,82 @@ pub fn self_elevate(strategy: ElevationStrategy) -> ! {
 
   let err = cmd.exec();
   panic!("{err}");
+}
+
+/// Gets the available image variants for a non-flake installable.
+///
+/// This function uses nix-instantiate to evaluate the available image
+/// variants from a Nix expression or file.
+///
+/// # Arguments
+///
+/// * `installable` - The installable to evaluate
+///
+/// # Returns
+///
+/// * `Result<Vec<String>>` - A vector of available image variant names
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The nix-instantiate command fails
+/// - The JSON output cannot be parsed
+/// - The installable does not have images attribute
+pub fn get_build_image_variants(
+  installable: &crate::installable::Installable,
+) -> Result<Vec<String>> {
+  let result = Command::new("nix-instantiate")
+    .arg("--eval")
+    .arg("--strict")
+    .arg("--json")
+    .args(installable.to_args())
+    .arg("--apply")
+    .arg("builtins.attrNames")
+    .run_capture()?
+    .ok_or_else(|| eyre!("No output from nix-instantiate"))?;
+
+  let variants: Vec<String> = serde_json::from_str(&result)
+    .wrap_err("Failed to parse image variants JSON")?;
+
+  Ok(variants)
+}
+
+/// Gets the available image variants for a flake installable.
+///
+/// This function uses nix eval to evaluate the available image
+/// variants from a flake.
+///
+/// # Arguments
+///
+/// * `installable` - The flake installable to evaluate (should include full
+///   attribute path)
+///
+/// # Returns
+///
+/// * `Result<Vec<String>>` - A vector of available image variant names
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The nix eval command fails
+/// - The JSON output cannot be parsed
+/// - The flake does not have images attribute
+pub fn get_build_image_variants_flake(
+  installable: &crate::installable::Installable,
+) -> Result<Vec<String>> {
+  let result = Command::new("nix")
+    .arg("eval")
+    .arg("--json")
+    .args(installable.to_args())
+    .arg("--apply")
+    .arg("builtins.attrNames")
+    .run_capture()?
+    .ok_or_else(|| eyre!("No output from nix eval"))?;
+
+  let variants: Vec<String> = serde_json::from_str(&result)
+    .wrap_err("Failed to parse image variants JSON")?;
+
+  Ok(variants)
 }
 
 /// Prints the difference between two generations in terms of paths and closure
