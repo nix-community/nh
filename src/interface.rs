@@ -167,6 +167,14 @@ impl OsArgs {
       OsSubcommand::Info(_) | OsSubcommand::Rollback(_) => {
         Box::new(LegacyFeatures)
       },
+
+      OsSubcommand::BuildImage(args) => {
+        if args.common.uses_flakes() {
+          Box::new(FlakeFeatures)
+        } else {
+          Box::new(LegacyFeatures)
+        }
+      },
     }
   }
 }
@@ -196,6 +204,19 @@ pub enum OsSubcommand {
 
   /// Build a `NixOS` VM image
   BuildVm(OsBuildVmArgs),
+
+  /// Build a `NixOS` disk-image variant
+  BuildImage(OsBuildImageArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct OsBuildImageArgs {
+  #[command(flatten)]
+  pub common: OsRebuildArgs,
+
+  /// Image variant
+  #[arg(long)]
+  pub image_variant: String,
 }
 
 #[derive(Debug, Args)]
