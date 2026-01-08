@@ -265,7 +265,12 @@ pub struct OsRebuildActivateArgs {
   pub rebuild: OsRebuildArgs,
 
   /// Show activation logs
-  #[arg(long, env = "NH_SHOW_ACTIVATION_LOGS")]
+  #[arg(
+    long,
+    env = "NH_SHOW_ACTIVATION_LOGS",
+    default_value_t = true,
+    default_missing_value = "true"
+  )]
   pub show_activation_logs: bool,
 }
 
@@ -559,7 +564,12 @@ pub struct HomeRebuildArgs {
   pub backup_extension: Option<String>,
 
   /// Show activation logs
-  #[arg(long, env = "NH_SHOW_ACTIVATION_LOGS")]
+  #[arg(
+    long,
+    env = "NH_SHOW_ACTIVATION_LOGS",
+    default_value_t = true,
+    default_missing_value = "true"
+  )]
   pub show_activation_logs: bool,
 
   /// Build the configuration on a different host over SSH
@@ -669,7 +679,12 @@ pub struct DarwinRebuildArgs {
   pub bypass_root_check: bool,
 
   /// Show activation logs
-  #[arg(long, env = "NH_SHOW_ACTIVATION_LOGS")]
+  #[arg(
+    long,
+    env = "NH_SHOW_ACTIVATION_LOGS",
+    default_value_t = true,
+    default_missing_value = "true"
+  )]
   pub show_activation_logs: bool,
 
   /// Build the configuration on a different host over SSH

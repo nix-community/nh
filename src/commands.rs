@@ -726,26 +726,39 @@ impl Command {
       .message
       .clone()
       .unwrap_or_else(|| "Command failed".to_string());
-    let res = cmd.capture();
-    match res {
-      Ok(capture) => {
-        let status = &capture.exit_status;
-        if !status.success() {
-          let stderr = capture.stderr_str();
-          if stderr.trim().is_empty() {
+
+    if self.show_output {
+      let res = cmd.join();
+      match res {
+        Ok(status) => {
+          if !status.success() {
+            return Err(eyre::eyre!(format!("{msg} (exit status {status:?})")));
+          }
+
+          Ok(())
+        },
+        Err(e) => Err(e).wrap_err(msg),
+      }
+    } else {
+      let res = cmd.capture();
+      match res {
+        Ok(capture) => {
+          let status = &capture.exit_status;
+          if !status.success() {
+            let stderr = capture.stderr_str();
+            if stderr.trim().is_empty() {
+              return Err(eyre::eyre!(format!(
+                "{msg} (exit status {status:?})"
+              )));
+            }
             return Err(eyre::eyre!(format!(
-              "{} (exit status {:?})",
-              msg, status
+              "{msg} (exit status {status:?})\nstderr:\n{stderr}"
             )));
           }
-          return Err(eyre::eyre!(format!(
-            "{} (exit status {:?})\nstderr:\n{}",
-            msg, status, stderr
-          )));
-        }
-        Ok(())
-      },
-      Err(e) => Err(e).wrap_err(msg),
+          Ok(())
+        },
+        Err(e) => Err(e).wrap_err(msg),
+      }
     }
   }
 
