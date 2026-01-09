@@ -1381,6 +1381,47 @@ fn activate_darwin_remote(
     None
   };
 
+  // Step 1: Set the system profile using nix build
+  let mut profile_ssh_cmd = Exec::cmd("ssh");
+  for opt in &ssh_opts {
+    profile_ssh_cmd = profile_ssh_cmd.arg(opt);
+  }
+  // Add -T flag to disable pseudo-terminal allocation (needed for stdin)
+  profile_ssh_cmd = profile_ssh_cmd.arg("-T");
+  profile_ssh_cmd = profile_ssh_cmd.arg(host.ssh_host());
+
+  // Build the remote command using helper function
+  let base_cmd = format!(
+    "nix build --no-link --profile {} {}",
+    DARWIN_SYSTEM_PROFILE,
+    shell_quote(&system_profile.to_string_lossy())
+  );
+  let profile_remote_cmd =
+    build_remote_command(config.elevation.as_ref(), &base_cmd)?;
+
+  profile_ssh_cmd = profile_ssh_cmd.arg(profile_remote_cmd);
+
+  // Pass password via stdin if elevation is needed
+  if let Some(ref password) = sudo_password {
+    profile_ssh_cmd =
+      profile_ssh_cmd.stdin(format!("{}\n", password.expose_secret()).as_str());
+  }
+
+  debug!(?profile_ssh_cmd, "Setting Darwin profile");
+
+  let profile_capture = profile_ssh_cmd
+    .capture()
+    .wrap_err("Failed to set Darwin profile")?;
+
+  if !profile_capture.exit_status.success() {
+    bail!(
+      "Failed to set system profile on '{}':\n{}",
+      host,
+      profile_capture.stderr_str()
+    );
+  }
+
+  // Step 2: Run darwin-rebuild activate
   let darwin_rebuild = system_profile.join("sw/bin/darwin-rebuild");
 
   let rebuild_path_str = darwin_rebuild
@@ -1391,18 +1432,17 @@ fn activate_darwin_remote(
   for opt in &ssh_opts {
     ssh_cmd = ssh_cmd.arg(opt);
   }
+  // Add -T flag to disable pseudo-terminal allocation (needed for stdin)
   ssh_cmd = ssh_cmd.arg("-T");
   ssh_cmd = ssh_cmd.arg(host.ssh_host());
 
-  let base_cmd = format!(
-    "{} profile={} activate",
-    shell_quote(rebuild_path_str),
-    shell_quote(&system_profile.to_string_lossy())
-  );
+  // Build the remote command using helper function
+  let base_cmd = format!("{} activate", shell_quote(rebuild_path_str));
   let remote_cmd = build_remote_command(config.elevation.as_ref(), &base_cmd)?;
 
   ssh_cmd = ssh_cmd.arg(remote_cmd);
 
+  // Pass password via stdin if elevation is needed
   if let Some(ref password) = sudo_password {
     ssh_cmd = ssh_cmd.stdin(format!("{}\n", password.expose_secret()).as_str());
   }
@@ -1429,6 +1469,10 @@ fn activate_darwin_remote(
 /// System profile path for NixOS.
 /// Used by remote activation functions.
 const NIXOS_SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
+
+/// System profile path for Darwin.
+/// Used by remote activation functions.
+const DARWIN_SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
 
 /// Evaluate a flake installable to get its derivation path.
 /// Matches nixos-rebuild-ng: `nix eval --raw <flake>.drvPath`
