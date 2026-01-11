@@ -490,27 +490,6 @@ pub fn get_target_hostname(
     Ok((target_hostname, hostname_mismatch))
 }
 
-/// Common function to activate configurations in `NixOS`
-pub fn activate_nixos_configuration(
-    target_profile: &Path,
-    variant: &str,
-    target_host: Option<String>,
-    elevate: bool,
-    message: &str,
-) -> Result<()> {
-    let switch_to_configuration = target_profile.join("bin").join("switch-to-configuration");
-    let switch_to_configuration = switch_to_configuration.canonicalize().map_err(|e| {
-        color_eyre::eyre::eyre!("Failed to canonicalize switch-to-configuration path: {}", e)
-    })?;
-
-    commands::Command::new(switch_to_configuration)
-        .arg(variant)
-        .ssh(target_host)
-        .message(message)
-        .elevate(elevate)
-        .run()
-}
-
 /// Configuration options for rebuilding workflows
 pub struct RebuildWorkflowConfig<'a> {
     /// The Nix installable representing the configuration

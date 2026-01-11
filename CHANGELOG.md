@@ -18,10 +18,34 @@ functionality, under the "Removed" section.
 
 ### Changed
 
-- `nh os info` now hides empty columns.
-- `nh os info` now support `--fields` to select which field(s) to display; also
-  add a per-generation "Closure Size" coloumn.
-  ([#375](https://github.com/nix-community/nh/issues/375))
+- `--elevation-program` flag was renamed to `--elevation-strategy` with support
+  for `'none'` (no elevation) and `'passwordless'` (for remote hosts with
+  `NOPASSWD` configured) values. The old flag name remains available as an alias
+  for backward compatibility. It may be removed at a later version.
+  ([#434](https://github.com/nix-community/nh/issues/434))
+  - Multi-program remote elevation support: `sudo`, `doas`, `run0`, and `pkexec`
+    are now supported with correct flags for each program
+  - Environment variable `NH_ELEVATION_PROGRAM` is still supported for backward
+    compatibility (falls back to `NH_ELEVATION_STRATEGY` if set)
+- Platform commands (`nh os`, `nh home`, `nh darwin`) now support SSH-based
+  remote builds via `--build-host`. The flag now uses proper remote build
+  semantics: derivations are copied to the remote host via `nix-copy-closure`,
+  built remotely, and results are transferred back. This matches `nixos-rebuild`
+  behavior, and is significantly more robust than the previous implementation
+  where `--build-host` would use Nix's `--builders` flag inefficiently.
+  ([#428](https://github.com/nix-community/nh/issues/428),
+  [#497](https://github.com/nix-community/nh/pull/497))
+  - A new `--no-validate` flag skips pre-activation system validation checks.
+    Can also be set via the `NH_NO_VALIDATE` environment variable.
+  - Added `NH_REMOTE_CLEANUP` environment variable. When set, NH will attempt to
+    terminate remote Nix processes on interrupt (Ctrl+C). Opt-in due to
+    fragility.
+- Shell argument splitting now uses `shlex` for proper quote handling in complex
+  command arguments.
+- `nh os info` now supports `--fields` to select which field(s) to display
+  ([#375](https://github.com/nix-community/nh/issues/375)).
+  - Empty columns are now hidden by default to avoid visual clutter.
+  - A new, per-generation "Closure Size" column has been added
 - `nh os switch` and `nh os boot` now support the `--install-bootloader` flag,
   which will explicitly set `NIXOS_INSTALL_BOOTLOADER` for
   `switch-to-configuration`. Bootloader behaviour was previously supported by
@@ -48,10 +72,15 @@ functionality, under the "Removed" section.
     variable.
   - `nh search` displays a link to the `package.nix` file on the nixpkgs GitHub,
     and also fixes the existing links so that they no longer brokenly point to a
-    non-existent file path on nix flake systems.
+    non-existent file path on Nix flake systems.
 
 ### Fixed
 
+- `nh os info` now gracefully handles out-of-sync profiles. When a previous
+  switch failed during activation (e.g., a Systemd service failed), the profile
+  may be out of sync with `/run/current-system` while in "test mode" via
+  `switch-to-configuration test`. NH now warns about this condition and displays
+  version info from the running system instead of failing with an error.
 - Fixed the whitespace splitting of self-elevated commands so spaces inside
   quotes don't get separated.
 - Missing or "invalid" installable references are now handled more gracefully.
@@ -72,6 +101,8 @@ functionality, under the "Removed" section.
     the installable such as (`./flake.nix#myHost`) in the past and lead to
     confusing behaviour for those unfamiliar. Such arguments are now normalized
     with a warning if NH can parse them.
+- Password caching now works across all remote operations.
+- Empty password validation prevents invalid credential caching.
 
 ### Removed
 

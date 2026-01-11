@@ -2,8 +2,8 @@ use std::{collections::HashMap, fs, path::Path, process};
 
 use chrono::{DateTime, Local, TimeZone, Utc};
 use clap::ValueEnum;
-use color_eyre::eyre::{Result, bail};
-use tracing::debug;
+use color_eyre::eyre::Result;
+use tracing::{debug, warn};
 
 #[derive(Debug, Clone)]
 pub struct GenerationInfo {
@@ -352,7 +352,16 @@ pub fn print_info(
   if let Some(current) = current_generation {
     println!("NixOS {}", current.nixos_version);
   } else {
-    bail!("Error getting current generation!");
+    // Profile out of sync with /run/current-system.
+    // This can happen if a previous switch failed during activation
+    let fallback_version =
+      fs::read_to_string("/run/current-system/nixos-version")
+        .unwrap_or_else(|_| "unknown".to_string());
+    warn!(
+      "Profile is out of sync with /run/current-system. This may happen if a \
+       previous switch failed during activation."
+    );
+    println!("NixOS {fallback_version} (profile may need sync)");
   }
 
   // Conditionally hide columns if they are empty for all generations

@@ -15,10 +15,15 @@ use color_eyre::{
   Result,
   eyre::{Context, bail, eyre},
 };
+use secrecy::{ExposeSecret, SecretString};
 use subprocess::{Exec, ExitStatus, Redirection};
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
-use crate::{installable::Installable, util::NixVariant};
+use crate::{
+  commands::{ElevationStrategy, cache_password, get_cached_password},
+  installable::Installable,
+  util::NixVariant,
+};
 
 /// Global flag indicating whether a SIGINT (Ctrl+C) was received.
 static INTERRUPTED: OnceLock<Arc<AtomicBool>> = OnceLock::new();
@@ -33,6 +38,112 @@ fn get_interrupt_flag() -> &'static Arc<AtomicBool> {
 
 /// Cache for signal handler registration status.
 static HANDLER_REGISTERED: OnceLock<()> = OnceLock::new();
+
+/// Builds a remote command string with proper elevation handling.
+///
+/// Constructs the command to execute on the remote host, wrapping it with
+/// the appropriate elevation program (sudo/doas/etc) based on the strategy.
+///
+/// # Arguments
+/// * `strategy` - Optional elevation strategy to use
+/// * `base_cmd` - The base command to execute
+///
+/// # Returns
+/// The complete command string to execute on the remote
+///
+/// # Errors
+/// Returns error if:
+/// - Elevation program cannot be resolved
+/// - Elevation program name cannot be determined
+fn build_remote_command(
+  strategy: Option<&ElevationStrategy>,
+  base_cmd: &str,
+) -> Result<String> {
+  if let Some(strategy) = strategy {
+    if matches!(strategy, ElevationStrategy::None) {
+      return Ok(base_cmd.to_string());
+    }
+
+    let program = strategy.resolve()?;
+    let program_name = program
+      .file_name()
+      .and_then(|name| name.to_str())
+      .ok_or_else(|| eyre!("Failed to determine elevation program name"))?;
+
+    match (program_name, strategy) {
+      // sudo passwordless: use --non-interactive to fail if password required
+      ("sudo", ElevationStrategy::Passwordless) => {
+        Ok(format!(
+          "{} --non-interactive {}",
+          program.display(),
+          base_cmd
+        ))
+      },
+      ("sudo", _) => {
+        Ok(format!(
+          "{} --prompt= --stdin {}",
+          program.display(),
+          base_cmd
+        ))
+      },
+      // doas passwordless: use -n flag (non-interactive)
+      ("doas", ElevationStrategy::Passwordless) => {
+        Ok(format!("{} -n {}", program.display(), base_cmd))
+      },
+      ("doas", _) => {
+        bail!(
+          "doas does not support stdin password input for remote deployment. \
+           Use --elevation-strategy=passwordless if remote has NOPASSWD \
+           configured."
+        )
+      },
+      // run0 passwordless: use --no-ask-password flag
+      ("run0", ElevationStrategy::Passwordless) => {
+        Ok(format!(
+          "{} --no-ask-password {}",
+          program.display(),
+          base_cmd
+        ))
+      },
+      ("run0", _) => {
+        bail!(
+          "run0 does not support stdin password input for remote deployment. \
+           Use --elevation-strategy=passwordless if authentication is not \
+           required."
+        )
+      },
+      // pkexec: no passwordless support
+      ("pkexec", _) => {
+        bail!(
+          "pkexec does not support non-interactive password input for remote \
+           deployment. pkexec requires a polkit agent which is not available \
+           over SSH."
+        )
+      },
+      // Unknown program: bail instead of guessing
+      (_, ElevationStrategy::Passwordless) => {
+        bail!(
+          "Unknown elevation program '{}' does not have known passwordless \
+           support. Only sudo, doas, and run0 are supported with \
+           --elevation-strategy=passwordless",
+          program_name
+        )
+      },
+      (..) => {
+        bail!(
+          "Unknown elevation program '{}' does not support stdin password \
+           input for remote deployment. Only sudo supports password input \
+           over SSH. Use --elevation-strategy=passwordless if remote has \
+           passwordless elevation configured, or use a known elevation \
+           program (sudo/doas/run0).",
+          program_name
+        )
+      },
+    }
+  } else {
+    Ok(base_cmd.to_string())
+  }
+}
 
 /// Register a SIGINT handler that sets the global interrupt flag.
 ///
@@ -168,19 +279,53 @@ fn get_ssh_control_dir() -> &'static PathBuf {
     let control_dir = base.join(format!("nh-ssh-{}", std::process::id()));
 
     // Create the directory if it doesn't exist
-    if let Err(e) = std::fs::create_dir_all(&control_dir) {
+    if let Err(e1) = std::fs::create_dir_all(&control_dir) {
       debug!(
-        "Failed to create SSH control directory at {}: {e}",
+        "Failed to create SSH control directory at {}: {e1}",
         control_dir.display()
       );
+
       // Fall back to /tmp/nh-ssh-<pid> - try creating there instead
       let fallback_dir =
         PathBuf::from("/tmp").join(format!("nh-ssh-{}", std::process::id()));
+
+      // As a last resort, if *all else* fails, we construct a unique
+      // subdirectory under /tmp with PID and full timestamp to preserve
+      // process isolation and avoid collisions between concurrent invocations
       if let Err(e2) = std::fs::create_dir_all(&fallback_dir) {
-        // Last resort: use /tmp directly (socket will be /tmp/ssh-%n)
-        // This is not ideal but better than failing entirely
-        debug!("Failed to create fallback SSH control directory: {e2}");
-        return PathBuf::from("/tmp");
+        let timestamp = std::time::SystemTime::now()
+          .duration_since(std::time::UNIX_EPOCH)
+          .map_or(0, |d| {
+            d.as_secs() * 1_000_000_000 + u64::from(d.subsec_nanos())
+          });
+
+        let unique_dir = PathBuf::from("/tmp").join(format!(
+          "nh-ssh-{}-{}",
+          std::process::id(),
+          timestamp
+        ));
+
+        if let Err(e3) = std::fs::create_dir_all(&unique_dir) {
+          error!(
+            "Failed to create SSH control directory after exhausting all \
+             fallbacks. Errors: (1) {}: {e1}, (2) {}: {e2}, (3) {}: {e3}. SSH \
+             operations will likely fail.",
+            control_dir.display(),
+            fallback_dir.display(),
+            unique_dir.display()
+          );
+
+          // Return the path anyway; SSH will fail with a clear error if
+          // directory creation is truly impossible, and at this point we
+          // are out of options.
+          return unique_dir;
+        }
+
+        debug!(
+          "Created unique SSH control directory: {}",
+          unique_dir.display()
+        );
+        return unique_dir;
       }
       return fallback_dir;
     }
@@ -204,7 +349,14 @@ pub struct RemoteHost {
 }
 
 impl RemoteHost {
-  /// Get the hostname part (without user@ prefix).
+  /// Get the hostname part without the `user@` prefix.
+  ///
+  /// Used for hostname comparisons when determining if two `RemoteHost`
+  /// instances refer to the same physical host (e.g., detecting when
+  /// `build_host` == `target_host` regardless of different user credentials).
+  ///
+  /// Returns the bracketed IPv6 address as-is if present (e.g.,
+  /// `[2001:db8::1]`).
   ///
   /// # Panics
   ///
@@ -298,10 +450,41 @@ impl RemoteHost {
     })
   }
 
-  /// Get the host string for use with nix-copy-closure and SSH.
+  /// Get the SSH-compatible host string.
+  ///
+  /// Strips brackets from IPv6 addresses since SSH doesn't accept them.
+  /// Preserves zone IDs (`%eth0`) and `user@` prefix if present.
+  ///
+  /// Examples:
+  ///
+  /// - `[2001:db8::1]` -> `2001:db8::1`
+  /// - `user@[2001:db8::1]` -> `user@2001:db8::1`
+  /// - `[fe80::1%eth0]` -> `fe80::1%eth0`
+  /// - `host.example` -> `host.example`
   #[must_use]
-  pub fn host(&self) -> &str {
-    &self.host
+  pub fn ssh_host(&self) -> String {
+    let hostname = self.hostname();
+
+    // Check for bracketed IPv6 address
+    if hostname.starts_with('[') && hostname.ends_with(']') {
+      let inner = &hostname[1..hostname.len() - 1];
+
+      // Validate it's actually a valid IPv6 address
+      // Split on '%' to validate only the address part (zone ID is
+      // SSH-specific)
+      let addr_part = inner.split('%').next().unwrap_or(inner);
+      if addr_part.parse::<std::net::Ipv6Addr>().is_ok() {
+        // Reconstruct with user@ prefix if present
+        if let Some(at_pos) = self.host.find('@') {
+          let user = &self.host[..at_pos];
+          return format!("{user}@{inner}");
+        }
+        return inner.to_string();
+      }
+    }
+
+    // Not IPv6 or not bracketed, return as-is
+    self.host.clone()
   }
 }
 
@@ -388,6 +571,117 @@ fn get_nix_sshopts_env() -> String {
   }
 }
 
+/// Check if remote cleanup is enabled via environment variable.
+///
+/// Returns `true` if `NH_REMOTE_CLEANUP` is set to a truthy value:
+/// "1", "true", "yes" (case-insensitive).
+///
+/// Returns `false` if unset, empty, or set to any other value.
+fn should_cleanup_remote() -> bool {
+  env::var("NH_REMOTE_CLEANUP").is_ok_and(|val| {
+    let val = val.trim().to_lowercase();
+    val == "1" || val == "true" || val == "yes"
+  })
+}
+
+/// Attempt to clean up a remote process using pkill.
+///
+/// This is a best-effort (and opt-in) operation called when the user interrupts
+/// a remote build. It tries to terminate the remote nix process via SSH and
+/// pkill, but is inherently fragile due to the nature of remote building
+/// semantics.
+///
+/// # Arguments
+///
+/// * `host` - The remote host where the process is running
+/// * `remote_cmd` - The original command that was run remotely, used for pkill
+///   matching
+fn attempt_remote_cleanup(host: &RemoteHost, remote_cmd: &str) {
+  if !should_cleanup_remote() {
+    return;
+  }
+
+  let ssh_opts = get_ssh_opts();
+  let quoted_cmd = shell_quote(remote_cmd); // for safe passing through pkill's --full argument
+
+  // Build the pkill command:
+  // pkill -INT --full '<quoted_cmd>' will match the exact command line
+  let pkill_cmd = format!("pkill -INT --full {quoted_cmd}");
+
+  // Build SSH command with stderr capture for diagnostics
+  let mut ssh_cmd = Exec::cmd("ssh").stderr(Redirection::Pipe);
+  for opt in &ssh_opts {
+    ssh_cmd = ssh_cmd.arg(opt);
+  }
+  ssh_cmd = ssh_cmd.arg(host.ssh_host()).arg(&pkill_cmd);
+
+  debug!("Attempting remote cleanup on '{host}': pkill -INT --full <command>");
+
+  // Use popen with timeout to avoid hanging on unresponsive hosts
+  let mut process = match ssh_cmd.popen() {
+    Ok(p) => p,
+    Err(e) => {
+      info!("Failed to execute remote cleanup on '{host}': {e}");
+      return;
+    },
+  };
+
+  // Wait up to 5 seconds for cleanup to complete
+  let timeout = Duration::from_secs(5);
+  match process.wait_timeout(timeout) {
+    Ok(Some(_)) => {
+      // Process exited, check status below
+    },
+    Ok(None) => {
+      // Timeout - kill the process and continue
+      let _ = process.kill();
+      let _ = process.wait();
+      info!("Remote cleanup on '{host}' timed out after 5 seconds");
+      return;
+    },
+    Err(e) => {
+      info!("Error waiting for remote cleanup on '{host}': {e}");
+      return;
+    },
+  }
+
+  // Check exit status
+  if let Some(exit_status) = process.exit_status() {
+    if exit_status.success() {
+      info!("Cleaned up remote process on '{}'", host);
+    } else {
+      // Capture stderr for error diagnosis
+      let stderr = process.stderr.take().map_or_else(String::new, |mut e| {
+        let mut s = String::new();
+        let _ = e.read_to_string(&mut s);
+        s
+      });
+      let stderr_lower = stderr.to_lowercase();
+
+      if stderr.contains("No matching processes")
+        || stderr_lower.contains("0 processes")
+      {
+        debug!(
+          "No matching process found on '{host}' during cleanup (may have \
+           already exited)"
+        );
+      } else if stderr_lower.contains("not found")
+        || stderr_lower.contains("command not found")
+      {
+        info!("pkill not available on '{}', skipping remote cleanup", host);
+      } else if stderr_lower.contains("permission denied")
+        || stderr_lower.contains("operation not permitted")
+      {
+        info!(
+          "Permission denied for pkill on '{host}', skipping remote cleanup",
+        );
+      } else {
+        info!("Remote cleanup on '{host}' returned non-zero exit status");
+      }
+    }
+  }
+}
+
 /// Get the flake experimental feature flags required for `nix` commands.
 ///
 /// Returns the flags needed for `--extra-experimental-features "nix-command
@@ -440,7 +734,7 @@ fn run_remote_command(
   for opt in &ssh_opts {
     cmd = cmd.arg(opt);
   }
-  cmd = cmd.arg(host.host()).arg(&remote_cmd);
+  cmd = cmd.arg(host.ssh_host()).arg(&remote_cmd);
 
   if capture_stdout {
     cmd = cmd.stdout(Redirection::Pipe).stderr(Redirection::Pipe);
@@ -475,7 +769,9 @@ fn copy_closure_to(
 ) -> Result<()> {
   info!("Copying closure to build host '{}'", host);
 
-  let mut cmd = Exec::cmd("nix-copy-closure").arg("--to").arg(host.host());
+  let mut cmd = Exec::cmd("nix-copy-closure")
+    .arg("--to")
+    .arg(host.ssh_host());
 
   if use_substitutes {
     cmd = cmd.arg("--use-substitutes");
@@ -560,7 +856,7 @@ pub fn validate_closure_remote(
   // Execute batch check using SSH with proper connection multiplexing
   let check_result = std::process::Command::new("ssh")
     .args(&ssh_opts)
-    .arg(host.host())
+    .arg(host.ssh_host())
     .arg(&batch_command)
     .output();
 
@@ -578,7 +874,7 @@ pub fn validate_closure_remote(
   {
     let check_result = std::process::Command::new("ssh")
       .args(&ssh_opts)
-      .arg(host.host())
+      .arg(host.ssh_host())
       .arg(test_cmd)
       .output();
 
@@ -614,7 +910,8 @@ pub fn validate_closure_remote(
        the target host\n\nTo fix this:\n1. Verify your configuration enables \
        all required components\n2. Ensure the complete closure was copied: \
        nix copy --to ssh://{} {}\n3. Rebuild your configuration if the \
-       problem persists",
+       problem persists\n4. Use --no-validate to bypass this check if you're \
+       certain the system is correctly configured",
       host_context,
       closure_path.display(),
       missing_list,
@@ -634,7 +931,9 @@ fn copy_closure_from(
 ) -> Result<()> {
   info!("Copying result from build host '{host}'");
 
-  let mut cmd = Exec::cmd("nix-copy-closure").arg("--from").arg(host.host());
+  let mut cmd = Exec::cmd("nix-copy-closure")
+    .arg("--from")
+    .arg(host.ssh_host());
 
   if use_substitutes {
     cmd = cmd.arg("--use-substitutes");
@@ -659,6 +958,70 @@ fn copy_closure_from(
   Ok(())
 }
 
+/// Copy a Nix closure from localhost to a remote host.
+///
+/// Uses `nix copy --to ssh://host` to transfer a store path and its
+/// dependencies from the local Nix store to a remote machine via SSH.
+///
+/// When `use_substitutes` is enabled, the remote host will attempt to fetch
+/// missing paths from configured binary caches instead of transferring them
+/// over SSH, which can significantly improve performance and reduce bandwidth
+/// usage.
+///
+/// # Arguments
+///
+/// * `host` - The remote host to copy the closure to. SSH connection
+///   multiplexing and options from `NIX_SSHOPTS` are automatically applied.
+/// * `path` - The store path to copy (e.g., `/nix/store/xxx-nixos-system`). All
+///   dependencies (the complete closure) are copied automatically.
+/// * `use_substitutes` - When `true`, adds `--substitute-on-destination` to
+///   allow the remote host to fetch missing paths from binary caches instead of
+///   transferring them over SSH.
+///
+/// # Returns
+///
+/// Returns `Ok(())` on success, or an error if the copy operation fails.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// - The SSH connection to the remote host fails
+/// - The `nix copy` command fails (e.g., insufficient disk space on remote,
+///   network issues, authentication failures)
+/// - The path does not exist in the local store
+pub fn copy_to_remote(
+  host: &RemoteHost,
+  path: &Path,
+  use_substitutes: bool,
+) -> Result<()> {
+  info!("Copying closure to remote host '{}'", host);
+
+  let flake_flags = get_flake_flags();
+  let mut cmd = Exec::cmd("nix")
+    .args(&flake_flags)
+    .args(&["copy", "--to"])
+    .arg(format!("ssh://{}", host.ssh_host()));
+
+  if use_substitutes {
+    cmd = cmd.arg("--substitute-on-destination");
+  }
+
+  cmd = cmd.arg(path).env("NIX_SSHOPTS", get_nix_sshopts_env());
+
+  debug!(?cmd, "nix copy --to");
+
+  let capture = cmd
+    .capture()
+    .wrap_err("Failed to copy closure to remote host")?;
+
+  if !capture.exit_status.success() {
+    bail!("nix copy --to '{}' failed:\n{}", host, capture.stderr_str());
+  }
+
+  Ok(())
+}
+
 /// Copy a Nix closure from one remote host to another.
 /// Uses `nix copy --from ssh://source --to ssh://dest`.
 fn copy_closure_between_remotes(
@@ -673,9 +1036,9 @@ fn copy_closure_between_remotes(
   let mut cmd = Exec::cmd("nix")
     .args(&flake_flags)
     .args(&["copy", "--from"])
-    .arg(format!("ssh://{}", from_host.host()))
+    .arg(format!("ssh://{}", from_host.ssh_host()))
     .arg("--to")
-    .arg(format!("ssh://{}", to_host.host()));
+    .arg(format!("ssh://{}", to_host.ssh_host()));
 
   if use_substitutes {
     cmd = cmd.arg("--substitute-on-destination");
@@ -700,6 +1063,302 @@ fn copy_closure_between_remotes(
 
   Ok(())
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Represents the type of activation to perform on a remote system.
+///
+/// This determines which action the system's activation script will execute.
+pub enum ActivationType {
+  /// Run the configuration in a test mode without activating
+  Test,
+
+  /// Atomically switch to the new configuration
+  Switch,
+
+  /// Make the new configuration the default boot option
+  Boot,
+}
+
+impl ActivationType {
+  /// Get the string representation used by activation scripts.
+  #[must_use]
+  pub const fn as_str(self) -> &'static str {
+    match self {
+      Self::Test => "test",
+      Self::Switch => "switch",
+      Self::Boot => "boot",
+    }
+  }
+}
+
+/// Represents the target platform for remote operations.
+///
+/// This enum allows the remote module to support multiple platforms while
+/// keeping the implementation generic. Currently only NixOS is implemented.
+/// Other platforms can be added in the future.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Platform {
+  /// NixOS system configuration
+  NixOS,
+  // TODO: Add Darwin and HomeManager support
+  //
+  // To add support for other platforms:
+  //
+  // 1. Add the platform variant to this enum
+  // 2. Implement platform-specific activation logic in a (private) function
+  // 3. Update `activate_remote()` to dispatch to the new platform handler
+  // Darwin,
+  // HomeManager,
+}
+
+/// Configuration for remote activation operations.
+#[derive(Debug)]
+pub struct ActivateRemoteConfig {
+  /// The target platform for activation
+  pub platform: Platform,
+
+  /// The type of activation to perform
+  pub activation_type: ActivationType,
+
+  /// Whether to install the bootloader during activation
+  pub install_bootloader: bool,
+
+  /// Whether to show output logs during activation
+  pub show_logs: bool,
+
+  /// Elevation strategy for remote activation commands.
+  ///
+  /// - `None`: No elevation, run commands as the remote user
+  /// - `Some(strategy)`: Use the specified elevation strategy (sudo, doas,
+  ///   etc.)
+  pub elevation: Option<crate::commands::ElevationStrategy>,
+}
+
+/// Activate a system configuration on a remote host.
+///
+/// Currently only supports NixOS.
+///
+/// # Arguments
+///
+/// * `host` - The remote host to activate on
+/// * `system_profile` - The path to the NixOS system profile (e.g.,
+///   /nix/var/nix/profiles/system)
+/// * `config` - Activation configuration options
+///
+/// # Errors
+///
+/// Returns an error if SSH connection fails or activation commands fail.
+pub fn activate_remote(
+  host: &RemoteHost,
+  system_profile: &Path,
+  config: &ActivateRemoteConfig,
+) -> Result<()> {
+  match config.platform {
+    Platform::NixOS => activate_nixos_remote(host, system_profile, config),
+    // TODO:
+    // Platform::Darwin => activate_darwin_remote(host, system_profile, config),
+    // Platform::HomeManager => activate_home_remote(host, system_profile,
+    // config),
+  }
+}
+
+/// Activate a NixOS system configuration on a remote host.
+///
+/// Handles the SSH commands required to activate a NixOS system. Supports
+/// test, switch, and boot activation types.
+///
+/// # Arguments
+///
+/// * `host` - The remote host to activate on
+/// * `system_profile` - The path to the NixOS system profile
+/// * `config` - Activation configuration options
+///
+/// # Errors
+///
+/// Returns an error if SSH connection fails or activation commands fail.
+fn activate_nixos_remote(
+  host: &RemoteHost,
+  system_profile: &Path,
+  config: &ActivateRemoteConfig,
+) -> Result<()> {
+  let ssh_opts = get_ssh_opts();
+
+  // Prompt for password if elevation is needed
+  // Skip for None (no elevation) and Passwordless (remote has NOPASSWD
+  // configured)
+  let sudo_password = if let Some(ref strategy) = config.elevation {
+    if matches!(
+      strategy,
+      ElevationStrategy::None | ElevationStrategy::Passwordless
+    ) {
+      // None: no elevation program used
+      // Passwordless: elevation program used but no password needed
+      None
+    } else {
+      let host_str = host.ssh_host();
+      if let Some(cached_password) = get_cached_password(&host_str)? {
+        Some(cached_password)
+      } else {
+        let password =
+          inquire::Password::new(&format!("[sudo] password for {host_str}:"))
+            .without_confirmation()
+            .prompt()
+            .context("Failed to read sudo password")?;
+        if password.is_empty() {
+          bail!("Password cannot be empty");
+        }
+        let secret_password = SecretString::new(password.into());
+        cache_password(&host_str, secret_password.clone())?;
+        Some(secret_password)
+      }
+    }
+  } else {
+    None
+  };
+
+  let switch_to_config = system_profile.join("bin/switch-to-configuration");
+
+  let switch_path_str = switch_to_config.to_str().ok_or_else(|| {
+    eyre!("switch-to-configuration path contains invalid UTF-8")
+  })?;
+
+  match config.activation_type {
+    ActivationType::Test | ActivationType::Switch => {
+      let action = config.activation_type.as_str();
+
+      let mut ssh_cmd = Exec::cmd("ssh");
+      for opt in &ssh_opts {
+        ssh_cmd = ssh_cmd.arg(opt);
+      }
+      // Add -T flag to disable pseudo-terminal allocation (needed for stdin)
+      ssh_cmd = ssh_cmd.arg("-T");
+      ssh_cmd = ssh_cmd.arg(host.ssh_host());
+
+      // Build the remote command using helper function
+      let base_cmd = format!("{} {}", shell_quote(switch_path_str), action);
+      let remote_cmd =
+        build_remote_command(config.elevation.as_ref(), &base_cmd)?;
+
+      ssh_cmd = ssh_cmd.arg(remote_cmd);
+
+      // Pass password via stdin if elevation is needed
+      if let Some(ref password) = sudo_password {
+        ssh_cmd =
+          ssh_cmd.stdin(format!("{}\n", password.expose_secret()).as_str());
+      }
+
+      if config.show_logs {
+        ssh_cmd = ssh_cmd
+          .stdout(Redirection::Merge)
+          .stderr(Redirection::Merge);
+      }
+
+      debug!(?ssh_cmd, "Activating NixOS configuration");
+
+      let capture = ssh_cmd
+        .capture()
+        .wrap_err("Failed to activate NixOS configuration")?;
+
+      if !capture.exit_status.success() {
+        bail!(
+          "Activation ({}) failed on '{}':\n{}",
+          action,
+          host,
+          capture.stderr_str()
+        );
+      }
+    },
+
+    ActivationType::Boot => {
+      let mut profile_ssh_cmd = Exec::cmd("ssh");
+      for opt in &ssh_opts {
+        profile_ssh_cmd = profile_ssh_cmd.arg(opt);
+      }
+      // Add -T flag to disable pseudo-terminal allocation (needed for stdin)
+      profile_ssh_cmd = profile_ssh_cmd.arg("-T");
+      profile_ssh_cmd = profile_ssh_cmd.arg(host.ssh_host());
+
+      // Build the remote command using helper function
+      let base_cmd = format!(
+        "nix build --no-link --profile {} {}",
+        NIXOS_SYSTEM_PROFILE,
+        shell_quote(&system_profile.to_string_lossy())
+      );
+      let profile_remote_cmd =
+        build_remote_command(config.elevation.as_ref(), &base_cmd)?;
+
+      profile_ssh_cmd = profile_ssh_cmd.arg(profile_remote_cmd);
+
+      // Pass password via stdin if elevation is needed
+      if let Some(ref password) = sudo_password {
+        profile_ssh_cmd = profile_ssh_cmd
+          .stdin(format!("{}\n", password.expose_secret()).as_str());
+      }
+
+      debug!(?profile_ssh_cmd, "Setting NixOS profile");
+
+      let profile_capture = profile_ssh_cmd
+        .capture()
+        .wrap_err("Failed to set NixOS profile")?;
+
+      if !profile_capture.exit_status.success() {
+        bail!(
+          "Failed to set system profile on '{}':\n{}",
+          host,
+          profile_capture.stderr_str()
+        );
+      }
+
+      let mut boot_ssh_cmd = Exec::cmd("ssh");
+      for opt in &ssh_opts {
+        boot_ssh_cmd = boot_ssh_cmd.arg(opt);
+      }
+      // Add -T flag to disable pseudo-terminal allocation (needed for stdin)
+      boot_ssh_cmd = boot_ssh_cmd.arg("-T");
+      boot_ssh_cmd = boot_ssh_cmd.arg(host.ssh_host());
+
+      // Build the remote command using helper function
+      let boot_remote_cmd = if config.install_bootloader {
+        let base_cmd = format!(
+          "NIXOS_INSTALL_BOOTLOADER=1 {} boot",
+          shell_quote(switch_path_str)
+        );
+        build_remote_command(config.elevation.as_ref(), &base_cmd)?
+      } else {
+        let base_cmd = format!("{} boot", shell_quote(switch_path_str));
+        build_remote_command(config.elevation.as_ref(), &base_cmd)?
+      };
+
+      boot_ssh_cmd = boot_ssh_cmd.arg(boot_remote_cmd);
+
+      // Pass password via stdin if elevation is needed
+      if let Some(ref password) = sudo_password {
+        boot_ssh_cmd = boot_ssh_cmd
+          .stdin(format!("{}\n", password.expose_secret()).as_str());
+      }
+
+      debug!(?boot_ssh_cmd, "Bootloader activation");
+
+      let boot_capture = boot_ssh_cmd
+        .capture()
+        .wrap_err("Bootloader activation failed")?;
+
+      if !boot_capture.exit_status.success() {
+        bail!(
+          "Bootloader activation failed on '{}':\n{}",
+          host,
+          boot_capture.stderr_str()
+        );
+      }
+    },
+  }
+
+  Ok(())
+}
+
+/// System profile path for NixOS.
+/// Used by remote activation functions.
+const NIXOS_SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
 
 /// Evaluate a flake installable to get its derivation path.
 /// Matches nixos-rebuild-ng: `nix eval --raw <flake>.drvPath`
@@ -871,7 +1530,14 @@ pub fn build_remote(
         "Skipping copy from build host to target host (same host: {})",
         build_host.hostname()
       );
-      out_link.is_some()
+
+      // When build_host == target_host and both are remote, the result is
+      // already where it needs to be. No need to copy to localhost even if
+      // out_link is requested, since the closure will be activated remotely.
+      // This is a little confusing, but frankly, respecting --out-link to
+      // create a local path while everything happens remotely is a bit
+      // more confusing.
+      false
     },
     Some(target_host) => {
       match copy_closure_between_remotes(
@@ -906,13 +1572,22 @@ pub fn build_remote(
     copy_closure_from(build_host, &out_path, use_substitutes)?;
   }
 
-  // Create local out-link if requested
+  // Create local out-link if requested and the result is in local store
+  // When build_host == target_host (both remote), skip out-link creation
+  // since the closure is remote and won't be copied to localhost
   if let Some(link) = out_link {
-    debug!("Creating out-link: {} -> {}", link.display(), out_path);
-    // Remove existing symlink/file if present
-    let _ = std::fs::remove_file(link);
-    std::os::unix::fs::symlink(&out_path, link)
-      .wrap_err("Failed to create out-link")?;
+    if need_local_copy {
+      debug!("Creating out-link: {} -> {}", link.display(), out_path);
+      // Remove existing symlink/file if present
+      let _ = std::fs::remove_file(link);
+      std::os::unix::fs::symlink(&out_path, link)
+        .wrap_err("Failed to create out-link")?;
+    } else {
+      debug!(
+        "Skipping out-link creation: result is on remote host and not copied \
+         to localhost"
+      );
+    }
   }
 
   Ok(PathBuf::from(out_path))
@@ -991,7 +1666,7 @@ fn build_on_remote_simple(
     ssh_cmd = ssh_cmd.arg(opt);
   }
   ssh_cmd = ssh_cmd
-    .arg(&host.host)
+    .arg(host.ssh_host())
     .arg(&remote_cmd)
     .stdout(Redirection::Pipe)
     .stderr(Redirection::Pipe);
@@ -1007,8 +1682,13 @@ fn build_on_remote_simple(
         // Check interrupt flag while waiting
         if get_interrupt_flag().load(Ordering::Relaxed) {
           debug!("Interrupt detected, killing SSH process");
+
           let _ = process.kill();
-          let _ = process.wait(); // Reap zombie
+          let _ = process.wait(); // reap zombie
+
+          // Attempt remote cleanup if enabled
+          attempt_remote_cleanup(host, &remote_cmd);
+
           bail!("Operation interrupted by user");
         }
       },
@@ -1082,7 +1762,7 @@ fn build_on_remote_with_nom(
     ssh_cmd = ssh_cmd.arg(opt);
   }
   ssh_cmd = ssh_cmd
-    .arg(host.host())
+    .arg(host.ssh_host())
     .arg(&remote_cmd)
     .stdout(Redirection::Pipe)
     .stderr(Redirection::Merge);
@@ -1104,17 +1784,24 @@ fn build_on_remote_with_nom(
   let poll_interval = Duration::from_millis(100);
 
   for proc in &mut processes {
-    #[allow(clippy::needless_continue, reason = "Better for explicitness")]
+    #[allow(
+      clippy::needless_continue,
+      reason = "Better for explicitness and consistency"
+    )]
     loop {
       // Check interrupt flag before waiting
       if get_interrupt_flag().load(Ordering::Relaxed) {
         debug!("Interrupt detected during build with nom");
-        // Kill remaining local processes - this will cause SSH to terminate
+        // Kill remaining local processes. This will cause SSH to terminate
         // the remote command automatically
         for p in &mut processes {
           let _ = p.kill();
-          let _ = p.wait(); // Reap zombie
+          let _ = p.wait(); // reap zombie
         }
+
+        // Attempt remote cleanup if enabled
+        attempt_remote_cleanup(host, &remote_cmd);
+
         bail!("Operation interrupted by user");
       }
 
@@ -1238,39 +1925,39 @@ mod tests {
   #[test]
   fn test_parse_bare_hostname() {
     let host = RemoteHost::parse("buildserver").expect("should parse");
-    assert_eq!(host.host(), "buildserver");
+    assert_eq!(host.to_string(), "buildserver");
   }
 
   #[test]
   fn test_parse_user_at_hostname() {
     let host = RemoteHost::parse("root@buildserver").expect("should parse");
-    assert_eq!(host.host(), "root@buildserver");
+    assert_eq!(host.to_string(), "root@buildserver");
   }
 
   #[test]
   fn test_parse_ssh_uri_stripped() {
     let host = RemoteHost::parse("ssh://buildserver").expect("should parse");
-    assert_eq!(host.host(), "buildserver");
+    assert_eq!(host.to_string(), "buildserver");
   }
 
   #[test]
   fn test_parse_ssh_ng_uri_stripped() {
     let host = RemoteHost::parse("ssh-ng://buildserver").expect("should parse");
-    assert_eq!(host.host(), "buildserver");
+    assert_eq!(host.to_string(), "buildserver");
   }
 
   #[test]
   fn test_parse_ssh_uri_with_user() {
     let host =
       RemoteHost::parse("ssh://root@buildserver").expect("should parse");
-    assert_eq!(host.host(), "root@buildserver");
+    assert_eq!(host.to_string(), "root@buildserver");
   }
 
   #[test]
   fn test_parse_ssh_ng_uri_with_user() {
     let host =
       RemoteHost::parse("ssh-ng://admin@buildserver").expect("should parse");
-    assert_eq!(host.host(), "admin@buildserver");
+    assert_eq!(host.to_string(), "admin@buildserver");
   }
 
   #[test]
@@ -1299,7 +1986,7 @@ mod tests {
   #[test]
   fn test_parse_ipv6_bracketed() {
     let host = RemoteHost::parse("[2001:db8::1]").expect("should parse IPv6");
-    assert_eq!(host.host(), "[2001:db8::1]");
+    assert_eq!(host.to_string(), "[2001:db8::1]");
     assert_eq!(host.hostname(), "[2001:db8::1]");
   }
 
@@ -1307,7 +1994,7 @@ mod tests {
   fn test_parse_ipv6_with_user() {
     let host = RemoteHost::parse("root@[2001:db8::1]")
       .expect("should parse IPv6 with user");
-    assert_eq!(host.host(), "root@[2001:db8::1]");
+    assert_eq!(host.to_string(), "root@[2001:db8::1]");
     assert_eq!(host.hostname(), "[2001:db8::1]");
   }
 
@@ -1315,34 +2002,34 @@ mod tests {
   fn test_parse_ipv6_with_zone_id() {
     let host =
       RemoteHost::parse("[fe80::1%eth0]").expect("should parse IPv6 with zone");
-    assert_eq!(host.host(), "[fe80::1%eth0]");
+    assert_eq!(host.to_string(), "[fe80::1%eth0]");
   }
 
   #[test]
   fn test_parse_ipv6_ssh_uri() {
     let host = RemoteHost::parse("ssh://[2001:db8::1]")
       .expect("should parse IPv6 SSH URI");
-    assert_eq!(host.host(), "[2001:db8::1]");
+    assert_eq!(host.to_string(), "[2001:db8::1]");
   }
 
   #[test]
   fn test_parse_ipv6_ssh_uri_with_user() {
     let host = RemoteHost::parse("ssh://root@[2001:db8::1]")
       .expect("should parse IPv6 SSH URI with user");
-    assert_eq!(host.host(), "root@[2001:db8::1]");
+    assert_eq!(host.to_string(), "root@[2001:db8::1]");
   }
 
   #[test]
   fn test_parse_ipv6_localhost() {
     let host = RemoteHost::parse("[::1]").expect("should parse IPv6 localhost");
-    assert_eq!(host.host(), "[::1]");
+    assert_eq!(host.to_string(), "[::1]");
   }
 
   #[test]
   fn test_parse_ipv6_compressed() {
     let host =
       RemoteHost::parse("[2001:db8::]").expect("should parse compressed IPv6");
-    assert_eq!(host.host(), "[2001:db8::]");
+    assert_eq!(host.to_string(), "[2001:db8::]");
   }
 
   #[test]
@@ -1377,6 +2064,72 @@ mod tests {
     // Characters after closing bracket should be rejected
     let result = RemoteHost::parse("[2001:db8::1]extra");
     assert!(result.is_err());
+  }
+
+  #[test]
+  fn test_parse_ipv6_at_inside_brackets_rejected() {
+    // @ character inside brackets should be rejected (not valid IPv6)
+    // This ensures [@2001:db8::1] and [2001@db8::1] are both rejected
+    let result = RemoteHost::parse("[@2001:db8::1]");
+    assert!(result.is_err(), "[@2001:db8::1] should be rejected");
+
+    let result2 = RemoteHost::parse("[2001@db8::1]");
+    assert!(result2.is_err(), "[2001@db8::1] should be rejected");
+  }
+
+  #[test]
+  fn test_ssh_host_ipv6_strips_brackets() {
+    let host = RemoteHost::parse("[2001:db8::1]").expect("should parse IPv6");
+    assert_eq!(host.ssh_host(), "2001:db8::1");
+  }
+
+  #[test]
+  fn test_ssh_host_ipv6_with_user() {
+    let host = RemoteHost::parse("user@[2001:db8::1]").expect("should parse");
+    assert_eq!(host.ssh_host(), "user@2001:db8::1");
+  }
+
+  #[test]
+  fn test_ssh_host_ipv6_with_zone_id() {
+    let host = RemoteHost::parse("[fe80::1%eth0]").expect("should parse");
+    assert_eq!(host.ssh_host(), "fe80::1%eth0");
+  }
+
+  #[test]
+  fn test_ssh_host_ipv6_with_zone_id_and_user() {
+    let host = RemoteHost::parse("user@[fe80::1%eth0]").expect("should parse");
+    assert_eq!(host.ssh_host(), "user@fe80::1%eth0");
+  }
+
+  #[test]
+  fn test_ssh_host_ipv6_localhost() {
+    let host = RemoteHost::parse("[::1]").expect("should parse");
+    assert_eq!(host.ssh_host(), "::1");
+  }
+
+  #[test]
+  fn test_ssh_host_non_ipv6_unchanged() {
+    let host = RemoteHost::parse("host.example").expect("should parse");
+    assert_eq!(host.ssh_host(), "host.example");
+  }
+
+  #[test]
+  fn test_ssh_host_non_ipv6_with_user() {
+    let host = RemoteHost::parse("user@host.example").expect("should parse");
+    assert_eq!(host.ssh_host(), "user@host.example");
+  }
+
+  #[test]
+  fn test_ssh_host_ssh_uri_ipv6() {
+    let host = RemoteHost::parse("ssh://[2001:db8::1]").expect("should parse");
+    assert_eq!(host.ssh_host(), "2001:db8::1");
+  }
+
+  #[test]
+  fn test_ssh_host_ssh_uri_ipv6_with_user() {
+    let host =
+      RemoteHost::parse("ssh://root@[2001:db8::1]").expect("should parse");
+    assert_eq!(host.ssh_host(), "root@2001:db8::1");
   }
 
   #[test]
@@ -1612,19 +2365,21 @@ mod tests {
   #[test]
   fn test_get_ssh_control_dir_creates_directory() {
     let dir = get_ssh_control_dir();
-    // The directory should exist (or be /tmp as last resort)
+    // The directory should exist in normal operation. In extreme edge cases
+    // (read-only /tmp), the function returns a path that may not exist, and
+    // SSH will fail with a clear error when attempting to use it.
     assert!(
-      dir.exists() || dir == &PathBuf::from("/tmp"),
-      "Control dir should exist or be /tmp fallback"
+      dir.exists(),
+      "Control dir should exist in normal operation: {}",
+      dir.display()
     );
-    // Should contain our process-specific suffix (unless /tmp fallback)
+
+    // Should contain our process-specific suffix
     let dir_str = dir.to_string_lossy();
-    if dir_str != "/tmp" {
-      assert!(
-        dir_str.contains("nh-ssh-"),
-        "Control dir should contain 'nh-ssh-': {dir_str}"
-      );
-    }
+    assert!(
+      dir_str.contains("nh-ssh-"),
+      "Control dir should contain 'nh-ssh-': {dir_str}"
+    );
   }
 
   #[test]
@@ -1646,5 +2401,67 @@ mod tests {
     let guard = init_ssh_control();
     drop(guard);
     // If this completes without panic, the Drop impl is at least safe
+  }
+
+  proptest! {
+    #[test]
+    #[serial]
+    fn test_should_cleanup_remote_enabled_by_valid_values(
+        value in prop_oneof![
+            Just("1"),
+            Just("true"),
+            Just("yes"),
+            Just("TRUE"),
+            Just("YES"),
+            Just("True"),
+        ]
+    ) {
+      unsafe {
+        std::env::set_var("NH_REMOTE_CLEANUP", value);
+      }
+      prop_assert!(should_cleanup_remote());
+      unsafe {
+        std::env::remove_var("NH_REMOTE_CLEANUP");
+      }
+    }
+  }
+
+  #[test]
+  #[serial]
+  fn test_should_cleanup_remote_empty_disabled() {
+    // Empty value should NOT enable cleanup
+    unsafe {
+      std::env::set_var("NH_REMOTE_CLEANUP", "");
+    }
+    assert!(!should_cleanup_remote());
+    unsafe {
+      std::env::remove_var("NH_REMOTE_CLEANUP");
+    }
+  }
+
+  #[test]
+  #[serial]
+  fn test_should_cleanup_remote_arbitrary_value_disabled() {
+    // Arbitrary values should NOT enable cleanup
+    unsafe {
+      std::env::set_var("NH_REMOTE_CLEANUP", "maybe");
+    }
+    assert!(!should_cleanup_remote());
+    unsafe {
+      std::env::remove_var("NH_REMOTE_CLEANUP");
+    }
+  }
+
+  #[test]
+  fn test_attempt_remote_cleanup_does_nothing_when_disabled() {
+    // When should_cleanup_remote returns false, no SSH command should be
+    // executed. We can't easily verify no SSH was spawned, but we can verify
+    // the function doesn't panic or error when cleanup is disabled
+    let host = RemoteHost::parse("user@host.example").unwrap();
+    let remote_cmd = "nix build /nix/store/abc.drv^* --print-out-paths";
+
+    // This should complete without error even when cleanup is disabled
+    attempt_remote_cleanup(&host, remote_cmd);
+    // If we reach here, the function handled the disabled case gracefully
   }
 }

@@ -61,6 +61,12 @@ To get started with NH, skip to the [Usage](#usage) section.
   with explicit targeting.
 - **Extensible & Futureproof**: Designed for seamless, rapid addition of new
   subcommands and flags.
+  - **NH is a reimplementation of the CLIs you all know and love**, but with a
+    focus on safety and correctness. The language and design choices allow new
+    feature additions to be trivial and (almost) zero-cost.
+- **Excellent Documentation**: Everything you can do with NH is documented.
+  Everything NH _does_ is documented. The user-facing and developer-facing
+  documentation is, and will always remain, up to date.
 
 ### Design
 
@@ -111,7 +117,7 @@ the package is outdated.
 
 The latest, tagged version is available in Nixpkgs as **NH stable**. This is
 recommended for most users, as tagged releases will usually undergo more
-testing.This repository also provides the latest development version of NH,
+testing. This repository also provides the latest development version of NH,
 which you can get from the flake outputs.
 
 ```sh
@@ -142,16 +148,15 @@ set the following configuration:
 > configurations via channels or manual dependency pinning and the such. Please
 > consider the new API mature, but somewhat experimental as it is a new
 > addition. Remember to report any bugs!
+>
+> - For flakes, the command is `nh os switch /path/to/flake`
+> - For a classical configuration:
+>   - `nh os switch -f '<nixpkgs/nixos>'`, or
+>   - `nh os switch -f '<nixpkgs/nixos>' -- -I nixos-config=/path/to/configuration.nix`
+>     if using a different location than the default.
 
-- For flakes, the command is `nh os switch /path/to/flake`
-- For a classical configuration:
-  - `nh os switch -f '<nixpkgs/nixos>'`, or
-  - `nh os switch -f '<nixpkgs/nixos>' -- -I
-  nixos-config=/path/to/configuration.nix`
-    if using a different location than the default.
-
-You might want to check `nh os --help` for other values and the defaults from
-environment variables.
+You might want to check `nh os --help` or `man 1 nh` for other values and the
+defaults from environment variables.
 
 #### Specialisations support
 
@@ -199,32 +204,47 @@ One of the features and the core principles of NH is to provide a clean, uniform
 and intuitive CLI for its users. The `nh` command offers several subcommands,
 all with their extensive CLI flags for extensive configuration.
 
+> [!TIP]
+> NH supports various flags, [environment variables](#environment-variables) and
+> setup options to provide the best possible user experience. See the `--help`
+> page for individual subcommands, or `man 1 nh` for more information on each
+> subcommand with examples. You may also use the relevant platform module, such
+> as the NixOS module available in Nixpkgs, to customize it for your system as
+> described in the installation section.
+
 Under the `nh` command, there are two types of commands that you'll be
 interested in:
 
 ### Global Subcommands
 
 Global subcommands implement functionality around core Nix commands. As it
-stands, we provide a **better search** and **better garbage collection**.
+stands, we provide a **better search** and **better garbage collection**
+experience, done so with two subcommands provided out of the box.
 
-- `nh search` - a super-fast package searching tool (powered by an Elasticsearch
-  client) for Nix packages in supported Nixpkgs branches.
+#### `nh search`
 
-  <p align="center">
+We provide a super-fast package searching tool (powered by an Elasticsearch
+client) for Nix packages in supported Nixpkgs branches, available as
+`nh search`.
+
+<p align="center">
     <img
       alt="nh search showcase"
-      src="./.github/nh_search_screenshot.png"
+      src="./assets/nh_search_screenshot.png"
       width="750px"
     >
   </p>
 
-- `nh clean` - a re-implementation of `nix-collect-garbage` that also collects
-  gcroots.
+#### `nh clean`
 
-  <p align="center">
+Reimplementation of `nix-collect-garbage` that also collects gcroots with
+various options for fine-graining what is kept, and additional context before
+the cleanup process to let you know what is to be cleaned.
+
+<p align="center">
     <img
       alt="nh clean showcase"
-      src="./.github/nh_clean_screenshot.png"
+      src="./assets/nh_clean_screenshot.png"
       width="750px"
     >
   </p>
@@ -234,27 +254,37 @@ stands, we provide a **better search** and **better garbage collection**.
 Platform specific subcommands are those that implement CLI utilities for
 **NixOS**, **Home Manager** and **Nix-Darwin**.
 
-- `nh os` - reimplements `nixos-rebuild`[^1] with the addition of
-  - build-tree displays.
-  - diff of changes.
-  - confirmation.
+#### `nh os`
 
-  <p align="center">
+The `nh os` subcommand reimplements the Python script, `nixos-rebuild-ng`, [^1]
+from ground up _with the addition of_:
+
+- Build-tree displays via **nix-output-monitor** (nom).
+- Pretty diffs of changes via **dix**
+- Confirmation
+
+and other additional changes to make the UI more intuitive, from supporting
+environment variables to additional safeguards. Is this all? No, more is to
+come.
+
+<p align="center">
     <img
       alt="nh os switch showcase"
-      src="./.github/nh_switch_screenshot.png"
+      src="./assets/nh_switch_screenshot.png"
       width="750px"
     >
   </p>
 
-- `nh home` - reimplements `home-manager`.
-- `nh darwin` - reimplements `darwin-rebuild`.
+#### `nh home`
 
-> [!TIP]
-> NH supports various flags, [environment variables](#environment-variables) and
-> setups to provide the best possible user experience. See the `--help` page for
-> individual subcommands, or `man 1 nh` for more information on each subcommand
-> with examples.
+The `nh home` subcommand reimplements the `home-manager` script, with the same
+additions as `nh os`.
+
+#### `nh darwin`
+
+Last but not least, the `nh darwin` subcommand is a pure-rust reimplementation
+of the `darwin-rebuild` script featuring the same additions as `nh os` and
+`nh home`.
 
 [^1]: `nh os` does not yet provide full feature parity with `nixos-rebuild`.
     While a large collection of subcommands have been implemented, you might be
@@ -343,6 +373,12 @@ the common variables that you may encounter or choose to employ are as follows:
   - Control whether `nom` (nix-output-monitor) should be enabled for the build
     processes. Equivalent of `--no-nom`.
 
+- `NH_REMOTE_CLEANUP`
+  - Whether to initiate an attempt to clean up remote processes on interrupt via
+    pkill. This is implemented to match nixos-rebuild's behaviour, but due to
+    its fragile nature it has been made opt-in. Unless NH has been leaving
+    zombie processes on interrupt, there is generally no need to set this.
+
 ### Notes
 
 - Any environment variables prefixed with `NH_` are explicitly propagated by NH
@@ -351,6 +387,15 @@ the common variables that you may encounter or choose to employ are as follows:
   command-specific `NH_*_FLAKE` variables exist, NH will set `NH_FLAKE` from
   `FLAKE` and emit a warning recommending migration to `NH_FLAKE`. `FLAKE` will
   be removed in the future versions of NH.
+
+## Frequently Asked Questions (FAQ)
+
+**Q**: Does NH wrap the CLIs that I typically use?
+
+**A**: No, all of the commands use Nix directly, and they **do not consume the
+typical CLI utilities**. NH is slowly converting existing tools that are invoked
+via shell to native Rust libraries to get safer integration and slightly better
+performance.
 
 ## Hacking
 

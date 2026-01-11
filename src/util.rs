@@ -385,7 +385,7 @@ pub fn print_dix_diff(
     new_generation.to_path_buf(),
   );
 
-  let wrote = dix::write_paths_diffln(&mut out, old_generation, new_generation)
+  let wrote = dix::write_package_diff(&mut out, old_generation, new_generation)
     .unwrap_or_default();
 
   if let Ok((size_old, size_new)) =
@@ -399,7 +399,7 @@ pub fn print_dix_diff(
       if wrote > 0 {
         println!();
       }
-      dix::write_size_diffln(&mut out, size_old, size_new)?;
+      dix::write_size_diff(&mut out, size_old, size_new)?;
     }
   }
   Ok(())

@@ -26,9 +26,23 @@ const CURRENT_PROFILE: &str = "/run/current-system";
 impl DarwinArgs {
   /// Run the `darwin` subcommand.
   ///
+  /// # Parameters
+  ///
+  /// * `self` - The Darwin operation arguments
+  /// * `elevation` - The privilege elevation strategy (sudo/doas/none)
+  ///
+  /// # Returns
+  ///
+  /// Returns `Ok(())` if the operation succeeds.
+  ///
   /// # Errors
   ///
-  /// Returns an error if the operation fails.
+  /// Returns an error if:
+  ///
+  /// - Build or activation operations fail
+  /// - Remote operations encounter network or SSH issues
+  /// - Nix evaluation or building fails
+  /// - File system operations fail
   #[cfg_attr(feature = "hotpath", hotpath::measure)]
   pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
     use DarwinRebuildVariant::{Build, Switch};

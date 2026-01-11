@@ -5,7 +5,7 @@ members = [ ".", "xtask" ]
 [workspace.package]
 edition      = "2024"
 rust-version = "1.86.0"
-version      = "4.2.0"
+version      = "4.3.0-beta1"
 
 [workspace.dependencies.clap]
 features = [ "cargo", "color", "derive", "env", "unstable-styles" ]

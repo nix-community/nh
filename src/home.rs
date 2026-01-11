@@ -19,9 +19,22 @@ use crate::{
 impl interface::HomeArgs {
   /// Run the `home` subcommand.
   ///
+  /// # Parameters
+  ///
+  /// * `self` - The Home Manager operation arguments
+  ///
+  /// # Returns
+  ///
+  /// Returns `Ok(())` if the operation succeeds.
+  ///
   /// # Errors
   ///
-  /// Returns an error if the operation fails.
+  /// Returns an error if:
+  ///
+  /// - Build or activation operations fail
+  /// - Remote operations encounter network or SSH issues
+  /// - Nix evaluation or building fails
+  /// - File system operations fail
   #[cfg_attr(feature = "hotpath", hotpath::measure)]
   pub fn run(self) -> Result<()> {
     use HomeRebuildVariant::{Build, Switch};
@@ -157,12 +170,13 @@ impl HomeRebuildArgs {
     let spec_location = PathBuf::from(std::env::var("HOME")?)
       .join(".local/share/home-manager/specialisation");
 
-    let current_specialisation = if let Some(s) = spec_location.to_str() {
-      std::fs::read_to_string(s).ok()
-    } else {
-      tracing::warn!("spec_location path is not valid UTF-8");
-      None
-    };
+    let current_specialisation = spec_location.to_str().map_or_else(
+      || {
+        tracing::warn!("spec_location path is not valid UTF-8");
+        None
+      },
+      |s| std::fs::read_to_string(s).ok(),
+    );
 
     let target_specialisation = if self.no_specialisation {
       None
@@ -425,6 +439,7 @@ where
       }
     },
     Installable::Store { .. } => {},
+    #[allow(clippy::unreachable, reason = "Should never happen")]
     Installable::Unspecified => {
       unreachable!(
         "Unspecified installable should have been resolved before calling \

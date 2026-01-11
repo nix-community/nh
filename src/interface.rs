@@ -51,9 +51,22 @@ pub struct Main {
   /// more detailed logs.
   pub verbosity: clap_verbosity_flag::Verbosity<InfoLevel>,
 
-  #[arg(short, long, global = true, env = "NH_ELEVATION_PROGRAM", value_hint = clap::ValueHint::CommandName)]
-  /// Choose what privilege elevation program should be used
-  pub elevation_program: Option<PathBuf>,
+  #[arg(
+    short,
+    long,
+    global = true,
+    env = "NH_ELEVATION_STRATEGY",
+    value_hint = clap::ValueHint::CommandName,
+    alias = "elevation-program"
+  )]
+  /// Choose the privilege elevation strategy.
+  ///
+  /// Can be a path to an elevation program (e.g., /usr/bin/sudo),
+  /// or one of: 'none' (no elevation),
+  /// 'passwordless' (use elevation without password prompt for remote hosts
+  /// with NOPASSWD configured), or 'auto' (automatically detect available
+  /// elevation programs in order: doas, sudo, run0, pkexec)
+  pub elevation_strategy: Option<crate::commands::ElevationStrategyArg>,
 
   #[command(subcommand)]
   pub command: NHCommand,
@@ -200,6 +213,7 @@ pub struct OsBuildVmArgs {
 }
 
 #[derive(Debug, Args)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct OsRebuildArgs {
   #[command(flatten)]
   pub common: CommonRebuildArgs,
@@ -232,16 +246,16 @@ pub struct OsRebuildArgs {
   #[arg(short = 'R', long, env = "NH_BYPASS_ROOT_CHECK")]
   pub bypass_root_check: bool,
 
-  /// Deploy the configuration to a different host over ssh
+  /// Deploy the built configuration to a different host over SSH
   #[arg(long)]
   pub target_host: Option<String>,
 
-  /// Build the configuration to a different host over ssh
+  /// Build the configuration on a different host over SSH
   #[arg(long)]
   pub build_host: Option<String>,
 
   /// Skip pre-activation system validation checks
-  #[arg(long)]
+  #[arg(long, env = "NH_NO_VALIDATE")]
   pub no_validate: bool,
 }
 
@@ -548,7 +562,7 @@ pub struct HomeRebuildArgs {
   #[arg(long, env = "NH_SHOW_ACTIVATION_LOGS")]
   pub show_activation_logs: bool,
 
-  /// Build the configuration on a different host over ssh
+  /// Build the configuration on a different host over SSH
   #[arg(long)]
   pub build_host: Option<String>,
 }
@@ -658,7 +672,7 @@ pub struct DarwinRebuildArgs {
   #[arg(long, env = "NH_SHOW_ACTIVATION_LOGS")]
   pub show_activation_logs: bool,
 
-  /// Build the configuration on a different host over ssh
+  /// Build the configuration on a different host over SSH
   #[arg(long)]
   pub build_host: Option<String>,
 }
