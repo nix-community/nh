@@ -18,6 +18,8 @@ functionality, under the "Removed" section.
 
 ### Changed
 
+- A new `nh os build-image` subcommand for building a disk-image variant is now
+  available. A variant can be selected using the `--image-variant` flag.
 - `--elevation-program` flag was renamed to `--elevation-strategy` with support
   for `'none'` (no elevation) and `'passwordless'` (for remote hosts with
   `NOPASSWD` configured) values. The old flag name remains available as an alias
