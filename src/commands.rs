@@ -684,11 +684,15 @@ impl Command {
       for (key, action) in &self.env_vars {
         match action {
           EnvAction::Set(value) => {
-            elev_cmd = elev_cmd.arg(format!("{key}={value}"));
+            let quoted_value =
+              shlex::try_quote(value).unwrap_or_else(|_| value.clone().into());
+            elev_cmd = elev_cmd.arg(format!("{key}={quoted_value}"));
           },
           EnvAction::Preserve => {
             if let Ok(value) = std::env::var(key) {
-              elev_cmd = elev_cmd.arg(format!("{key}={value}"));
+              let quoted_value = shlex::try_quote(&value)
+                .unwrap_or_else(|_| value.clone().into());
+              elev_cmd = elev_cmd.arg(format!("{key}={quoted_value}"));
             }
           },
           EnvAction::Remove => {},
@@ -1353,6 +1357,34 @@ mod tests {
     assert!(cmdline.contains("TEST_VAR2=value2"));
     // and the preserved too
     assert!(cmdline.contains("PRESERVE_VAR=preserve"));
+  }
+
+  #[test]
+  #[serial]
+  fn test_build_sudo_cmd_with_nix_config_spaces() {
+    let _nix_config_guard = EnvGuard::new(
+      "NIX_CONFIG",
+      "access-tokens = github.com=ghp_11111aaaaa22222bbbbb",
+    );
+
+    let cmd = Command::new("test")
+      .elevate(Some(ElevationStrategy::Force("sudo")))
+      .with_required_env();
+
+    let sudo_exec = cmd
+      .build_sudo_cmd()
+      .expect("build_sudo_cmd should succeed in test");
+    let cmdline = sudo_exec.to_cmdline_lossy();
+
+    // Should contain the NIX_CONFIG variable with proper quoting
+    // shlex::quote will use single quotes for values with spaces
+    assert!(cmdline.contains(
+      "'NIX_CONFIG=access-tokens = github.com=ghp_11111aaaaa22222bbbbb'"
+    ));
+
+    // The important thing is that NIX_CONFIG appears properly quoted,
+    // which prevents shell parsing issues
+    assert!(cmdline.contains("'NIX_CONFIG="));
   }
 
   #[test]
