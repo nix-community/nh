@@ -1093,18 +1093,15 @@ fn has_elevation_status(
 }
 
 fn find_previous_generation() -> Result<generations::GenerationInfo> {
-  let generations = list_generations()?;
-  if generations.is_empty() {
-    bail!("No generations found");
-  }
+  let current_number = get_current_generation_number()?;
 
-  let current_idx = get_current_generation_number()? as usize;
-
-  if current_idx == 0 {
+  if current_number == 0 {
     bail!("No generation older than the current one exists");
   }
 
-  Ok(generations[current_idx - 1].clone())
+  let previous_generation = find_generation_by_number(current_number - 1)?;
+
+  Ok(previous_generation)
 }
 
 fn find_generation_by_number(
@@ -1158,6 +1155,8 @@ fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
   if generations.is_empty() {
     bail!("No generations found");
   }
+
+  tracing::trace!("{} generations found", generations.len());
 
   generations.sort_by_key(|g| g.number.parse::<u64>().unwrap_or(0));
 
