@@ -257,12 +257,23 @@ pub fn describe(generation_dir: &Path) -> Option<GenerationInfo> {
   let specialisations = {
     let specialisation_path = generation_dir.join("specialisation");
     if specialisation_path.exists() {
+      // Only prefix specialisation name with '*' when it's currently active
       let specs = fs::read_dir(specialisation_path)
         .map(|entries| {
-          entries
+          let mut specs_vec = entries
             .filter_map(Result::ok)
-            .filter_map(|e| e.file_name().into_string().ok())
-            .collect::<Vec<String>>()
+            .filter_map(|e| {
+              if fs::canonicalize(e.path()).ok()
+                == fs::canonicalize("/run/current-system").ok()
+              {
+                Some(format!("*{}", e.file_name().into_string().ok()?))
+              } else {
+                e.file_name().into_string().ok()
+              }
+            })
+            .collect::<Vec<String>>();
+          specs_vec.sort();
+          specs_vec
         })
         .unwrap_or_default();
       if specs.is_empty() { None } else { Some(specs) }
@@ -272,39 +283,13 @@ pub fn describe(generation_dir: &Path) -> Option<GenerationInfo> {
   };
 
   // Check if this generation is the current one
-  let Some(run_current_target) = fs::read_link("/run/current-system")
-    .ok()
-    .and_then(|p| fs::canonicalize(p).ok())
-  else {
-    return Some(GenerationInfo {
-      number: generation_number.to_string(),
-      date: build_date,
-      nixos_version,
-      kernel_version,
-      configuration_revision,
-      specialisations,
-      current: false,
-      closure_size,
-    });
-  };
+  let run_current_target =
+    fs::canonicalize("/nix/var/nix/profiles/system").ok();
 
-  let Some(gen_store_path) = fs::read_link(generation_dir)
-    .ok()
-    .and_then(|p| fs::canonicalize(p).ok())
-  else {
-    return Some(GenerationInfo {
-      number: generation_number.to_string(),
-      date: build_date,
-      nixos_version,
-      kernel_version,
-      configuration_revision,
-      specialisations,
-      current: false,
-      closure_size,
-    });
-  };
+  let gen_store_path = fs::canonicalize(generation_dir).ok();
 
-  let current = run_current_target == gen_store_path;
+  let current =
+    run_current_target == gen_store_path && run_current_target.is_some();
 
   Some(GenerationInfo {
     number: generation_number.to_string(),
@@ -435,13 +420,10 @@ pub fn print_info(
       .cloned()
       .unwrap_or_else(|| "Unknown".to_string());
 
-    let specialisations = generation.specialisations.as_ref().map(|specs| {
-      specs
-        .iter()
-        .map(|s| format!("*{s}"))
-        .collect::<Vec<String>>()
-        .join(" ")
-    });
+    let specialisations = generation
+      .specialisations
+      .as_ref()
+      .map(|specs| specs.join(" "));
 
     let row: String = visible_fields
       .iter()
