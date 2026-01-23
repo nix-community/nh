@@ -267,6 +267,14 @@ pub struct OsRebuildActivateArgs {
   /// Show activation logs
   #[arg(long, env = "NH_SHOW_ACTIVATION_LOGS")]
   pub show_activation_logs: bool,
+
+  /// Build the configuration on a different host over SSH
+  #[arg(long)]
+  pub build_host: Option<String>,
+
+  /// Deploy the built configuration to a different host over SSH
+  #[arg(long)]
+  pub target_host: Option<String>,
 }
 
 impl OsRebuildArgs {
@@ -565,6 +573,14 @@ pub struct HomeRebuildArgs {
   /// Build the configuration on a different host over SSH
   #[arg(long)]
   pub build_host: Option<String>,
+
+  /// Deploy the built configuration to a different host over SSH
+  #[arg(long)]
+  pub target_host: Option<String>,
+
+  /// Skip pre-activation system validation checks
+  #[arg(long, env = "NH_NO_VALIDATE")]
+  pub no_validate: bool,
 }
 
 impl HomeRebuildArgs {
@@ -675,6 +691,14 @@ pub struct DarwinRebuildArgs {
   /// Build the configuration on a different host over SSH
   #[arg(long)]
   pub build_host: Option<String>,
+
+  /// Deploy the built configuration to a different host over SSH
+  #[arg(long)]
+  pub target_host: Option<String>,
+
+  /// Skip pre-activation system validation checks
+  #[arg(long, env = "NH_NO_VALIDATE")]
+  pub no_validate: bool,
 }
 
 impl DarwinRebuildArgs {
