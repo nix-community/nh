@@ -441,6 +441,7 @@ impl OsRebuildArgs {
       update(
         &self.common.installable,
         self.update_args.update_input.clone(),
+        self.common.passthrough.commit_lock_file,
       )?;
     }
 

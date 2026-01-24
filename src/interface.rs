@@ -902,9 +902,6 @@ impl NixBuildPassthroughArgs {
       warn!("--no-registries is deprecated, use --no-use-registries instead");
       args.push("--no-use-registries".into());
     }
-    if self.commit_lock_file {
-      args.push("--commit-lock-file".into());
-    }
     if self.no_build_output {
       args.push("--no-build-output".into());
     }

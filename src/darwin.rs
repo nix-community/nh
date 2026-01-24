@@ -79,7 +79,11 @@ impl DarwinRebuildArgs {
     }
 
     if self.update_args.update_all || self.update_args.update_input.is_some() {
-      update(&self.common.installable, self.update_args.update_input)?;
+      update(
+        &self.common.installable,
+        self.update_args.update_input,
+        self.common.passthrough.commit_lock_file,
+      )?;
     }
 
     let hostname = get_hostname(self.hostname)?;

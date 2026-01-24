@@ -6,6 +6,7 @@ use crate::{Result, commands::Command, installable::Installable};
 pub fn update(
   installable: &Installable,
   inputs: Option<Vec<String>>,
+  commit_lock_file: bool,
 ) -> Result<()> {
   let Installable::Flake { reference, .. } = installable else {
     warn!(
@@ -16,6 +17,10 @@ pub fn update(
   };
 
   let mut cmd = Command::new("nix").args(["flake", "update"]);
+
+  if commit_lock_file {
+    cmd = cmd.arg("--commit-lock-file");
+  }
 
   if let Some(inputs) = inputs {
     for input in &inputs {
