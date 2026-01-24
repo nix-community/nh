@@ -18,6 +18,8 @@ functionality, under the "Removed" section.
 
 ### Changed
 
+- Passing the `--bypass-root-check` flag now elevates if the user is not root
+  instead of calling Nix as non-root user.
 - `--elevation-program` flag was renamed to `--elevation-strategy` with support
   for `'none'` (no elevation) and `'passwordless'` (for remote hosts with
   `NOPASSWD` configured) values. The old flag name remains available as an alias
