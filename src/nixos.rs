@@ -1149,18 +1149,23 @@ fn has_elevation_status(
     return Ok(false);
   }
 
-  if bypass_root_check {
-    warn!("Bypassing root check, now running nix as root");
-    Ok(false)
-  } else {
-    if nix::unistd::Uid::effective().is_root() {
-      bail!(
-        "Don't run nh os as root. It will escalate its privileges internally \
-         as needed."
-      );
-    }
-    Ok(true)
+  let is_root = nix::unistd::Uid::effective().is_root();
+
+  if is_root && !bypass_root_check {
+    bail!(
+      "Don't run nh os as root. It will escalate its privileges internally as \
+       needed."
+    );
   }
+
+  if bypass_root_check {
+    warn!(
+      "Bypassing root check; running nix as {}",
+      if is_root { "root" } else { "non-root" }
+    );
+  }
+
+  Ok(!is_root)
 }
 
 fn find_previous_generation() -> Result<generations::GenerationInfo> {

@@ -18,6 +18,8 @@ functionality, under the "Removed" section.
 
 ### Changed
 
+- Passing the `--bypass-root-check` flag now elevates if the user is not root
+  instead of calling Nix as non-root user.
 - A new `nh os build-image` subcommand for building a disk-image variant is now
   available. A variant can be selected using the `--image-variant` flag. All
   variants in the `config.system.build.images` attribute set are supported.
