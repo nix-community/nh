@@ -83,7 +83,16 @@ rustPlatform.buildRustPackage (finalAttrs: {
   # if added to nativeCheckInputs. We must manually disable the tests that
   # *require* it, because they will fail when sudo is missing.
   nativeCheckInputs = lib.optionals (!stdenv.hostPlatform.isDarwin) [ sudo ];
-  checkFlags = lib.optionals stdenv.hostPlatform.isDarwin [
+  checkFlags = [
+    # These do not work in Nix's sandbox
+    "--skip"
+    "test_get_build_image_variants_expression"
+    "--skip"
+    "test_get_build_image_variants_file"
+    "--skip"
+    "test_get_build_image_variants_flake"
+  ]
+  ++ lib.optionals stdenv.hostPlatform.isDarwin [
     # Tests that require sudo in PATH (not available on Darwin)
     "--skip"
     "test_build_sudo_cmd_basic"
