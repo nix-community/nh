@@ -62,7 +62,11 @@ impl HomeRebuildArgs {
     use HomeRebuildVariant::Build;
 
     if self.update_args.update_all || self.update_args.update_input.is_some() {
-      update(&self.common.installable, self.update_args.update_input)?;
+      update(
+        &self.common.installable,
+        self.update_args.update_input,
+        self.common.passthrough.commit_lock_file,
+      )?;
     }
 
     let (out_path, _tempdir_guard): (PathBuf, Option<tempfile::TempDir>) =
