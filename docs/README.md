@@ -467,7 +467,7 @@ performance regressions.
 [faukah]: https://github.com/faukah
 [ViperML]: https://github.com/viperML
 [nvd]: https://sr.ht/~khumba/nvd/
-[dix]: https://github.com/bloxx12/dix
+[dix]: https://github.com/faukah/dix
 [nix-output-monitor]: https://github.com/maralorn/nix-output-monitor
 [crates]: ./Cargo.toml
 
