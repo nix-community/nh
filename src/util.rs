@@ -9,7 +9,10 @@ use std::{
   sync::{LazyLock, OnceLock},
 };
 
-use color_eyre::{Result, eyre};
+use color_eyre::{
+  Result,
+  eyre::{self, Context, eyre},
+};
 use regex::Regex;
 use tracing::{debug, info, warn};
 
@@ -356,6 +359,117 @@ pub fn self_elevate(strategy: ElevationStrategy) -> ! {
   panic!("{err}");
 }
 
+/// Gets the available image variants for a non-flake installable.
+///
+/// This function uses nix-instantiate to evaluate the available image
+/// variants from a Nix expression or file, matching the behavior of
+/// nixos-rebuild's `get_build_image_variants` function.
+///
+/// # Arguments
+///
+/// * `installable` - The original installable to evaluate
+/// * `hostname` - The hostname to use for the configuration
+///
+/// # Returns
+///
+/// * `Result<Vec<String>>` - A vector of available image variant names
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The nix-instantiate command fails
+/// - The JSON output cannot be parsed
+/// - The installable does not have images attribute
+pub fn get_build_image_variants(
+  installable: &crate::installable::Installable,
+  hostname: &str,
+) -> Result<Vec<String>> {
+  let expr = match installable {
+    crate::installable::Installable::File { path, .. } => {
+      format!(
+        r#"
+let
+  value = import "{}";
+  set = if builtins.isFunction value then value {{}} else value;
+  config = set.nixosConfigurations."{hostname}" or set;
+in
+  builtins.attrNames config.config.system.build.images
+        "#,
+        path.display(),
+      )
+    },
+    crate::installable::Installable::Expression { expression, .. } => {
+      format!(
+        r#"
+let
+  value = {expression};
+  set = if builtins.isFunction value then value {{}} else value;
+  config = set.nixosConfigurations."{hostname}" or set;
+in
+  builtins.attrNames config.config.system.build.images
+        "#
+      )
+    },
+    _ => {
+      return Err(eyre!(
+        "get_build_image_variants only supports file and expression \
+         installables"
+      ));
+    },
+  };
+
+  let result = Command::new("nix-instantiate")
+    .arg("--eval")
+    .arg("--strict")
+    .arg("--json")
+    .arg("--expr")
+    .arg(expr)
+    .run_capture()?
+    .ok_or_else(|| eyre!("No output from nix-instantiate"))?;
+
+  let variants: Vec<String> = serde_json::from_str(&result)
+    .wrap_err("Failed to parse image variants JSON")?;
+
+  Ok(variants)
+}
+
+/// Gets the available image variants for a flake installable.
+///
+/// This function uses nix eval to evaluate the available image
+/// variants from a flake.
+///
+/// # Arguments
+///
+/// * `installable` - The flake installable to evaluate
+///
+/// # Returns
+///
+/// * `Result<Vec<String>>` - A vector of available image variant names
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The nix eval command fails
+/// - The JSON output cannot be parsed
+/// - The flake installable does not have images attribute
+pub fn get_build_image_variants_flake(
+  installable: &crate::installable::Installable,
+) -> Result<Vec<String>> {
+  let result = Command::new("nix")
+    .arg("eval")
+    .arg("--json")
+    .args(installable.to_args())
+    .arg("--apply")
+    .arg("builtins.attrNames")
+    .run_capture()?
+    .ok_or_else(|| eyre!("No output from nix eval"))?;
+
+  let variants: Vec<String> = serde_json::from_str(&result)
+    .wrap_err("Failed to parse image variants JSON")?;
+
+  Ok(variants)
+}
+
 /// Prints the difference between two generations in terms of paths and closure
 /// sizes.
 ///
@@ -403,4 +517,125 @@ pub fn print_dix_diff(
     }
   }
   Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::installable::Installable;
+
+  #[test]
+  fn test_get_build_image_variants_expression() {
+    let installable = Installable::Expression {
+      expression: r"
+{
+  nixosConfigurations.test = {
+    config.system.build.images = {
+      iso = {};
+      disk = {};
+      container = {};
+    };
+  };
+}
+      "
+      .to_string(),
+      attribute:  vec![],
+    };
+
+    let result = get_build_image_variants(&installable, "test");
+    assert!(result.is_ok());
+
+    let variants = result.unwrap();
+    assert_eq!(variants.len(), 3);
+    assert!(variants.contains(&"iso".to_string()));
+    assert!(variants.contains(&"disk".to_string()));
+    assert!(variants.contains(&"container".to_string()));
+  }
+
+  #[test]
+  fn test_get_build_image_variants_file() {
+    let test_file = tempfile::Builder::new()
+      .prefix("nh-test")
+      .tempfile()
+      .expect("Failed to create temp file");
+    let test_content = r#"
+{
+  nixosConfigurations.test = {
+    config.system.build.images = {
+      iso = "test-iso";
+      disk = "test-disk";
+      container = "test-container";
+    };
+  };
+}
+"#;
+
+    std::fs::write(&test_file, test_content)
+      .expect("Failed to write test file");
+
+    let installable = Installable::File {
+      path:      test_file.path().to_path_buf(),
+      attribute: vec![],
+    };
+
+    let result = get_build_image_variants(&installable, "test");
+    assert!(result.is_ok());
+
+    let variants = result.unwrap();
+    assert_eq!(variants.len(), 3);
+    assert!(variants.contains(&"iso".to_string()));
+    assert!(variants.contains(&"disk".to_string()));
+    assert!(variants.contains(&"container".to_string()));
+  }
+
+  #[test]
+  fn test_get_build_image_variants_flake() {
+    use std::fs;
+
+    let test_dir = tempfile::Builder::new()
+      .prefix("nh-test")
+      .tempdir()
+      .expect("Failed to create temp file");
+
+    let test_file = test_dir.path().join("flake.nix");
+    let test_content = r"
+{
+  outputs = _: {
+    nixosConfigurations.test.config.system.build.images = {
+      iso = { };
+      disk = { };
+      container = { };
+    };
+  };
+}
+";
+    fs::write(&test_file, test_content).expect("Failed to write test file");
+
+    let installable = Installable::Flake {
+      reference: test_dir
+        .path()
+        .to_path_buf()
+        .into_os_string()
+        .into_string()
+        .unwrap(),
+      attribute: vec![
+        "nixosConfigurations".to_owned(),
+        "test".to_string(),
+        "config".to_string(),
+        "system".to_string(),
+        "build".to_string(),
+        "images".to_string(),
+      ],
+    };
+
+    let result = get_build_image_variants_flake(&installable);
+
+    assert!(result.is_ok());
+
+    let variants = result.unwrap();
+    assert_eq!(variants.len(), 3);
+    assert!(variants.contains(&"iso".to_string()));
+    assert!(variants.contains(&"disk".to_string()));
+    assert!(variants.contains(&"container".to_string()));
+  }
 }

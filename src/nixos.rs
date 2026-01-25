@@ -15,6 +15,7 @@ use crate::{
   interface::{
     self,
     DiffType,
+    OsBuildImageArgs,
     OsBuildVmArgs,
     OsGenerationsArgs,
     OsRebuildActivateArgs,
@@ -25,7 +26,13 @@ use crate::{
   },
   remote::{self, RemoteBuildConfig, RemoteHost},
   update::update,
-  util::{ensure_ssh_key_login, get_hostname, print_dix_diff},
+  util::{
+    ensure_ssh_key_login,
+    get_build_image_variants,
+    get_build_image_variants_flake,
+    get_hostname,
+    print_dix_diff,
+  },
 };
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
@@ -86,6 +93,7 @@ impl interface::OsArgs {
       OsSubcommand::Repl(args) => args.run(),
       OsSubcommand::Info(args) => args.info(),
       OsSubcommand::Rollback(args) => args.rollback(elevation),
+      OsSubcommand::BuildImage(args) => args.build_image(&elevation),
     }
   }
 }
@@ -97,14 +105,15 @@ enum OsRebuildVariant {
   Boot,
   Test,
   BuildVm,
+  BuildIso,
 }
 
 impl OsBuildVmArgs {
   fn build_vm(self, elevation: ElevationStrategy) -> Result<()> {
     let attr = if self.with_bootloader {
-      "vmWithBootLoader".to_owned()
+      "vmWithBootLoader"
     } else {
-      "vm".to_owned()
+      "vm"
     };
     let out_path = self
       .common
@@ -126,7 +135,7 @@ impl OsBuildVmArgs {
 
     self.common.build_only(
       &OsRebuildVariant::BuildVm,
-      Some(&attr),
+      Some(&[attr]),
       &elevation,
     )?;
 
@@ -144,7 +153,7 @@ impl OsRebuildActivateArgs {
   fn rebuild_and_activate(
     self,
     variant: &OsRebuildVariant,
-    final_attr: Option<&String>,
+    final_attrs: Option<&[&str]>,
     elevation: ElevationStrategy,
   ) -> Result<()> {
     use OsRebuildVariant::{Build, BuildVm};
@@ -157,7 +166,7 @@ impl OsRebuildActivateArgs {
 
     let toplevel = self
       .rebuild
-      .resolve_installable_and_toplevel(&target_hostname, final_attr)?;
+      .resolve_installable_and_toplevel(&target_hostname, final_attrs)?;
 
     let message = match variant {
       BuildVm => "Building NixOS VM image",
@@ -441,6 +450,7 @@ impl OsRebuildArgs {
       update(
         &self.common.installable,
         self.update_args.update_input.clone(),
+        self.common.passthrough.commit_lock_file,
       )?;
     }
 
@@ -452,11 +462,11 @@ impl OsRebuildArgs {
     &self,
     variant: &OsRebuildVariant,
   ) -> Result<(PathBuf, Option<tempfile::TempDir>)> {
-    use OsRebuildVariant::{Build, BuildVm};
+    use OsRebuildVariant::{Build, BuildIso, BuildVm};
     if let Some(p) = self.common.out_link.clone() {
       Ok((p, None))
     } else {
-      let (path, guard) = if matches!(variant, BuildVm | Build) {
+      let (path, guard) = if matches!(variant, BuildVm | BuildIso | Build) {
         (PathBuf::from("result"), None)
       } else {
         let dir = tempfile::Builder::new().prefix("nh-os").tempdir()?;
@@ -469,7 +479,7 @@ impl OsRebuildArgs {
   fn resolve_installable_and_toplevel(
     &self,
     target_hostname: &str,
-    final_attr: Option<&String>,
+    final_attrs: Option<&[&str]>,
   ) -> Result<Installable> {
     let installable = (get_nh_os_flake_env()?)
       .unwrap_or_else(|| self.common.installable.clone());
@@ -482,7 +492,7 @@ impl OsRebuildArgs {
     toplevel_for(
       target_hostname,
       installable,
-      final_attr.map_or("toplevel", |v| v),
+      final_attrs.map_or_else(|| &["toplevel"][..], |v| v),
     )
   }
 
@@ -630,20 +640,26 @@ impl OsRebuildArgs {
   fn build_only(
     self,
     variant: &OsRebuildVariant,
-    final_attr: Option<&String>,
+    final_attrs: Option<&[&str]>,
     elevation: &ElevationStrategy,
   ) -> Result<()> {
-    use OsRebuildVariant::{Build, BuildVm};
+    use OsRebuildVariant::{Build, BuildIso, BuildVm};
 
     let (_, target_hostname) = self.setup_build_context(elevation)?;
 
     let (out_path, _tempdir_guard) = self.determine_output_path(variant)?;
 
     let toplevel =
-      self.resolve_installable_and_toplevel(&target_hostname, final_attr)?;
+      self.resolve_installable_and_toplevel(&target_hostname, final_attrs)?;
 
     let message = match variant {
       BuildVm => "Building NixOS VM image",
+      BuildIso => {
+        &final_attrs.and_then(|attrs| attrs.last()).map_or_else(
+          || "Building NixOS image".to_string(),
+          |variant| format!("Building NixOS image ({variant})"),
+        )
+      },
       _ => "Building NixOS configuration",
     };
 
@@ -653,8 +669,8 @@ impl OsRebuildArgs {
 
     self.handle_dix_diff(&target_profile);
 
-    // Build and BuildVm subcommands never activate
-    debug_assert!(matches!(variant, Build | BuildVm));
+    // Build, BuildVm and BuildIso subcommands never activate
+    debug_assert!(matches!(variant, Build | BuildVm | BuildIso));
 
     Ok(())
   }
@@ -815,6 +831,61 @@ impl OsRollbackArgs {
           .context("Failed to activate configuration");
       },
     }
+
+    Ok(())
+  }
+}
+
+impl OsBuildImageArgs {
+  fn build_image(self, elevation: &ElevationStrategy) -> Result<()> {
+    let (_, target_hostname) = self.common.setup_build_context(elevation)?;
+
+    // Show warning if no hostname was explicitly provided for image builds
+    if self.common.hostname.is_none() {
+      tracing::warn!(
+        "Guessing system is {target_hostname} for an image ({}). If this \
+         isn't intended, use --hostname to change.",
+        self.image_variant
+      );
+    }
+
+    let installable = (get_nh_os_flake_env()?)
+      .unwrap_or_else(|| self.common.common.installable.clone());
+
+    let installable = match installable {
+      Installable::Unspecified => Installable::try_find_default_for_os()?,
+      other => other,
+    };
+
+    // Get the available image variants for validation
+    let valid_variants = match &installable {
+      Installable::Flake { .. } => {
+        let images_installable =
+          toplevel_for(&target_hostname, installable.clone(), &["images"])?;
+        get_build_image_variants_flake(&images_installable)?
+      },
+      Installable::File { .. } | Installable::Expression { .. } => {
+        get_build_image_variants(&installable, &target_hostname)?
+      },
+      _ => bail!("Unsupported installable type for image building"),
+    };
+
+    // Validate that the requested variant exists
+    if !valid_variants.contains(&self.image_variant) {
+      bail!(
+        "Invalid image variant '{}'. Available variants:\n- {}",
+        self.image_variant,
+        valid_variants.join("\n- ")
+      );
+    }
+
+    let attrs = ["images", &self.image_variant];
+
+    self.common.build_only(
+      &OsRebuildVariant::BuildIso,
+      Some(&attrs),
+      elevation,
+    )?;
 
     Ok(())
   }
@@ -1176,14 +1247,15 @@ fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
 pub fn toplevel_for<S: AsRef<str>>(
   hostname: S,
   installable: Installable,
-  final_attr: &str,
+  final_attrs: &[&str],
 ) -> Result<Installable> {
   let mut res = installable;
   let hostname_str = hostname.as_ref();
 
-  let toplevel = ["config", "system", "build", final_attr]
+  let toplevel = vec!["config", "system", "build"]
     .into_iter()
-    .map(String::from);
+    .map(String::from)
+    .chain(final_attrs.iter().map(|&s| String::from(s)));
 
   match res {
     Installable::Flake {
