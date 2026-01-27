@@ -14,3 +14,4 @@ echo "Running Rust formatter"
 cargo fmt
 
 echo "Running TOML formatter"
+taplo fmt
