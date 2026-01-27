@@ -1,3 +1,5 @@
+exclude = [ ".direnv/**" ]
+
 [formatting]
 align_entries         = true
 column_width          = 100
