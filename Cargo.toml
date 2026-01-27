@@ -33,16 +33,12 @@ clap-verbosity-flag = { default-features = false, features = [ "tracing" ], vers
 color-eyre = { default-features = false, features = [ "track-caller" ], version = "0.6.5" }
 dix = "1.3.0"
 elasticsearch-dsl = "0.4.24"
-hotpath = { optional = true, version = "0.7.5" }
+hotpath = { optional = true, version = "0.9.3" }
 humantime = "2.3.0"
 inquire = { default-features = false, features = [ "crossterm" ], version = "0.9.1" }
-nix = { default-features = false, features = [ "fs", "user", "hostname" ], version = "0.30.1" }
+nix = { default-features = false, features = ["fs", "user", "hostname"], version = "0.31.1" }
 regex = "1.12.2"
-reqwest = { default-features = false, features = [
-  "rustls-tls-native-roots",
-  "blocking",
-  "json",
-], version = "0.12.23" }
+reqwest = { default-features = false, features = ["blocking", "json"], version = "0.13.1" }
 secrecy = { features = [ "serde" ], version = "0.10.3" }
 semver = "1.0.27"
 serde = { features = [ "derive" ], version = "1.0.228" }
@@ -66,7 +62,7 @@ hotpath-alloc = [ "hotpath/hotpath-alloc" ]
 hotpath-off   = [ "hotpath/hotpath-off" ]
 
 [target.'cfg(target_os="macos")'.dependencies]
-system-configuration = "0.6.1"
+system-configuration = "0.7.0"
 
 [dev-dependencies]
 clap_mangen = "0.2.31"
