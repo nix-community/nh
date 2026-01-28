@@ -26,7 +26,15 @@
         default = self.packages.${pkgs.stdenv.hostPlatform.system}.nh;
       });
 
-      checks = self.packages // self.devShells;
+      checks =
+        self.packages
+        // self.devShells
+        // nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" ] (system: {
+          nh-remote-test = nixpkgs.legacyPackages.${system}.callPackage ./test/vm/test-remote.nix {
+            inherit (self.packages.${system}) nh;
+            inherit nixpkgs;
+          };
+        });
 
       devShells = forAllSystems (pkgs: {
         default = import ./shell.nix { inherit pkgs; };
