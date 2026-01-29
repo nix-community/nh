@@ -565,7 +565,9 @@ impl OsRebuildArgs {
     &self,
     out_path: &Path,
   ) -> Result<PathBuf> {
-    let current_specialisation = std::fs::read_to_string(SPEC_LOCATION).ok();
+    let current_specialisation = std::fs::read_to_string(SPEC_LOCATION)
+      .ok()
+      .map(|s| s.trim().to_owned());
 
     let target_specialisation = if self.no_specialisation {
       None
@@ -701,7 +703,9 @@ impl OsRollbackArgs {
       profile_dir.join(format!("system-{}-link", target_generation.number));
 
     // Handle specialisations
-    let current_specialisation = fs::read_to_string(SPEC_LOCATION).ok();
+    let current_specialisation = fs::read_to_string(SPEC_LOCATION)
+      .ok()
+      .map(|s| s.trim().to_owned());
 
     let target_specialisation = if self.no_specialisation {
       None

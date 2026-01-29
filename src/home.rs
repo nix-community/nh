@@ -179,7 +179,7 @@ impl HomeRebuildArgs {
         tracing::warn!("spec_location path is not valid UTF-8");
         None
       },
-      |s| std::fs::read_to_string(s).ok(),
+      |s| std::fs::read_to_string(s).ok().map(|s| s.trim().to_owned()),
     );
 
     let target_specialisation = if self.no_specialisation {
