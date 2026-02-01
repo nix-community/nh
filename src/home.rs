@@ -184,7 +184,7 @@ impl HomeRebuildArgs {
     let target_specialisation = if self.no_specialisation {
       None
     } else {
-      current_specialisation.or(self.specialisation)
+      self.specialisation.or(current_specialisation)
     };
 
     debug!("target_specialisation: {target_specialisation:?}");
