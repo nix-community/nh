@@ -17,7 +17,6 @@ mod util;
 use std::str::FromStr;
 
 use color_eyre::Result;
-#[cfg(feature = "hotpath")] use hotpath;
 
 use crate::commands::{ElevationStrategy, ElevationStrategyArg};
 
@@ -25,9 +24,6 @@ pub const NH_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const NH_REV: Option<&str> = option_env!("NH_REV");
 
 fn main() -> Result<()> {
-  #[cfg(feature = "hotpath")]
-  let _guard = hotpath::GuardBuilder::new("main").build();
-
   let mut args = <crate::interface::Main as clap::Parser>::parse();
 
   // Backward compatibility: support NH_ELEVATION_PROGRAM env var if

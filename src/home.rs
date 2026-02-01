@@ -35,7 +35,6 @@ impl interface::HomeArgs {
   /// - Remote operations encounter network or SSH issues
   /// - Nix evaluation or building fails
   /// - File system operations fail
-  #[cfg_attr(feature = "hotpath", hotpath::measure)]
   pub fn run(self) -> Result<()> {
     use HomeRebuildVariant::{Build, Switch};
     match self.subcommand {

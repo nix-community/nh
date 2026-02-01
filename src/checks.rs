@@ -15,7 +15,6 @@ use crate::util::{self, NixVariant, normalize_version_string};
 /// # Errors
 ///
 /// Returns an error if the Nix version cannot be determined or parsed.
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn check_nix_version() -> Result<()> {
   // XXX: Both Nix and Lix follow semantic versioning (semver). Update the
   // versions below once latest stable for either of those packages change.
@@ -138,7 +137,6 @@ pub fn verify_variables() -> Result<()> {
 /// # Errors
 ///
 /// Returns an error if any required Nix environment checks fail.
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn verify_nix_environment() -> Result<()> {
   if env::var("NH_NO_CHECKS").is_ok() {
     return Ok(());
