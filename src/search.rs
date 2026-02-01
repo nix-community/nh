@@ -75,7 +75,6 @@ struct JSONOutput {
 }
 
 impl SearchArgs {
-  #[cfg_attr(feature = "hotpath", hotpath::measure)]
   #[allow(clippy::missing_errors_doc)]
   pub fn run(&self) -> Result<()> {
     trace!("args: {self:?}");
@@ -180,13 +179,6 @@ impl SearchArgs {
 
     debug!(?req);
 
-    #[cfg(feature = "hotpath")]
-    let response = hotpath::measure_block!("http_request", {
-      client
-        .execute(req)
-        .context("querying the elasticsearch API")?
-    });
-    #[cfg(not(feature = "hotpath"))]
     let response = client
       .execute(req)
       .context("querying the elasticsearch API")?;
@@ -215,14 +207,6 @@ impl SearchArgs {
       println!();
     }
 
-    #[cfg(feature = "hotpath")]
-    let parsed_response: SearchResponse =
-      hotpath::measure_block!("json_parse", {
-        response
-          .json()
-          .context("parsing response into the elasticsearch format")?
-      });
-    #[cfg(not(feature = "hotpath"))]
     let parsed_response: SearchResponse = response
       .json()
       .context("parsing response into the elasticsearch format")?;

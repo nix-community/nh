@@ -180,7 +180,6 @@ pub fn normalize_version_string(version: &str) -> String {
 /// Returns an error if:
 /// - The `nix --version` command produces no output
 /// - The output contains no valid version string
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn get_nix_version() -> Result<String> {
   let output = get_nix_version_output();
 
@@ -283,7 +282,6 @@ pub fn get_hostname(supplied_hostname: Option<String>) -> Result<String> {
 ///
 /// Returns an error if the `nix config show experimental-features` command
 /// fails to execute.
-#[cfg_attr(feature = "hotpath", hotpath::measure)]
 pub fn get_nix_experimental_features() -> Result<HashSet<String>> {
   // Try to get cached features first
   if let Some(features) = NIX_EXPERIMENTAL_FEATURES.get() {

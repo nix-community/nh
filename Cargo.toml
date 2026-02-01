@@ -33,7 +33,6 @@ clap-verbosity-flag = { default-features = false, features = [ "tracing" ], vers
 color-eyre          = { default-features = false, features = [ "track-caller" ], version = "0.6.5" }
 dix                 = "1.4.2"
 elasticsearch-dsl   = "0.4.24"
-hotpath             = { optional = true, version = "0.9.3" }
 humantime           = "2.3.0"
 inquire             = { default-features = false, features = [ "crossterm" ], version = "0.9.1" }
 nix                 = { default-features = false, features = [ "fs", "user", "hostname" ], version = "0.31.1" }
@@ -55,11 +54,6 @@ tracing-subscriber  = { features = [ "env-filter", "registry", "std" ], version 
 urlencoding         = "2.1.3"
 which               = "8.0.0"
 yansi               = "1.0.1"
-
-[features]
-hotpath       = [ "dep:hotpath", "hotpath/hotpath" ]
-hotpath-alloc = [ "hotpath/hotpath-alloc" ]
-hotpath-off   = [ "hotpath/hotpath-off" ]
 
 [target.'cfg(target_os="macos")'.dependencies]
 system-configuration = "0.7.0"
