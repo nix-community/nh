@@ -70,7 +70,6 @@ impl interface::OsArgs {
   /// - Remote operations encounter network or SSH issues
   /// - Nix evaluation or building fails
   /// - File system operations fail
-  #[cfg_attr(feature = "hotpath", hotpath::measure)]
   pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
     use OsRebuildVariant::{Boot, Build, Switch, Test};
     match self.subcommand {

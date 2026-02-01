@@ -623,7 +623,6 @@ impl Command {
   /// # Panics
   ///
   /// Panics if the command result is unexpectedly None.
-  #[cfg_attr(feature = "hotpath", hotpath::measure)]
   pub fn run(&self) -> Result<()> {
     // Prompt for elevation password if needed for remote deployment.
     // Note: Only sudo supports stdin password input. For remote deployments
@@ -838,7 +837,6 @@ impl Build {
   /// # Errors
   ///
   /// Returns an error if the build command fails to execute.
-  #[cfg_attr(feature = "hotpath", hotpath::measure)]
   pub fn run(&self) -> Result<()> {
     if let Some(m) = &self.message {
       info!("{m}");
