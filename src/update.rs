@@ -2,6 +2,11 @@ use tracing::warn;
 
 use crate::{Result, commands::Command, installable::Installable};
 
+/// Update the flake inputs.
+///
+/// # Errors
+///
+/// Returns an error if the `nix flake update` command fails.
 pub fn update(
   installable: &Installable,
   inputs: Option<Vec<String>>,

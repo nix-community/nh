@@ -282,7 +282,7 @@ where
                reference without attributes (e.g., '.')\n  2. Specify only \
                the configuration name (e.g., '.#{}')",
               attribute.join("."),
-              attribute.get(1).unwrap_or(&"<unknown>".to_string())
+              attribute.get(1).map_or("<unknown>", String::as_str)
             );
           }
         } else if attribute.len() > 1 {
@@ -296,7 +296,7 @@ where
                reference without attributes (e.g., '.')\n  2. Specify only \
                the configuration name (e.g., '.#{}')",
               attribute.join("."),
-              attribute.get(1).unwrap_or(&"<unknown>".to_string())
+              attribute.get(1).map_or("<unknown>", String::as_str)
             );
           }
         }

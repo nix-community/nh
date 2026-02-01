@@ -45,10 +45,10 @@ where
 
     ctx.field_format().format_fields(writer.by_ref(), event)?;
 
-    if *level != Level::INFO {
-      if let (Some(file), Some(line)) = (metadata.file(), metadata.line()) {
-        write!(writer, " (nh/{file}:{line})")?;
-      }
+    if *level != Level::INFO
+      && let (Some(file), Some(line)) = (metadata.file(), metadata.line())
+    {
+      write!(writer, " (nh/{file}:{line})")?;
     }
 
     writeln!(writer)?;
@@ -56,6 +56,11 @@ where
   }
 }
 
+/// Setup logging for the application.
+///
+/// # Errors
+///
+/// Returns an error if the `color_eyre` hook fails to install.
 pub fn setup_logging(
   verbosity: clap_verbosity_flag::Verbosity<InfoLevel>,
 ) -> Result<()> {

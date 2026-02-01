@@ -88,7 +88,7 @@ impl interface::OsArgs {
         }
         args.build_only(&Build, None, &elevation)
       },
-      OsSubcommand::BuildVm(args) => args.build_vm(elevation),
+      OsSubcommand::BuildVm(args) => args.build_vm(&elevation),
       OsSubcommand::Repl(args) => args.run(),
       OsSubcommand::Info(args) => args.info(),
       OsSubcommand::Rollback(args) => args.rollback(elevation),
@@ -108,7 +108,7 @@ enum OsRebuildVariant {
 }
 
 impl OsBuildVmArgs {
-  fn build_vm(self, elevation: ElevationStrategy) -> Result<()> {
+  fn build_vm(self, elevation: &ElevationStrategy) -> Result<()> {
     let attr = if self.with_bootloader {
       "vmWithBootLoader"
     } else {
@@ -125,7 +125,7 @@ impl OsBuildVmArgs {
 
     // Show warning if no hostname was explicitly provided for VM builds
     if self.common.hostname.is_none() {
-      let (_, target_hostname) = self.common.setup_build_context(&elevation)?;
+      let (_, target_hostname) = self.common.setup_build_context(elevation)?;
       tracing::warn!(
         "Guessing system is {target_hostname} for a VM image. If this isn't \
          intended, use --hostname to change."
@@ -135,7 +135,7 @@ impl OsBuildVmArgs {
     self.common.build_only(
       &OsRebuildVariant::BuildVm,
       Some(&[attr]),
-      &elevation,
+      elevation,
     )?;
 
     // If --run flag is set, execute the VM
@@ -1227,12 +1227,12 @@ fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
     };
 
     let path = entry.path();
-    if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
-      if name.starts_with("system-") && name.ends_with("-link") {
-        if let Some(gen_info) = generations::describe(&path) {
-          generations.push(gen_info);
-        }
-      }
+    if let Some(name) = path.file_name().and_then(|s| s.to_str())
+      && name.starts_with("system-")
+      && name.ends_with("-link")
+      && let Some(gen_info) = generations::describe(&path)
+    {
+      generations.push(gen_info);
     }
   }
 
@@ -1247,6 +1247,11 @@ fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
   Ok(generations)
 }
 
+/// Get the toplevel installable for a NixOS configuration.
+///
+/// # Errors
+///
+/// Returns an error if the attribute path is invalid.
 pub fn toplevel_for<S: AsRef<str>>(
   hostname: S,
   installable: Installable,
@@ -1335,11 +1340,10 @@ impl OsReplArgs {
     if let Installable::Flake {
       ref mut attribute, ..
     } = target_installable
+      && attribute.is_empty()
     {
-      if attribute.is_empty() {
-        attribute.push(String::from("nixosConfigurations"));
-        attribute.push(hostname);
-      }
+      attribute.push(String::from("nixosConfigurations"));
+      attribute.push(hostname);
     }
 
     Command::new("nix")
@@ -1391,7 +1395,7 @@ impl OsGenerationsArgs {
       .filter_map(|gen_dir| generations::describe(gen_dir))
       .collect();
 
-    generations::print_info(descriptions, self.fields.as_deref())?;
+    generations::print_info(descriptions, self.fields.as_deref());
 
     Ok(())
   }

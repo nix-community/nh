@@ -104,10 +104,9 @@ impl SearchArgs {
         .stderr(Stdio::null())
         .args(["eval", "-f", "<nixpkgs>", "path"])
         .output()
+        && output.status.success()
       {
-        if output.status.success() {
-          return Ok(output);
-        }
+        return Ok(output);
       }
 
       std::process::Command::new("nix")

@@ -93,6 +93,12 @@ impl NHCommand {
     }
   }
 
+  /// Run the nh command.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the command fails to execute or if feature
+  /// requirements are not met.
   pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
     // Check features specific to this command
     let requirements = self.get_feature_requirements();

@@ -45,10 +45,10 @@ impl FromArgMatches for Installable {
     if let Some(i) = installable {
       let canonincal = fs::canonicalize(i);
 
-      if let Ok(p) = canonincal {
-        if p.starts_with("/nix/store") {
-          return Ok(Self::Store { path: p });
-        }
+      if let Ok(p) = canonincal
+        && p.starts_with("/nix/store")
+      {
+        return Ok(Self::Store { path: p });
       }
     }
 
@@ -115,10 +115,10 @@ impl FromArgMatches for Installable {
         _ => "",
       };
 
-      if !env_var.is_empty() {
-        if let Some(installable) = parse_flake_env(env_var) {
-          return Ok(installable);
-        }
+      if !env_var.is_empty()
+        && let Some(installable) = parse_flake_env(env_var)
+      {
+        return Ok(installable);
       }
     }
 
@@ -219,6 +219,11 @@ Nix accepts various kinds of installables:
 // TODO: `parse_attribute` should handle quoted attributes, such as:
 // foo."bar.baz" -> ["foo", "bar.baz"]
 // Maybe we want to use chumsky for this?
+/// Parses an attribute path string into a vector of attribute names.
+///
+/// # Panics
+///
+/// Panics if the attribute path has an unclosed quote.
 pub fn parse_attribute<S>(s: S) -> Vec<String>
 where
   S: AsRef<str>,
