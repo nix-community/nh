@@ -497,10 +497,12 @@ pub fn print_dix_diff(
   let closure_size_handle = dix::spawn_size_diff(
     old_generation.to_path_buf(),
     new_generation.to_path_buf(),
+    true,
   );
 
-  let wrote = dix::write_package_diff(&mut out, old_generation, new_generation)
-    .unwrap_or_default();
+  let wrote =
+    dix::write_package_diff(&mut out, old_generation, new_generation, true)
+      .unwrap_or_default();
 
   if let Ok((size_old, size_new)) =
     closure_size_handle.join().map_err(|_| {
