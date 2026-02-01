@@ -216,37 +216,37 @@ fn cleanup_ssh_control_sockets(control_dir: &std::path::Path) {
     let path = entry.path();
 
     // Only process files starting with "ssh-"
-    if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
-      if filename.starts_with("ssh-") {
-        debug!("Closing SSH control socket: {}", path.display());
+    if let Some(filename) = path.file_name().and_then(|n| n.to_str())
+      && filename.starts_with("ssh-")
+    {
+      debug!("Closing SSH control socket: {}", path.display());
 
-        // Run: ssh -o ControlPath=<socket> -O exit dummyhost
-        let result = Exec::cmd("ssh")
-          .args(&["-o", &format!("ControlPath={}", path.display())])
-          .args(&["-O", "exit", "dummyhost"])
-          .stdout(Redirection::Pipe)
-          .stderr(Redirection::Pipe)
-          .capture();
+      // Run: ssh -o ControlPath=<socket> -O exit dummyhost
+      let result = Exec::cmd("ssh")
+        .args(&["-o", &format!("ControlPath={}", path.display())])
+        .args(&["-O", "exit", "dummyhost"])
+        .stdout(Redirection::Pipe)
+        .stderr(Redirection::Pipe)
+        .capture();
 
-        match result {
-          Ok(capture) => {
-            if !capture.exit_status.success() {
-              // This is normal if the connection was already closed
-              debug!(
-                "SSH control socket cleanup exited with status {:?} for {}",
-                capture.exit_status,
-                path.display()
-              );
-            }
-          },
-          Err(e) => {
-            tracing::warn!(
-              "Failed to close SSH control socket at {}: {}",
-              path.display(),
-              e
+      match result {
+        Ok(capture) => {
+          if !capture.exit_status.success() {
+            // This is normal if the connection was already closed
+            debug!(
+              "SSH control socket cleanup exited with status {:?} for {}",
+              capture.exit_status,
+              path.display()
             );
-          },
-        }
+          }
+        },
+        Err(e) => {
+          tracing::warn!(
+            "Failed to close SSH control socket at {}: {}",
+            path.display(),
+            e
+          );
+        },
       }
     }
   }
@@ -861,10 +861,10 @@ pub fn validate_closure_remote(
     .output();
 
   // If batch check succeeds, all files exist
-  if let Ok(output) = &check_result {
-    if output.status.success() {
-      return Ok(());
-    }
+  if let Ok(output) = &check_result
+    && output.status.success()
+  {
+    return Ok(());
   }
 
   // Batch check failed or errored. Identify which files are missing
@@ -1823,12 +1823,12 @@ fn build_on_remote_with_nom(
   // Check the exit status of the FIRST process (ssh -> nix build)
   // This is the one that matters. If the remote build fails, we should fail
   // too
-  if let Some(ssh_proc) = processes.first() {
-    if let Some(exit_status) = ssh_proc.exit_status() {
-      match exit_status {
-        ExitStatus::Exited(0) => {},
-        other => bail!("Remote build failed with exit status: {other:?}"),
-      }
+  if let Some(ssh_proc) = processes.first()
+    && let Some(exit_status) = ssh_proc.exit_status()
+  {
+    match exit_status {
+      ExitStatus::Exited(0) => {},
+      other => bail!("Remote build failed with exit status: {other:?}"),
     }
   }
 

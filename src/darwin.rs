@@ -278,11 +278,10 @@ impl DarwinReplArgs {
     if let Installable::Flake {
       ref mut attribute, ..
     } = target_installable
+      && attribute.is_empty()
     {
-      if attribute.is_empty() {
-        attribute.push(String::from("darwinConfigurations"));
-        attribute.push(hostname);
-      }
+      attribute.push(String::from("darwinConfigurations"));
+      attribute.push(hostname);
     }
 
     Command::new("nix")
@@ -296,6 +295,12 @@ impl DarwinReplArgs {
   }
 }
 
+/// Get the toplevel installable for a Darwin configuration.
+///
+/// # Errors
+///
+/// Returns an error if the installable is a store path or if the attribute
+/// path is invalid.
 pub fn toplevel_for<S: AsRef<str>>(
   hostname: S,
   installable: Installable,

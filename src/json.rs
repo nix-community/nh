@@ -38,6 +38,11 @@ impl<'v> Value<'v> {
     }
   }
 
+  /// Get a value from the JSON object by key.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the key is not found in the JSON object.
   pub fn get(&self, index: &str) -> Result<Self, Error> {
     let mut get_stack = self.get_stack.clone();
     get_stack.push(index.to_owned());
