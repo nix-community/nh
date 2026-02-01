@@ -6,6 +6,14 @@ use yansi::{Color, Paint};
 
 // Reference: https://nix.dev/manual/nix/2.18/command-ref/new-cli/nix
 
+/// Command context for resolving installable env var priority
+#[derive(Debug, Clone, Copy)]
+pub enum CommandContext {
+  Os,
+  Home,
+  Darwin,
+}
+
 #[derive(Debug, Clone)]
 pub enum Installable {
   Flake {
@@ -103,23 +111,6 @@ impl FromArgMatches for Installable {
           ),
         })
       })
-    }
-
-    // Command-specific flake env vars
-    if let Ok(subcommand) = env::var("NH_CURRENT_COMMAND") {
-      debug!("Current subcommand: {subcommand:?}");
-      let env_var = match subcommand.as_str() {
-        "os" => "NH_OS_FLAKE",
-        "home" => "NH_HOME_FLAKE",
-        "darwin" => "NH_DARWIN_FLAKE",
-        _ => "",
-      };
-
-      if !env_var.is_empty() {
-        if let Some(installable) = parse_flake_env(env_var) {
-          return Ok(installable);
-        }
-      }
     }
 
     // General flake env fallbacks
@@ -312,6 +303,68 @@ impl Installable {
     }
 
     res
+  }
+
+  /// Resolves an installable, checking environment variables in
+  /// command-specific priority order.
+  ///
+  /// If the installable is not Unspecified, returns it as-is.
+  /// Otherwise, checks env vars in priority order based on the command context:
+  /// - For NixOS: NH_OS_FLAKE, then NH_FLAKE
+  /// - For Home: NH_HOME_FLAKE, then NH_FLAKE
+  /// - For Darwin: NH_DARWIN_FLAKE, then NH_FLAKE
+  ///
+  /// Returns an error if no installable could be resolved and no default is
+  /// available.
+  pub fn resolve(self, context: CommandContext) -> color_eyre::Result<Self> {
+    match self {
+      Self::Unspecified => {
+        // Check command-specific env var first
+        let specific_var = match context {
+          CommandContext::Os => "NH_OS_FLAKE",
+          CommandContext::Home => "NH_HOME_FLAKE",
+          CommandContext::Darwin => "NH_DARWIN_FLAKE",
+        };
+        if let Ok(flake) = env::var(specific_var) {
+          debug!("Using {specific_var}: {flake}");
+          let mut elems = flake.splitn(2, '#');
+          let reference = elems.next().ok_or_else(|| {
+            color_eyre::eyre::eyre!("{specific_var} missing reference part")
+          })?;
+          return Ok(Self::Flake {
+            reference: reference.to_owned(),
+            attribute: parse_attribute(
+              elems
+                .next()
+                .map(std::string::ToString::to_string)
+                .unwrap_or_default(),
+            ),
+          });
+        }
+
+        // Fall back to NH_FLAKE
+        if let Ok(flake) = env::var("NH_FLAKE") {
+          debug!("Using NH_FLAKE: {flake}");
+          let mut elems = flake.splitn(2, '#');
+          let reference = elems.next().ok_or_else(|| {
+            color_eyre::eyre::eyre!("NH_FLAKE missing reference part")
+          })?;
+          return Ok(Self::Flake {
+            reference: reference.to_owned(),
+            attribute: parse_attribute(
+              elems
+                .next()
+                .map(std::string::ToString::to_string)
+                .unwrap_or_default(),
+            ),
+          });
+        }
+
+        // Return Unspecified - caller should try default resolution
+        Ok(Self::Unspecified)
+      },
+      other => Ok(other),
+    }
   }
 }
 

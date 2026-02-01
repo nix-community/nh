@@ -1,13 +1,13 @@
-use std::{convert::Into, env, path::PathBuf};
+use std::{convert::Into, path::PathBuf};
 
-use color_eyre::eyre::{Context, bail, eyre};
+use color_eyre::eyre::{Context, bail};
 use tracing::{debug, info, warn};
 
 use crate::{
   Result,
   commands,
   commands::{Command, ElevationStrategy},
-  installable::Installable,
+  installable::{CommandContext, Installable},
   interface::{
     DarwinArgs,
     DarwinRebuildArgs,
@@ -97,27 +97,11 @@ impl DarwinRebuildArgs {
 
     debug!("Output path: {out_path:?}");
 
-    // Use NH_DARWIN_FLAKE if available, otherwise use the provided installable
-    let installable = if let Ok(darwin_flake) = env::var("NH_DARWIN_FLAKE") {
-      debug!("Using NH_DARWIN_FLAKE: {}", darwin_flake);
-
-      let mut elems = darwin_flake.splitn(2, '#');
-      let reference = match elems.next() {
-        Some(r) => r.to_owned(),
-        None => return Err(eyre!("NH_DARWIN_FLAKE missing reference part")),
-      };
-      let attribute = elems
-        .next()
-        .map(crate::installable::parse_attribute)
-        .unwrap_or_default();
-
-      Installable::Flake {
-        reference,
-        attribute,
-      }
-    } else {
-      self.common.installable.clone()
-    };
+    let installable = self
+      .common
+      .installable
+      .clone()
+      .resolve(CommandContext::Darwin)?;
 
     let installable = match installable {
       Installable::Unspecified => Installable::try_find_default_for_darwin()?,
@@ -241,28 +225,8 @@ impl DarwinRebuildArgs {
 
 impl DarwinReplArgs {
   fn run(self) -> Result<()> {
-    // Use NH_DARWIN_FLAKE if available, otherwise use the provided installable
     let target_installable =
-      if let Ok(darwin_flake) = env::var("NH_DARWIN_FLAKE") {
-        debug!("Using NH_DARWIN_FLAKE: {}", darwin_flake);
-
-        let mut elems = darwin_flake.splitn(2, '#');
-        let reference = match elems.next() {
-          Some(r) => r.to_owned(),
-          None => return Err(eyre!("NH_DARWIN_FLAKE missing reference part")),
-        };
-        let attribute = elems
-          .next()
-          .map(crate::installable::parse_attribute)
-          .unwrap_or_default();
-
-        Installable::Flake {
-          reference,
-          attribute,
-        }
-      } else {
-        self.installable
-      };
+      self.installable.resolve(CommandContext::Darwin)?;
 
     let mut target_installable = match target_installable {
       Installable::Unspecified => Installable::try_find_default_for_darwin()?,
