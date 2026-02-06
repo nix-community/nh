@@ -166,6 +166,16 @@ impl OsRebuildActivateArgs {
       .rebuild
       .resolve_installable_and_toplevel(&target_hostname, final_attrs)?;
 
+    if self.rebuild.update_args.update_all
+      || self.rebuild.update_args.update_input.is_some()
+    {
+      update(
+        &toplevel,
+        self.rebuild.update_args.update_input.clone(),
+        self.rebuild.common.passthrough.commit_lock_file,
+      )?;
+    }
+
     let message = match variant {
       BuildVm => "Building NixOS VM image",
       _ => "Building NixOS configuration",
@@ -444,14 +454,6 @@ impl OsRebuildArgs {
 
     let elevate = has_elevation_status(self.bypass_root_check, elevation)?;
 
-    if self.update_args.update_all || self.update_args.update_input.is_some() {
-      update(
-        &self.common.installable,
-        self.update_args.update_input.clone(),
-        self.common.passthrough.commit_lock_file,
-      )?;
-    }
-
     let target_hostname = get_hostname(self.hostname.clone())?;
     Ok((elevate, target_hostname))
   }
@@ -654,6 +656,14 @@ impl OsRebuildArgs {
 
     let toplevel =
       self.resolve_installable_and_toplevel(&target_hostname, final_attrs)?;
+
+    if self.update_args.update_all || self.update_args.update_input.is_some() {
+      update(
+        &toplevel,
+        self.update_args.update_input.clone(),
+        self.common.passthrough.commit_lock_file,
+      )?;
+    }
 
     let message = match variant {
       BuildVm => "Building NixOS VM image",

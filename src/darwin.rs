@@ -77,14 +77,6 @@ impl DarwinRebuildArgs {
       );
     }
 
-    if self.update_args.update_all || self.update_args.update_input.is_some() {
-      update(
-        &self.common.installable,
-        self.update_args.update_input,
-        self.common.passthrough.commit_lock_file,
-      )?;
-    }
-
     let hostname = get_hostname(self.hostname)?;
 
     let (out_path, _tempdir_guard): (PathBuf, Option<tempfile::TempDir>) =
@@ -107,6 +99,14 @@ impl DarwinRebuildArgs {
       Installable::Unspecified => Installable::try_find_default_for_darwin()?,
       other => other,
     };
+
+    if self.update_args.update_all || self.update_args.update_input.is_some() {
+      update(
+        &self.common.installable,
+        self.update_args.update_input,
+        self.common.passthrough.commit_lock_file,
+      )?;
+    }
 
     let toplevel = toplevel_for(hostname, installable, "toplevel")?;
 

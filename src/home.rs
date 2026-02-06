@@ -60,14 +60,6 @@ impl HomeRebuildArgs {
   fn rebuild(self, variant: &HomeRebuildVariant) -> Result<()> {
     use HomeRebuildVariant::Build;
 
-    if self.update_args.update_all || self.update_args.update_input.is_some() {
-      update(
-        &self.common.installable,
-        self.update_args.update_input,
-        self.common.passthrough.commit_lock_file,
-      )?;
-    }
-
     let (out_path, _tempdir_guard): (PathBuf, Option<tempfile::TempDir>) =
       if let Some(ref p) = self.common.out_link {
         (p.clone(), None)
@@ -88,6 +80,14 @@ impl HomeRebuildArgs {
       Installable::Unspecified => Installable::try_find_default_for_home()?,
       other => other,
     };
+
+    if self.update_args.update_all || self.update_args.update_input.is_some() {
+      update(
+        &self.common.installable,
+        self.update_args.update_input,
+        self.common.passthrough.commit_lock_file,
+      )?;
+    }
 
     let toplevel = toplevel_for(
       installable,
