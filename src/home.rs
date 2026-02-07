@@ -140,22 +140,30 @@ impl HomeRebuildArgs {
         .wrap_err("Failed to build Home-Manager configuration")?;
     }
 
+    let username =
+      env::var("USER").map_err(|_| eyre!("Couldn't get username"))?;
+    let home_dir =
+      env::var("HOME").map_err(|_| eyre!("Couldn't get home directory"))?;
+    let state_home =
+      env::var("XDG_STATE_HOME").unwrap_or(format!("{home_dir}/.local/state"));
+    let data_home =
+      env::var("XDG_DATA_HOME").unwrap_or(format!("{home_dir}/.local/share"));
+
+    // Match Home Manager's profile discovery: prefer $XDG_STATE_HOME if set,
+    // otherwise fall back to the global per-user profile directory.
     let prev_generation: Option<PathBuf> = [
+      PathBuf::from(&state_home).join("nix/profiles/home-manager"),
       PathBuf::from("/nix/var/nix/profiles/per-user")
-        .join(env::var("USER").map_err(|_| eyre!("Couldn't get username"))?)
+        .join(&username)
         .join("home-manager"),
-      PathBuf::from(
-        env::var("HOME").map_err(|_| eyre!("Couldn't get home directory"))?,
-      )
-      .join(".local/state/nix/profiles/home-manager"),
     ]
     .into_iter()
     .find(|next| next.exists());
 
     debug!("Previous generation: {prev_generation:?}");
 
-    let spec_location = PathBuf::from(std::env::var("HOME")?)
-      .join(".local/share/home-manager/specialisation");
+    let spec_location =
+      PathBuf::from(data_home).join("home-manager/specialisation");
 
     let current_specialisation = spec_location.to_str().map_or_else(
       || {
