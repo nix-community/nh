@@ -9,7 +9,7 @@ use tracing::{debug, info, warn};
 use crate::{
   commands,
   commands::Command,
-  installable::Installable,
+  installable::{CommandContext, Installable},
   interface::{self, DiffType, HomeRebuildArgs, HomeReplArgs, HomeSubcommand},
   remote::{self, RemoteBuildConfig, RemoteHost},
   update::update,
@@ -60,14 +60,6 @@ impl HomeRebuildArgs {
   fn rebuild(self, variant: &HomeRebuildVariant) -> Result<()> {
     use HomeRebuildVariant::Build;
 
-    if self.update_args.update_all || self.update_args.update_input.is_some() {
-      update(
-        &self.common.installable,
-        self.update_args.update_input,
-        self.common.passthrough.commit_lock_file,
-      )?;
-    }
-
     let (out_path, _tempdir_guard): (PathBuf, Option<tempfile::TempDir>) =
       if let Some(ref p) = self.common.out_link {
         (p.clone(), None)
@@ -78,32 +70,24 @@ impl HomeRebuildArgs {
 
     debug!("Output path: {out_path:?}");
 
-    // Use NH_HOME_FLAKE if available, otherwise use the provided installable
-    let installable = if let Ok(home_flake) = env::var("NH_HOME_FLAKE") {
-      debug!("Using NH_HOME_FLAKE: {}", home_flake);
-
-      let mut elems = home_flake.splitn(2, '#');
-      let reference = match elems.next() {
-        Some(r) => r.to_owned(),
-        None => return Err(eyre!("NH_HOME_FLAKE missing reference part")),
-      };
-      let attribute = elems
-        .next()
-        .map(crate::installable::parse_attribute)
-        .unwrap_or_default();
-
-      Installable::Flake {
-        reference,
-        attribute,
-      }
-    } else {
-      self.common.installable.clone()
-    };
+    let installable = self
+      .common
+      .installable
+      .clone()
+      .resolve(CommandContext::Home)?;
 
     let installable = match installable {
       Installable::Unspecified => Installable::try_find_default_for_home()?,
       other => other,
     };
+
+    if self.update_args.update_all || self.update_args.update_input.is_some() {
+      update(
+        &self.common.installable,
+        self.update_args.update_input,
+        self.common.passthrough.commit_lock_file,
+      )?;
+    }
 
     let toplevel = toplevel_for(
       installable,
@@ -456,27 +440,7 @@ where
 
 impl HomeReplArgs {
   fn run(self) -> Result<()> {
-    // Use NH_HOME_FLAKE if available, otherwise use the provided installable
-    let installable = if let Ok(home_flake) = env::var("NH_HOME_FLAKE") {
-      debug!("Using NH_HOME_FLAKE: {home_flake}");
-
-      let mut elems = home_flake.splitn(2, '#');
-      let reference = match elems.next() {
-        Some(r) => r.to_owned(),
-        None => return Err(eyre!("NH_HOME_FLAKE missing reference part")),
-      };
-      let attribute = elems
-        .next()
-        .map(crate::installable::parse_attribute)
-        .unwrap_or_default();
-
-      Installable::Flake {
-        reference,
-        attribute,
-      }
-    } else {
-      self.installable
-    };
+    let installable = self.installable.resolve(CommandContext::Home)?;
 
     let installable = match installable {
       Installable::Unspecified => Installable::try_find_default_for_home()?,

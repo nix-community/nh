@@ -1,6 +1,5 @@
 use std::{
   convert::Into,
-  env,
   fs,
   path::{Path, PathBuf},
 };
@@ -11,7 +10,7 @@ use tracing::{debug, info, warn};
 use crate::{
   commands::{self, Command, ElevationStrategy},
   generations,
-  installable::Installable,
+  installable::{CommandContext, Installable},
   interface::{
     self,
     DiffType,
@@ -166,6 +165,16 @@ impl OsRebuildActivateArgs {
     let toplevel = self
       .rebuild
       .resolve_installable_and_toplevel(&target_hostname, final_attrs)?;
+
+    if self.rebuild.update_args.update_all
+      || self.rebuild.update_args.update_input.is_some()
+    {
+      update(
+        &toplevel,
+        self.rebuild.update_args.update_input.clone(),
+        self.rebuild.common.passthrough.commit_lock_file,
+      )?;
+    }
 
     let message = match variant {
       BuildVm => "Building NixOS VM image",
@@ -445,14 +454,6 @@ impl OsRebuildArgs {
 
     let elevate = has_elevation_status(self.bypass_root_check, elevation)?;
 
-    if self.update_args.update_all || self.update_args.update_input.is_some() {
-      update(
-        &self.common.installable,
-        self.update_args.update_input.clone(),
-        self.common.passthrough.commit_lock_file,
-      )?;
-    }
-
     let target_hostname = get_hostname(self.hostname.clone())?;
     Ok((elevate, target_hostname))
   }
@@ -480,8 +481,11 @@ impl OsRebuildArgs {
     target_hostname: &str,
     final_attrs: Option<&[&str]>,
   ) -> Result<Installable> {
-    let installable = (get_nh_os_flake_env()?)
-      .unwrap_or_else(|| self.common.installable.clone());
+    let installable = self
+      .common
+      .installable
+      .clone()
+      .resolve(CommandContext::Os)?;
 
     let installable = match installable {
       Installable::Unspecified => Installable::try_find_default_for_os()?,
@@ -652,6 +656,14 @@ impl OsRebuildArgs {
 
     let toplevel =
       self.resolve_installable_and_toplevel(&target_hostname, final_attrs)?;
+
+    if self.update_args.update_all || self.update_args.update_input.is_some() {
+      update(
+        &toplevel,
+        self.update_args.update_input.clone(),
+        self.common.passthrough.commit_lock_file,
+      )?;
+    }
 
     let message = match variant {
       BuildVm => "Building NixOS VM image",
@@ -852,8 +864,12 @@ impl OsBuildImageArgs {
       );
     }
 
-    let installable = (get_nh_os_flake_env()?)
-      .unwrap_or_else(|| self.common.common.installable.clone());
+    let installable = self
+      .common
+      .common
+      .installable
+      .clone()
+      .resolve(CommandContext::Os)?;
 
     let installable = match installable {
       Installable::Unspecified => Installable::try_find_default_for_os()?,
@@ -1101,33 +1117,6 @@ fn missing_switch_to_configuration_error() -> color_eyre::eyre::Report {
   )
 }
 
-/// Parses the `NH_OS_FLAKE` environment variable into an `Installable::Flake`.
-///
-/// If `NH_OS_FLAKE` is not set, it returns `Ok(None)`.
-/// If `NH_OS_FLAKE` is set but invalid, it returns an `Err`.
-fn get_nh_os_flake_env() -> Result<Option<Installable>> {
-  if let Ok(os_flake) = env::var("NH_OS_FLAKE") {
-    debug!("Using NH_OS_FLAKE: {}", os_flake);
-
-    let mut elems = os_flake.splitn(2, '#');
-    let reference = elems
-      .next()
-      .ok_or_else(|| eyre!("NH_OS_FLAKE missing reference part"))?
-      .to_owned();
-    let attribute = elems
-      .next()
-      .map(crate::installable::parse_attribute)
-      .unwrap_or_default();
-
-    Ok(Some(Installable::Flake {
-      reference,
-      attribute,
-    }))
-  } else {
-    Ok(None)
-  }
-}
-
 /// Checks if the current user is root and returns whether elevation is needed.
 ///
 /// Returns `true` if elevation is required (not root and `bypass_root_check` is
@@ -1313,13 +1302,7 @@ pub fn toplevel_for<S: AsRef<str>>(
 
 impl OsReplArgs {
   fn run(self) -> Result<()> {
-    // Use NH_OS_FLAKE if available, otherwise use the provided installable
-    let target_installable =
-      if let Some(flake_installable) = get_nh_os_flake_env()? {
-        flake_installable
-      } else {
-        self.installable
-      };
+    let target_installable = self.installable.resolve(CommandContext::Os)?;
 
     let mut target_installable = match target_installable {
       Installable::Unspecified => Installable::try_find_default_for_os()?,
