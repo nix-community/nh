@@ -108,6 +108,10 @@ functionality, under the "Removed" section.
     with a warning if NH can parse them.
 - Password caching now works across all remote operations.
 - Empty password validation prevents invalid credential caching.
+- Direnv caches in [alternative locations][direnv-alternative-caches] (e.g.,
+  `$XDG_CACHE_DIR/direnv/layouts`) will now be detected during `nh clean`.
+
+[direnv-alternative-caches]: https://github.com/direnv/direnv/wiki/Customizing-cache-location
 
 ### Removed
 

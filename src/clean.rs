@@ -28,7 +28,8 @@ use crate::{
 
 static DIRENV_REGEX: LazyLock<Regex> = LazyLock::new(|| {
   #[allow(clippy::expect_used)]
-  Regex::new(r".*/.direnv/.*").expect("Failed to compile direnv regex")
+  Regex::new(r".*/(?:\.direnv|direnv/layouts)/.*")
+    .expect("Failed to compile direnv regex")
 });
 
 static RESULT_REGEX: LazyLock<Regex> = LazyLock::new(|| {
