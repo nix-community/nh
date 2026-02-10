@@ -70,25 +70,17 @@ fn build_remote_command(
       .and_then(|name| name.to_str())
       .ok_or_else(|| eyre!("Failed to determine elevation program name"))?;
 
+    // Use just the program name on the remote host
+    // so that the remote system resolves it via its own PATH
     match (program_name, strategy) {
       // sudo passwordless: use --non-interactive to fail if password required
       ("sudo", ElevationStrategy::Passwordless) => {
-        Ok(format!(
-          "{} --non-interactive {}",
-          program.display(),
-          base_cmd
-        ))
+        Ok(format!("sudo --non-interactive {}", base_cmd))
       },
-      ("sudo", _) => {
-        Ok(format!(
-          "{} --prompt= --stdin {}",
-          program.display(),
-          base_cmd
-        ))
-      },
+      ("sudo", _) => Ok(format!("sudo --prompt= --stdin {}", base_cmd)),
       // doas passwordless: use -n flag (non-interactive)
       ("doas", ElevationStrategy::Passwordless) => {
-        Ok(format!("{} -n {}", program.display(), base_cmd))
+        Ok(format!("doas -n {}", base_cmd))
       },
       ("doas", _) => {
         bail!(
@@ -99,11 +91,7 @@ fn build_remote_command(
       },
       // run0 passwordless: use --no-ask-password flag
       ("run0", ElevationStrategy::Passwordless) => {
-        Ok(format!(
-          "{} --no-ask-password {}",
-          program.display(),
-          base_cmd
-        ))
+        Ok(format!("run0 --no-ask-password {}", base_cmd))
       },
       ("run0", _) => {
         bail!(
