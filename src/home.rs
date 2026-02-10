@@ -348,19 +348,19 @@ where
 
         for attr_name in [format!("{username}@{hostname}"), username] {
           let func = format!(r#" x: x ? "{attr_name}" "#);
+
+          let installable = Installable::Flake {
+            reference: flake_reference.clone(),
+            attribute: attribute.clone(),
+          };
+
           let check_res = commands::Command::new("nix")
             .with_required_env()
             .arg("eval")
             .args(&extra_args)
             .arg("--apply")
             .arg(func)
-            .args(
-              (Installable::Flake {
-                reference: flake_reference.clone(),
-                attribute: attribute.clone(),
-              })
-              .to_args(),
-            )
+            .args(installable.to_args())
             .run_capture()
             .wrap_err(format!(
               "Failed running nix eval to check for automatic configuration \
@@ -372,14 +372,19 @@ where
             attr_path.push(attr_name.clone());
             attr_path
           };
-          tried.push(current_try_attr.clone());
+          tried.push(current_try_attr);
 
-          if check_res.map(|s| s.trim().to_owned()).as_deref() == Some("true") {
+          let exists = check_res.as_deref().map(|s| s.trim()) == Some("true");
+
+          if exists {
             debug!("Using automatically detected configuration: {}", attr_name);
+
             attribute.push(attr_name);
+
             if push_drv {
               attribute.extend(toplevel.clone());
             }
+
             found_config = true;
             break;
           }
