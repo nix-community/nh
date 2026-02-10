@@ -96,10 +96,10 @@ impl HomeRebuildArgs {
       self.configuration.clone(),
     )?;
 
+    info!("Building Home-Manager configuration");
+
     // If a build host is specified, use remote build semantics
     if let Some(ref build_host_str) = self.build_host {
-      info!("Building Home-Manager configuration");
-
       let build_host = RemoteHost::parse(build_host_str)
         .wrap_err("Invalid build host specification")?;
 
@@ -134,7 +134,6 @@ impl HomeRebuildArgs {
         .extra_arg(&out_path)
         .extra_args(&self.extra_args)
         .passthrough(&self.common.passthrough)
-        .message("Building Home-Manager configuration")
         .nom(!self.common.no_nom)
         .run()
         .wrap_err("Failed to build Home-Manager configuration")?;

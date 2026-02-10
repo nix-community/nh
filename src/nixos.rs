@@ -220,7 +220,6 @@ impl OsRebuildArgs {
     &self,
     toplevel: Installable,
     out_path: &Path,
-    message: &str,
   ) -> Result<Option<PathBuf>> {
     // If a build host is specified, use proper remote build semantics:
     //
@@ -229,8 +228,6 @@ impl OsRebuildArgs {
     // 3. Build on remote host
     // 4. Copy result back (to localhost or target_host)
     if let Some(ref build_host_str) = self.build_host {
-      info!("{message}");
-
       let build_host = RemoteHost::parse(build_host_str)
         .wrap_err("Invalid build host specification")?;
 
@@ -272,7 +269,6 @@ impl OsRebuildArgs {
         .extra_arg(out_path)
         .extra_args(&self.extra_args)
         .passthrough(&self.common.passthrough)
-        .message(message)
         .nom(!self.common.no_nom)
         .run()
         .wrap_err("Failed to build configuration")?;
@@ -396,6 +392,8 @@ impl OsRebuildArgs {
       _ => "Building NixOS configuration",
     };
 
+    info!(message);
+
     // Initialize SSH control early if we have remote hosts - guard will keep
     // connections alive for both build and activation
     let _ssh_guard = if self.build_host.is_some() || self.target_host.is_some()
@@ -405,7 +403,7 @@ impl OsRebuildArgs {
       None
     };
 
-    let actual_store_path = self.execute_build(toplevel, &out_path, message)?;
+    let actual_store_path = self.execute_build(toplevel, &out_path)?;
 
     let target_profile = self.resolve_specialisation_and_profile(&out_path)?;
 
