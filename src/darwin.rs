@@ -110,10 +110,10 @@ impl DarwinRebuildArgs {
 
     let toplevel = toplevel_for(hostname, installable, "toplevel")?;
 
+    info!("Building Darwin configuration");
+
     // If a build host is specified, use remote build semantics
     if let Some(ref build_host_str) = self.build_host {
-      info!("Building Darwin configuration");
-
       let build_host = RemoteHost::parse(build_host_str)
         .wrap_err("Invalid build host specification")?;
 
@@ -148,7 +148,6 @@ impl DarwinRebuildArgs {
         .extra_arg(&out_path)
         .extra_args(&self.extra_args)
         .passthrough(&self.common.passthrough)
-        .message("Building Darwin configuration")
         .nom(!self.common.no_nom)
         .run()
         .wrap_err("Failed to build Darwin configuration")?;

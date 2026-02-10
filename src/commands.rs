@@ -780,7 +780,6 @@ impl Command {
 
 #[derive(Debug)]
 pub struct Build {
-  message:     Option<String>,
   installable: Installable,
   extra_args:  Vec<OsString>,
   nom:         bool,
@@ -790,17 +789,10 @@ impl Build {
   #[must_use]
   pub const fn new(installable: Installable) -> Self {
     Self {
-      message: None,
       installable,
       extra_args: vec![],
       nom: false,
     }
-  }
-
-  #[must_use]
-  pub fn message<S: AsRef<str>>(mut self, message: S) -> Self {
-    self.message = Some(message.as_ref().to_string());
-    self
   }
 
   #[must_use]
@@ -838,10 +830,6 @@ impl Build {
   ///
   /// Returns an error if the build command fails to execute.
   pub fn run(&self) -> Result<()> {
-    if let Some(m) = &self.message {
-      info!("{m}");
-    }
-
     let installable_args = self.installable.to_args();
 
     let base_command = Exec::cmd("nix")
@@ -1394,7 +1382,6 @@ mod tests {
 
     let build = Build::new(installable.clone());
 
-    assert!(build.message.is_none());
     assert_eq!(build.installable.to_args(), installable.to_args());
     assert!(build.extra_args.is_empty());
     assert!(!build.nom);
@@ -1408,12 +1395,10 @@ mod tests {
     };
 
     let build = Build::new(installable)
-      .message("Building package")
       .extra_arg("--verbose")
       .extra_args(["--option", "setting", "value"])
       .nom(true);
 
-    assert_eq!(build.message, Some("Building package".to_string()));
     assert_eq!(build.extra_args, vec![
       OsString::from("--verbose"),
       OsString::from("--option"),
