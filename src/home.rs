@@ -290,53 +290,53 @@ where
 
       // Check if an explicit configuration name was provided via the flag
       if let Some(config_name) = configuration_name {
-        // Verify the provided configuration exists
         let func = format!(r#" x: x ? "{config_name}" "#);
+        let installable = Installable::Flake {
+          reference: flake_reference.clone(),
+          attribute: attribute.clone(),
+        };
+
+        // Verify the provided configuration exists
         let check_res = commands::Command::new("nix")
           .with_required_env()
           .arg("eval")
           .args(&extra_args)
           .arg("--apply")
           .arg(func)
-          .args(
-            (Installable::Flake {
-              reference: flake_reference.clone(),
-              attribute: attribute.clone(),
-            })
-            .to_args(),
-          )
+          .args(installable.to_args())
           .run_capture()
-          .wrap_err(format!(
-            "Failed running nix eval to check for explicit configuration \
-             '{config_name}'"
-          ))?;
+          .wrap_err_with(|| {
+            format!(
+              "Failed running nix eval to check for explicit configuration \
+               '{config_name}'"
+            )
+          })?;
 
-        if check_res.map(|s| s.trim().to_owned()).as_deref() == Some("true") {
-          debug!("Using explicit configuration from flag: {config_name:?}");
+        let exists = check_res.as_deref().map(|s| s.trim()) == Some("true");
 
-          attribute.push(config_name);
-          if push_drv {
-            attribute.extend(toplevel.clone());
+        if !exists {
+          let mut error_path = attribute.clone();
+          error_path.push(config_name);
+          let full_path = Installable::Flake {
+            reference: flake_reference,
+            attribute: error_path,
           }
-
-          found_config = true;
-        } else {
-          // Explicit config provided but not found
-          let tried_attr_path = {
-            let mut attr_path = attribute.clone();
-            attr_path.push(config_name);
-            Installable::Flake {
-              reference: flake_reference,
-              attribute: attr_path,
-            }
-            .to_args()
-            .join(" ")
-          };
+          .to_args()
+          .join(" ");
           bail!(
             "Explicitly specified home-manager configuration not found: \
-             {tried_attr_path}"
+             {full_path}"
           );
         }
+
+        debug!("Using explicit configuration from flag: {config_name:?}");
+
+        attribute.push(config_name);
+        if push_drv {
+          attribute.extend(toplevel.clone());
+        }
+
+        found_config = true;
       }
 
       // If no explicit config was found via flag, try automatic detection
