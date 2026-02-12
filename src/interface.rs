@@ -911,9 +911,6 @@ impl NixBuildPassthroughArgs {
     if self.no_build_output {
       args.push("--no-build-output".into());
     }
-    if self.use_substitutes {
-      args.push("--use-substitutes".into());
-    }
     if self.json {
       args.push("--json".into());
     }
