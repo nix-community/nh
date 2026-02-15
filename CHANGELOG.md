@@ -112,6 +112,8 @@ functionality, under the "Removed" section.
   `$XDG_CACHE_DIR/direnv/layouts`) will now be detected during `nh clean`.
 - Fixed `--use-substitutes` being incorrectly passed to `nix build`, causing
   "unrecognised flag" errors.
+- nh now properly resolves installables, fixing issues when e.g. multiple
+  `NH_{FLAKE,FILE,{OS,HOME_DARWIN}_FLAKE}` environment variables are set.
 
 [direnv-alternative-caches]: https://github.com/direnv/direnv/wiki/Customizing-cache-location
 

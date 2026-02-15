@@ -96,42 +96,6 @@ impl FromArgMatches for Installable {
       });
     }
 
-    // Env var parsing & fallbacks
-    fn parse_flake_env(var: &str) -> Option<Installable> {
-      env::var(var).ok().and_then(|f| {
-        let mut elems = f.splitn(2, '#');
-        let reference = elems.next()?.to_owned();
-        Some(Installable::Flake {
-          reference,
-          attribute: parse_attribute(
-            elems
-              .next()
-              .map(std::string::ToString::to_string)
-              .unwrap_or_default(),
-          ),
-        })
-      })
-    }
-
-    // General flake env fallbacks
-    for var in &[
-      "NH_FLAKE",
-      "NH_OS_FLAKE",
-      "NH_HOME_FLAKE",
-      "NH_DARWIN_FLAKE",
-    ] {
-      if let Some(installable) = parse_flake_env(var) {
-        return Ok(installable);
-      }
-    }
-
-    if let Ok(f) = env::var("NH_FILE") {
-      return Ok(Self::File {
-        path:      PathBuf::from(f),
-        attribute: parse_attribute(env::var("NH_ATTRP").unwrap_or_default()),
-      });
-    }
-
     Ok(Self::Unspecified)
   }
 
@@ -338,6 +302,17 @@ impl Installable {
                 .next()
                 .map(std::string::ToString::to_string)
                 .unwrap_or_default(),
+            ),
+          });
+        }
+
+        // Fall back to NH_FILE
+        if let Ok(file) = env::var("NH_FILE") {
+          debug!("Using NH_FILE: {file}");
+          return Ok(Self::File {
+            path:      PathBuf::from(file),
+            attribute: parse_attribute(
+              env::var("NH_ATTRP").unwrap_or_default(),
             ),
           });
         }
