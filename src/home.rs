@@ -83,7 +83,7 @@ impl HomeRebuildArgs {
 
     if self.update_args.update_all || self.update_args.update_input.is_some() {
       update(
-        &self.common.installable,
+        &installable,
         self.update_args.update_input,
         self.common.passthrough.commit_lock_file,
       )?;
