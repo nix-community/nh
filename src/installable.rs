@@ -159,7 +159,7 @@ Nix accepts various kinds of installables:
             Paint::new("-f").fg(Color::Yellow),
             Paint::new("--file").fg(Color::Yellow),
             env::var("NH_FILE").unwrap_or_default(),
-            env::var("NH_ATTR").unwrap_or_default(),
+            env::var("NH_ATTRP").unwrap_or_default(),
             Paint::new("-e").fg(Color::Yellow),
             Paint::new("--expr").fg(Color::Yellow),
           )),
