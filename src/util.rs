@@ -5,13 +5,13 @@ use std::{
   os::unix::process::CommandExt,
   path::Path,
   process::{Command as StdCommand, Stdio},
-  str,
   sync::{LazyLock, OnceLock},
 };
 
 use color_eyre::{
   Result,
   eyre::{self, Context, eyre},
+  owo_colors::OwoColorize,
 };
 use regex::Regex;
 use tracing::{debug, info, warn};
@@ -496,6 +496,19 @@ pub fn print_dix_diff(
     old_generation.to_path_buf(),
     new_generation.to_path_buf(),
     true,
+  );
+
+  println!(
+    "{arrows} {old}",
+    arrows = "<<<".bold(),
+    old = old_generation.display(),
+  );
+  println!(
+    "{arrows} {new}",
+    arrows = ">>>".bold(),
+    new = std::fs::canonicalize(new_generation)
+      .unwrap_or_else(|_| new_generation.to_path_buf())
+      .display(),
   );
 
   let wrote =
