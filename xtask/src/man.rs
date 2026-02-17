@@ -258,7 +258,7 @@ fn render_command_recursive(
     if !opt.is_empty() {
       sect.text([bold(opt)]);
     }
-    if let Some(help) = arg.get_help().or(arg.get_long_help()) {
+    if let Some(help) = arg.get_long_help().or(arg.get_help()) {
       sect.text([roman(help.to_string())]);
     }
     if let Some(env) = arg.get_env() {
