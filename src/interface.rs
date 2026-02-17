@@ -449,10 +449,6 @@ pub enum CleanMode {
 }
 
 #[derive(Args, Clone, Debug)]
-#[clap(verbatim_doc_comment)]
-/// Enhanced nix cleanup
-///
-/// For --keep-since, see the documentation of humantime for possible formats: <https://docs.rs/humantime/latest/humantime/fn.parse_duration.html>
 pub struct CleanArgs {
   #[arg(long, short, default_value = "1")]
   /// At least keep this number of generations
@@ -460,6 +456,8 @@ pub struct CleanArgs {
 
   #[arg(long, short = 'K', default_value = "0h")]
   /// At least keep gcroots and generations in this time range since now.
+  ///
+  /// See the documentation of humantime for possible formats: <https://docs.rs/humantime/latest/humantime/fn.parse_duration.html>
   pub keep_since: humantime::Duration,
 
   /// Only print actions, without performing them

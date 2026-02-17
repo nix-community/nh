@@ -114,6 +114,8 @@ functionality, under the "Removed" section.
   "unrecognised flag" errors.
 - nh now properly resolves installables, fixing issues when e.g. multiple
   `NH_{FLAKE,FILE,{OS,HOME_DARWIN}_FLAKE}` environment variables are set.
+- For the `--keep-since` flag, the explanation linking to the documentation of
+  the `humantime` crate is now shown.
 
 [direnv-alternative-caches]: https://github.com/direnv/direnv/wiki/Customizing-cache-location
 
