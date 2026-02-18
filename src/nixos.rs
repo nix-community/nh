@@ -575,35 +575,39 @@ impl OsRebuildArgs {
     let target_specialisation = if self.no_specialisation {
       None
     } else {
-      current_specialisation.or_else(|| self.specialisation.clone())
+      self.specialisation.clone().or(current_specialisation)
     };
 
     debug!("Target specialisation: {target_specialisation:?}");
 
-    let target_profile = target_specialisation.as_ref().map_or_else(
-      || out_path.to_path_buf(),
-      |spec| out_path.join("specialisation").join(spec),
-    );
+    // Determine target profile, falling back to base if specialisation doesn't
+    // exist
+    let target_profile = match &target_specialisation {
+      None => out_path.to_path_buf(),
+      Some(spec) => {
+        let spec_path = out_path.join("specialisation").join(spec);
+
+        // For local builds, check if specialisation exists and fall back if not
+        if out_path.exists() && !spec_path.exists() {
+          bail!(
+            "Specialisation '{}' does not exist in the built configuration",
+            spec
+          );
+        }
+
+        spec_path
+      },
+    };
 
     debug!("Output path: {out_path:?}");
     debug!("Target profile path: {}", target_profile.display());
 
-    // If out_path doesn't exist locally, assume it's remote and skip existence
-    // check
-    if out_path.exists() {
-      debug!("Target profile exists: {}", target_profile.exists());
-
-      if !target_profile
-        .try_exists()
-        .context("Failed to check if target profile exists")?
-      {
-        return Err(eyre!(
-          "Target profile path does not exist: {}",
-          target_profile.display()
-        ));
-      }
-    } else {
-      debug!("Output path is remote, skipping local existence check");
+    // Validate the final target profile exists if it's a local build
+    if out_path.exists() && !target_profile.exists() {
+      return Err(eyre!(
+        "Target profile path does not exist: {}",
+        target_profile.display()
+      ));
     }
 
     Ok(target_profile)
