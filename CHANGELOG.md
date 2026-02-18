@@ -116,6 +116,7 @@ functionality, under the "Removed" section.
   `NH_{FLAKE,FILE,{OS,HOME_DARWIN}_FLAKE}` environment variables are set.
 - For the `--keep-since` flag, the explanation linking to the documentation of
   the `humantime` crate is now shown.
+- In the man page, print full available documentation details for each option.
 
 [direnv-alternative-caches]: https://github.com/direnv/direnv/wiki/Customizing-cache-location
 
