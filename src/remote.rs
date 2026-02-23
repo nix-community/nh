@@ -855,7 +855,7 @@ pub fn validate_closure_remote(
     }
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    if !stderr.is_empty() {
+    if !stderr.trim().is_empty() {
       let host_context = context_info.map_or_else(
         || format!("on remote host '{host}'"),
         |ctx| format!("on remote host '{host}' ({ctx})"),
@@ -900,7 +900,7 @@ pub fn validate_closure_remote(
     }
   }
 
-  if !ssh_stderr.is_empty() {
+  if !ssh_stderr.trim().is_empty() {
     let host_context = context_info.map_or_else(
       || format!("on remote host '{host}'"),
       |ctx| format!("on remote host '{host}' ({ctx})"),
