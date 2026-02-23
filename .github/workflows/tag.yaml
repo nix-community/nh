@@ -21,12 +21,21 @@ jobs:
 
       - name: Read version
         run: |
-          echo -n "nh_version=v" >> "$GITHUB_ENV"
-          nix run nixpkgs#fq -- -r '.workspace.package.version' Cargo.toml >> "$GITHUB_ENV"
-          cat "$GITHUB_ENV"
+          set -e
+          VERSION=$(nix run nixpkgs#fq -- -r '.workspace.package.version' Cargo.toml)
+          if [ -z "$VERSION" ]; then
+            echo "Error: Failed to read version from Cargo.toml"
+            exit 1
+          fi
+          echo "nh_version=v$VERSION" >> "$GITHUB_ENV"
+          echo "Read version: $VERSION"
 
       - name: Tag
         run: |
-          set -x
-          git tag $nh_version
-          git push --tags || :
+          set -e
+          if git rev-parse "v$nh_version" >/dev/null 2>&1; then
+            echo "Tag v$nh_version already exists, skipping"
+            exit 0
+          fi
+          git tag "v$nh_version"
+          git push --tags
