@@ -853,10 +853,24 @@ pub fn validate_closure_remote(
     if output.status.success() {
       return Ok(());
     }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !stderr.trim().is_empty() {
+      let host_context = context_info.map_or_else(
+        || format!("on remote host '{host}'"),
+        |ctx| format!("on remote host '{host}' ({ctx})"),
+      );
+
+      bail!(
+        "Command execution failed {host_context}: {stderr}",
+        stderr = stderr.trim()
+      );
+    }
   }
 
   // Batch check failed or errored. Identify which files are missing
   let mut missing = Vec::new();
+  let mut ssh_stderr = String::new();
   for ((file, description), test_cmd) in
     essential_files.iter().zip(&test_commands)
   {
@@ -868,6 +882,11 @@ pub fn validate_closure_remote(
 
     match check_result {
       Ok(output) if !output.status.success() => {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !stderr.is_empty() {
+          ssh_stderr = stderr.to_string();
+          break;
+        }
         missing.push(format!("  - {file} ({description})"));
       },
       Err(e) => {
@@ -879,6 +898,19 @@ pub fn validate_closure_remote(
       },
       _ => {}, // File exists
     }
+  }
+
+  if !ssh_stderr.trim().is_empty() {
+    let host_context = context_info.map_or_else(
+      || format!("on remote host '{host}'"),
+      |ctx| format!("on remote host '{host}' ({ctx})"),
+    );
+
+    return Err(eyre!(
+      "Command execution failed {}: {}",
+      host_context,
+      ssh_stderr.trim()
+    ));
   }
 
   if !missing.is_empty() {
