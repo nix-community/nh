@@ -818,66 +818,25 @@ pub fn validate_closure_remote(
   essential_files: &[(&str, &str)],
   context_info: Option<&str>,
 ) -> Result<()> {
-  // Build all test commands for batched execution
-  let test_commands: Vec<String> = essential_files
-    .iter()
-    .map(|(file, _)| {
-      let remote_path = closure_path.join(file);
-      let path_str = remote_path.to_str().ok_or_else(|| {
-        eyre!("Path is not valid UTF-8: {}", remote_path.display())
-      })?;
-      let quoted_path = shlex::try_quote(path_str).map_err(|_| {
-        eyre!("Failed to quote path for shell: {}", remote_path.display())
-      })?;
-      Ok(format!("test -e {quoted_path}"))
-    })
-    .collect::<Result<Vec<_>>>()?;
-
-  // Join all tests with &&, so the command fails on first missing file
-  // We check each file individually afterward to identify which ones are
-  // missing
-  let batch_command = test_commands.join(" && ");
-
-  // Get SSH options for connection multiplexing
   let ssh_opts = get_ssh_opts();
 
-  // Execute batch check using SSH with proper connection multiplexing
-  let check_result = std::process::Command::new("ssh")
-    .args(&ssh_opts)
-    .arg(host.ssh_host())
-    .arg(&batch_command)
-    .output();
-
-  // If batch check succeeds, all files exist
-  if let Ok(output) = &check_result {
-    if output.status.success() {
-      return Ok(());
-    }
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    if !stderr.trim().is_empty() {
-      let host_context = context_info.map_or_else(
-        || format!("on remote host '{host}'"),
-        |ctx| format!("on remote host '{host}' ({ctx})"),
-      );
-
-      bail!(
-        "Command execution failed {host_context}: {stderr}",
-        stderr = stderr.trim()
-      );
-    }
-  }
-
-  // Batch check failed or errored. Identify which files are missing
   let mut missing = Vec::new();
   let mut ssh_stderr = String::new();
-  for ((file, description), test_cmd) in
-    essential_files.iter().zip(&test_commands)
-  {
+
+  for (file, description) in essential_files {
+    let remote_path = closure_path.join(file);
+    let path_str = remote_path.to_str().ok_or_else(|| {
+      eyre!("Path is not valid UTF-8: {}", remote_path.display())
+    })?;
+    let quoted_path = shlex::try_quote(path_str).map_err(|_| {
+      eyre!("Failed to quote path for shell: {}", remote_path.display())
+    })?;
+    let test_cmd = format!("test -e {quoted_path}");
+
     let check_result = std::process::Command::new("ssh")
       .args(&ssh_opts)
       .arg(host.ssh_host())
-      .arg(test_cmd)
+      .arg(&test_cmd)
       .output();
 
     match check_result {
@@ -889,14 +848,14 @@ pub fn validate_closure_remote(
         }
         missing.push(format!("  - {file} ({description})"));
       },
+      Ok(_) => {}, // File exists
       Err(e) => {
-        return Err(eyre!(
+        bail!(
           "Failed to check file existence on remote host {}: {}",
           host,
           e
-        ));
+        )
       },
-      _ => {}, // File exists
     }
   }
 
