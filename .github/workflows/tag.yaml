@@ -1,4 +1,4 @@
-name: Tag version
+name: Tag and release
 
 concurrency: tag
 
@@ -7,10 +7,13 @@ on:
   push:
     branches:
       - master
+    tags:
+      - "v*"
 
 jobs:
-  main:
+  tag:
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: cachix/install-nix-action@master
         with:
@@ -18,15 +21,160 @@ jobs:
 
       - uses: actions/checkout@v6
         name: Checkout
+        with:
+          fetch-depth: 0
 
       - name: Read version
         run: |
-          echo -n "nh_version=v" >> "$GITHUB_ENV"
-          nix run nixpkgs#fq -- -r '.workspace.package.version' Cargo.toml >> "$GITHUB_ENV"
-          cat "$GITHUB_ENV"
+          set -e
+          VERSION=$(nix run nixpkgs#fq -- -r '.workspace.package.version' Cargo.toml)
+          if [ -z "$VERSION" ]; then
+            echo "Error: Failed to read version from Cargo.toml"
+            exit 1
+          fi
+          echo "nh_version=v$VERSION" >> "$GITHUB_ENV"
+          echo "Read version: $VERSION"
 
       - name: Tag
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
         run: |
-          set -x
-          git tag $nh_version
-          git push --tags || :
+          set -e
+          if git rev-parse "$nh_version" >/dev/null 2>&1; then
+            echo "Tag $nh_version already exists, skipping"
+            exit 0
+          fi
+          git tag "$nh_version"
+          git push --tags
+
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    if: startsWith(github.ref, 'refs/tags/')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: x86_64-linux
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - platform: aarch64-linux
+            runner: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+          - platform: x86_64-darwin
+            runner: macos-latest
+            target: x86_64-apple-darwin
+          - platform: aarch64-darwin
+            runner: macos-14
+            target: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@v6
+        name: Checkout
+
+      - name: Install cross
+        if: matrix.platform == 'aarch64-linux'
+        run: cargo install cross
+
+      - name: Install Rust target
+        if: matrix.platform != 'aarch64-linux'
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Build
+        run: |
+          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
+            cross build --release --target ${{ matrix.target }}
+          else
+            cargo build --release --target ${{ matrix.target }}
+          fi
+
+      - name: Prepare binary
+        run: |
+          cp "target/${{ matrix.target }}/release/nh" "nh-${{ matrix.platform }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: nh-${{ matrix.platform }}
+          retention-days: 1
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        name: Checkout
+        with:
+          fetch-depth: 0
+
+      - name: Check release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
+            echo "release_exists=true" >> "$GITHUB_ENV"
+          else
+            echo "release_exists=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Determine release type
+        run: |
+          if echo "${{ github.ref_name }}" | grep -qE 'beta'; then
+            echo "release_type=beta" >> "$GITHUB_ENV"
+          else
+            echo "release_type=stable" >> "$GITHUB_ENV"
+          fi
+
+      - name: Extract changelog (stable)
+        if: env.release_exists == 'false' && env.release_type == 'stable'
+        run: |
+          set -e
+          VERSION=$(echo "${{ github.ref_name }}" | sed 's/^v//')
+
+          awk -v version="## $VERSION" '
+            index($0, version) == 1 { found=1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > changelog.txt
+
+          if [ -s changelog.txt ]; then
+            echo "CHANGELOG_CONTENT<<EOF" >> "$GITHUB_ENV"
+            cat changelog.txt >> "$GITHUB_ENV"
+            echo "EOF" >> "$GITHUB_ENV"
+          else
+            echo "CHANGELOG_CONTENT=No changelog available" >> "$GITHUB_ENV"
+          fi
+
+      - name: Extract changelog (beta)
+        if: env.release_exists == 'false' && env.release_type == 'beta'
+        run: |
+          set -e
+          LAST_TAG=$(git describe --tags --abbrev=0 HEAD^)
+          CHANGES=$(git log "$LAST_TAG"..HEAD --pretty=format:"- %s")
+          echo "CHANGELOG_CONTENT<<EOF" >> "$GITHUB_ENV"
+          echo "Changes since $LAST_TAG:" >> "$GITHUB_ENV"
+          echo "" >> "$GITHUB_ENV"
+          echo "$CHANGES" >> "$GITHUB_ENV"
+          echo "EOF" >> "$GITHUB_ENV"
+
+      - name: Download artifacts
+        if: env.release_exists == 'false'
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        if: env.release_exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PRERELEASE_FLAG=""
+          if [ "${{ env.release_type }}" = "beta" ]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+          gh release create "${{ github.ref_name }}" \
+            --title "${{ github.ref_name }}" \
+            --notes "$CHANGELOG_CONTENT" \
+            $PRERELEASE_FLAG \
+            artifacts/*
