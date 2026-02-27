@@ -17,7 +17,6 @@ use crate::{
     OsBuildImageArgs,
     OsBuildVmArgs,
     OsGenerationsArgs,
-    OsRebuildActivateArgs,
     OsRebuildArgs,
     OsReplArgs,
     OsRollbackArgs,
@@ -73,19 +72,19 @@ impl interface::OsArgs {
     use OsRebuildVariant::{Boot, Build, Switch, Test};
     match self.subcommand {
       OsSubcommand::Boot(args) => {
-        args.rebuild_and_activate(&Boot, None, elevation)
+        args.build_and_maybe_activate(&Boot, None, &elevation)
       },
       OsSubcommand::Test(args) => {
-        args.rebuild_and_activate(&Test, None, elevation)
+        args.build_and_maybe_activate(&Test, None, &elevation)
       },
       OsSubcommand::Switch(args) => {
-        args.rebuild_and_activate(&Switch, None, elevation)
+        args.build_and_maybe_activate(&Switch, None, &elevation)
       },
       OsSubcommand::Build(args) => {
         if args.common.ask || args.common.dry {
           warn!("`--ask` and `--dry` have no effect for `nh os build`");
         }
-        args.build_only(&Build, None, &elevation)
+        args.build_and_maybe_activate(&Build, None, &elevation)
       },
       OsSubcommand::BuildVm(args) => args.build_vm(elevation),
       OsSubcommand::Repl(args) => args.run(),
@@ -131,7 +130,7 @@ impl OsBuildVmArgs {
       );
     }
 
-    self.common.build_only(
+    self.common.build_and_maybe_activate(
       &OsRebuildVariant::BuildVm,
       Some(&[attr]),
       &elevation,
@@ -142,288 +141,6 @@ impl OsBuildVmArgs {
       run_vm(&out_path)?;
     }
 
-    Ok(())
-  }
-}
-
-impl OsRebuildActivateArgs {
-  // final_attr is the attribute of config.system.build.X to evaluate.
-  fn rebuild_and_activate(
-    self,
-    variant: &OsRebuildVariant,
-    final_attrs: Option<&[&str]>,
-    elevation: ElevationStrategy,
-  ) -> Result<()> {
-    use OsRebuildVariant::{Build, BuildVm};
-
-    let (elevate, target_hostname) =
-      self.rebuild.setup_build_context(&elevation)?;
-
-    let (out_path, _tempdir_guard) =
-      self.rebuild.determine_output_path(variant)?;
-
-    let toplevel = self
-      .rebuild
-      .resolve_installable_and_toplevel(&target_hostname, final_attrs)?;
-
-    if self.rebuild.update_args.update_all
-      || self.rebuild.update_args.update_input.is_some()
-    {
-      update(
-        &toplevel,
-        self.rebuild.update_args.update_input.clone(),
-        self.rebuild.common.passthrough.commit_lock_file,
-      )?;
-    }
-
-    let message = match variant {
-      BuildVm => "Building NixOS VM image",
-      _ => "Building NixOS configuration",
-    };
-
-    // Initialize SSH control early if we have remote hosts - guard will keep
-    // connections alive for both build and activation
-    let _ssh_guard = if self.rebuild.build_host.is_some()
-      || self.rebuild.target_host.is_some()
-    {
-      Some(remote::init_ssh_control())
-    } else {
-      None
-    };
-
-    let actual_store_path =
-      self.rebuild.execute_build(toplevel, &out_path, message)?;
-
-    let target_profile =
-      self.rebuild.resolve_specialisation_and_profile(&out_path)?;
-
-    self.rebuild.handle_dix_diff(&target_profile);
-
-    if self.rebuild.common.dry || matches!(variant, Build | BuildVm) {
-      if self.rebuild.common.ask {
-        warn!("--ask has no effect as dry run was requested");
-      }
-
-      // For VM builds, print instructions on how to run the VM
-      if matches!(variant, BuildVm) && !self.rebuild.common.dry {
-        print_vm_instructions(&out_path);
-      }
-
-      return Ok(());
-    }
-
-    self.activate_rebuilt_config(
-      variant,
-      &out_path,
-      &target_profile,
-      actual_store_path.as_deref(),
-      elevate,
-      elevation,
-    )?;
-
-    Ok(())
-  }
-
-  fn activate_rebuilt_config(
-    &self,
-    variant: &OsRebuildVariant,
-    out_path: &Path,
-    target_profile: &Path,
-    actual_store_path: Option<&Path>,
-    elevate: bool,
-    elevation: ElevationStrategy,
-  ) -> Result<()> {
-    use OsRebuildVariant::{Boot, Switch, Test};
-
-    if self.rebuild.common.ask {
-      let confirmation = inquire::Confirm::new("Apply the config?")
-        .with_default(false)
-        .prompt()?;
-
-      if !confirmation {
-        bail!("User rejected the new config");
-      }
-    }
-
-    if let Some(target_host) = &self.rebuild.target_host {
-      // Only copy if the output path exists locally (i.e., was copied back from
-      // remote build)
-      if out_path.exists() {
-        let target = RemoteHost::parse(target_host)
-          .wrap_err("Invalid target host specification")?;
-        remote::copy_to_remote(
-          &target,
-          target_profile,
-          self.rebuild.common.passthrough.use_substitutes,
-        )
-        .context("Failed to copy configuration to target host")?;
-      }
-    }
-
-    // Validate system closure before activation, unless bypassed. For remote
-    // builds, use the actual store path returned from the build. For local
-    // builds, canonicalize the target_profile.
-    let is_remote_build = self.rebuild.target_host.is_some();
-    let resolved_profile: PathBuf = if let Some(store_path) = actual_store_path
-    {
-      // Remote build - use the actual store path from the build output
-      store_path.to_path_buf()
-    } else if is_remote_build && !out_path.exists() {
-      // Remote build with no local result and no store path captured
-      // (shouldn't happen, but fallback)
-      target_profile.to_path_buf()
-    } else {
-      // Local build - canonicalize the symlink to get the store path
-      target_profile
-        .canonicalize()
-        .context("Failed to resolve output path to actual store path")?
-    };
-
-    let should_skip = self.rebuild.no_validate;
-
-    if should_skip {
-      warn!(
-        "Skipping pre-activation validation (--no-validate or NH_NO_VALIDATE \
-         set)"
-      );
-      warn!(
-        "This may result in activation failures if the system closure is \
-         incomplete"
-      );
-    } else if let Some(target_host) = &self.rebuild.target_host {
-      // For remote activation, validate on the remote host using the resolved
-      // store path
-      validate_system_closure_remote(
-        &resolved_profile,
-        target_host,
-        self.rebuild.build_host.as_deref(),
-      )?;
-    } else {
-      // For local activation, validate locally
-      validate_system_closure(&resolved_profile)?;
-    }
-
-    // Resolve switch-to-configuration path for activation commands. For
-    // remote-only builds where out_path doesn't exist locally, skip this
-    // since we'll execute these commands via SSH on the remote host
-    let switch_to_configuration_path =
-      resolved_profile.join("bin").join("switch-to-configuration");
-
-    let switch_to_configuration = if is_remote_build && !out_path.exists() {
-      // Remote build with no local result. Use uncanonicalized path for SSH
-      switch_to_configuration_path
-    } else {
-      switch_to_configuration_path
-        .canonicalize()
-        .context("Failed to resolve switch-to-configuration path")?
-    };
-
-    let canonical_out_path =
-      switch_to_configuration.to_str().ok_or_else(|| {
-        eyre!("switch-to-configuration path contains invalid UTF-8")
-      })?;
-
-    if let Test | Switch = variant {
-      if let Some(target_host) = &self.rebuild.target_host {
-        let target = RemoteHost::parse(target_host)
-          .wrap_err("Invalid target host specification")?;
-
-        let activation_type = match variant {
-          Test => remote::ActivationType::Test,
-          Switch => remote::ActivationType::Switch,
-          #[allow(clippy::unreachable, reason = "Should never happen.")]
-          _ => unreachable!(),
-        };
-
-        remote::activate_remote(
-          &target,
-          &resolved_profile,
-          &remote::ActivateRemoteConfig {
-            platform: remote::Platform::NixOS,
-            activation_type,
-            install_bootloader: false,
-            show_logs: self.show_activation_logs,
-            elevation: elevate.then_some(elevation.clone()),
-          },
-        )
-        .wrap_err(format!(
-          "Activation ({}) failed",
-          activation_type.as_str()
-        ))?;
-      } else {
-        Command::new(canonical_out_path)
-          .arg("test")
-          .message("Activating configuration")
-          .elevate(elevate.then_some(elevation.clone()))
-          .preserve_envs(["NIXOS_INSTALL_BOOTLOADER"])
-          .with_required_env()
-          .show_output(self.show_activation_logs)
-          .run()
-          .wrap_err("Activation (test) failed")?;
-      }
-
-      if let Some(store_path) = actual_store_path {
-        debug!(
-          "Completed {variant:?} operation with store path: {store_path:?}"
-        );
-      } else {
-        debug!(
-          "Completed {variant:?} operation with local output path: \
-           {out_path:?}"
-        );
-      }
-    }
-
-    if let Boot | Switch = variant {
-      if let Some(target_host) = &self.rebuild.target_host {
-        let target = RemoteHost::parse(target_host)
-          .wrap_err("Invalid target host specification")?;
-
-        remote::activate_remote(
-          &target,
-          &resolved_profile,
-          &remote::ActivateRemoteConfig {
-            platform:           remote::Platform::NixOS,
-            activation_type:    remote::ActivationType::Boot,
-            install_bootloader: self.rebuild.install_bootloader,
-            show_logs:          false,
-            elevation:          elevate.then_some(elevation),
-          },
-        )
-        .wrap_err("Bootloader activation failed")?;
-      } else {
-        Command::new("nix")
-          .elevate(elevate.then_some(elevation.clone()))
-          .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
-          .arg(canonical_out_path)
-          .with_required_env()
-          .run()
-          .wrap_err("Failed to set system profile")?;
-
-        let mut cmd = Command::new(switch_to_configuration)
-          .arg("boot")
-          .elevate(elevate.then_some(elevation))
-          .message("Adding configuration to bootloader")
-          .preserve_envs(["NIXOS_INSTALL_BOOTLOADER"]);
-
-        if self.rebuild.install_bootloader {
-          cmd = cmd.set_env("NIXOS_INSTALL_BOOTLOADER", "1");
-        }
-
-        cmd
-          .with_required_env()
-          .run()
-          .wrap_err("Bootloader activation failed")?;
-      }
-    }
-
-    if let Some(store_path) = actual_store_path {
-      debug!("Completed {variant:?} operation with store path: {store_path:?}");
-    } else {
-      debug!(
-        "Completed {variant:?} operation with local output path: {out_path:?}"
-      );
-    }
     Ok(())
   }
 }
@@ -503,7 +220,6 @@ impl OsRebuildArgs {
     &self,
     toplevel: Installable,
     out_path: &Path,
-    message: &str,
   ) -> Result<Option<PathBuf>> {
     // If a build host is specified, use proper remote build semantics:
     //
@@ -512,8 +228,6 @@ impl OsRebuildArgs {
     // 3. Build on remote host
     // 4. Copy result back (to localhost or target_host)
     if let Some(ref build_host_str) = self.build_host {
-      info!("{message}");
-
       let build_host = RemoteHost::parse(build_host_str)
         .wrap_err("Invalid build host specification")?;
 
@@ -555,7 +269,6 @@ impl OsRebuildArgs {
         .extra_arg(out_path)
         .extra_args(&self.extra_args)
         .passthrough(&self.common.passthrough)
-        .message(message)
         .nom(!self.common.no_nom)
         .run()
         .wrap_err("Failed to build configuration")?;
@@ -645,16 +358,15 @@ impl OsRebuildArgs {
   }
 
   // final_attr is the attribute of config.system.build.X to evaluate.
-  // Used by Build and BuildVm subcommands which don't activate
-  fn build_only(
+  fn build_and_maybe_activate(
     self,
     variant: &OsRebuildVariant,
     final_attrs: Option<&[&str]>,
     elevation: &ElevationStrategy,
   ) -> Result<()> {
-    use OsRebuildVariant::{Build, BuildIso, BuildVm};
+    use OsRebuildVariant::{Boot, Build, BuildIso, BuildVm, Switch, Test};
 
-    let (_, target_hostname) = self.setup_build_context(elevation)?;
+    let (elevate, target_hostname) = self.setup_build_context(elevation)?;
 
     let (out_path, _tempdir_guard) = self.determine_output_path(variant)?;
 
@@ -680,15 +392,253 @@ impl OsRebuildArgs {
       _ => "Building NixOS configuration",
     };
 
-    self.execute_build(toplevel, &out_path, message)?;
+    info!(message);
+
+    // Initialize SSH control early if we have remote hosts - guard will keep
+    // connections alive for both build and activation
+    let _ssh_guard = if self.build_host.is_some() || self.target_host.is_some()
+    {
+      Some(remote::init_ssh_control())
+    } else {
+      None
+    };
+
+    let actual_store_path = self.execute_build(toplevel, &out_path)?;
 
     let target_profile = self.resolve_specialisation_and_profile(&out_path)?;
 
     self.handle_dix_diff(&target_profile);
 
-    // Build, BuildVm and BuildIso subcommands never activate
-    debug_assert!(matches!(variant, Build | BuildVm | BuildIso));
+    if self.common.dry || matches!(variant, Build | BuildVm) {
+      if self.common.ask {
+        warn!("--ask has no effect as dry run was requested");
+      }
 
+      // For VM builds, print instructions on how to run the VM
+      if matches!(variant, BuildVm) && !self.common.dry {
+        print_vm_instructions(&out_path);
+      }
+
+      return Ok(());
+    }
+
+    match variant {
+      Boot | Switch | Test => {
+        self.activate_rebuilt_config(
+          variant,
+          &out_path,
+          &target_profile,
+          actual_store_path.as_deref(),
+          elevate,
+          elevation.clone(),
+        )?;
+      },
+      BuildIso | Build | BuildVm => {},
+    }
+
+    Ok(())
+  }
+
+  fn activate_rebuilt_config(
+    &self,
+    variant: &OsRebuildVariant,
+    out_path: &Path,
+    target_profile: &Path,
+    actual_store_path: Option<&Path>,
+    elevate: bool,
+    elevation: ElevationStrategy,
+  ) -> Result<()> {
+    use OsRebuildVariant::{Boot, Switch, Test};
+
+    if self.common.ask {
+      let confirmation = inquire::Confirm::new("Apply the config?")
+        .with_default(false)
+        .prompt()?;
+
+      if !confirmation {
+        bail!("User rejected the new config");
+      }
+    }
+
+    if let Some(target_host) = &self.target_host {
+      // Only copy if the output path exists locally (i.e., was copied back from
+      // remote build)
+      if out_path.exists() {
+        let target = RemoteHost::parse(target_host)
+          .wrap_err("Invalid target host specification")?;
+        remote::copy_to_remote(
+          &target,
+          target_profile,
+          self.common.passthrough.use_substitutes,
+        )
+        .context("Failed to copy configuration to target host")?;
+      }
+    }
+
+    // Validate system closure before activation, unless bypassed. For remote
+    // builds, use the actual store path returned from the build. For local
+    // builds, canonicalize the target_profile.
+    let is_remote_build = self.target_host.is_some();
+    let resolved_profile: PathBuf = if let Some(store_path) = actual_store_path
+    {
+      // Remote build - use the actual store path from the build output
+      store_path.to_path_buf()
+    } else if is_remote_build && !out_path.exists() {
+      // Remote build with no local result and no store path captured
+      // (shouldn't happen, but fallback)
+      target_profile.to_path_buf()
+    } else {
+      // Local build - canonicalize the symlink to get the store path
+      target_profile
+        .canonicalize()
+        .context("Failed to resolve output path to actual store path")?
+    };
+
+    let should_skip = self.no_validate;
+
+    if should_skip {
+      warn!(
+        "Skipping pre-activation validation (--no-validate or NH_NO_VALIDATE \
+         set)"
+      );
+      warn!(
+        "This may result in activation failures if the system closure is \
+         incomplete"
+      );
+    } else if let Some(target_host) = &self.target_host {
+      // For remote activation, validate on the remote host using the resolved
+      // store path
+      validate_system_closure_remote(
+        &resolved_profile,
+        target_host,
+        self.build_host.as_deref(),
+      )?;
+    } else {
+      // For local activation, validate locally
+      validate_system_closure(&resolved_profile)?;
+    }
+
+    // Resolve switch-to-configuration path for activation commands. For
+    // remote-only builds where out_path doesn't exist locally, skip this
+    // since we'll execute these commands via SSH on the remote host
+    let switch_to_configuration_path =
+      resolved_profile.join("bin").join("switch-to-configuration");
+
+    let switch_to_configuration = if is_remote_build && !out_path.exists() {
+      // Remote build with no local result. Use uncanonicalized path for SSH
+      switch_to_configuration_path
+    } else {
+      switch_to_configuration_path
+        .canonicalize()
+        .context("Failed to resolve switch-to-configuration path")?
+    };
+
+    let canonical_out_path =
+      switch_to_configuration.to_str().ok_or_else(|| {
+        eyre!("switch-to-configuration path contains invalid UTF-8")
+      })?;
+
+    if let Test | Switch = variant {
+      if let Some(target_host) = &self.target_host {
+        let target = RemoteHost::parse(target_host)
+          .wrap_err("Invalid target host specification")?;
+
+        let activation_type = match variant {
+          Test => remote::ActivationType::Test,
+          Switch => remote::ActivationType::Switch,
+          #[allow(clippy::unreachable, reason = "Should never happen.")]
+          _ => unreachable!(),
+        };
+
+        remote::activate_remote(
+          &target,
+          &resolved_profile,
+          &remote::ActivateRemoteConfig {
+            platform: remote::Platform::NixOS,
+            activation_type,
+            install_bootloader: false,
+            show_logs: self.show_activation_logs,
+            elevation: elevate.then_some(elevation.clone()),
+          },
+        )
+        .wrap_err(format!(
+          "Activation ({}) failed",
+          activation_type.as_str()
+        ))?;
+      } else {
+        Command::new(canonical_out_path)
+          .arg("test")
+          .message("Activating configuration")
+          .elevate(elevate.then_some(elevation.clone()))
+          .preserve_envs(["NIXOS_INSTALL_BOOTLOADER"])
+          .with_required_env()
+          .show_output(self.show_activation_logs)
+          .run()
+          .wrap_err("Activation (test) failed")?;
+      }
+
+      if let Some(store_path) = actual_store_path {
+        debug!(
+          "Completed {variant:?} operation with store path: {store_path:?}"
+        );
+      } else {
+        debug!(
+          "Completed {variant:?} operation with local output path: \
+           {out_path:?}"
+        );
+      }
+    }
+
+    if let Boot | Switch = variant {
+      if let Some(target_host) = &self.target_host {
+        let target = RemoteHost::parse(target_host)
+          .wrap_err("Invalid target host specification")?;
+
+        remote::activate_remote(
+          &target,
+          &resolved_profile,
+          &remote::ActivateRemoteConfig {
+            platform:           remote::Platform::NixOS,
+            activation_type:    remote::ActivationType::Boot,
+            install_bootloader: self.install_bootloader,
+            show_logs:          false,
+            elevation:          elevate.then_some(elevation),
+          },
+        )
+        .wrap_err("Bootloader activation failed")?;
+      } else {
+        Command::new("nix")
+          .elevate(elevate.then_some(elevation.clone()))
+          .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
+          .arg(canonical_out_path)
+          .with_required_env()
+          .run()
+          .wrap_err("Failed to set system profile")?;
+
+        let mut cmd = Command::new(switch_to_configuration)
+          .arg("boot")
+          .elevate(elevate.then_some(elevation))
+          .message("Adding configuration to bootloader")
+          .preserve_envs(["NIXOS_INSTALL_BOOTLOADER"]);
+
+        if self.install_bootloader {
+          cmd = cmd.set_env("NIXOS_INSTALL_BOOTLOADER", "1");
+        }
+
+        cmd
+          .with_required_env()
+          .run()
+          .wrap_err("Bootloader activation failed")?;
+      }
+    }
+
+    if let Some(store_path) = actual_store_path {
+      debug!("Completed {variant:?} operation with store path: {store_path:?}");
+    } else {
+      debug!(
+        "Completed {variant:?} operation with local output path: {out_path:?}"
+      );
+    }
     Ok(())
   }
 }
@@ -904,7 +854,7 @@ impl OsBuildImageArgs {
 
     let attrs = ["images", &self.image_variant];
 
-    self.common.build_only(
+    self.common.build_and_maybe_activate(
       &OsRebuildVariant::BuildIso,
       Some(&attrs),
       elevation,

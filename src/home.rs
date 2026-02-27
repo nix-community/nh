@@ -96,10 +96,10 @@ impl HomeRebuildArgs {
       self.configuration.clone(),
     )?;
 
+    info!("Building Home-Manager configuration");
+
     // If a build host is specified, use remote build semantics
     if let Some(ref build_host_str) = self.build_host {
-      info!("Building Home-Manager configuration");
-
       let build_host = RemoteHost::parse(build_host_str)
         .wrap_err("Invalid build host specification")?;
 
@@ -134,7 +134,6 @@ impl HomeRebuildArgs {
         .extra_arg(&out_path)
         .extra_args(&self.extra_args)
         .passthrough(&self.common.passthrough)
-        .message("Building Home-Manager configuration")
         .nom(!self.common.no_nom)
         .run()
         .wrap_err("Failed to build Home-Manager configuration")?;
@@ -267,35 +266,19 @@ where
       if !attribute.is_empty() {
         // Check if the path is too specific
         if attribute[0] == "homeConfigurations" {
-          if attribute.len() > 2 {
-            bail!(
-              "Attribute path is too specific: {}. Home Manager only allows \
-               configuration names. Please either:\n  1. Use the flake \
-               reference without attributes (e.g., '.')\n  2. Specify only \
-               the configuration name (e.g., '.#{}')",
-              attribute.join("."),
-              attribute.get(1).unwrap_or(&"<unknown>".to_string())
-            );
-          }
-        } else if attribute.len() > 1 {
-          // User provided ".#myconfig" or similar - prepend homeConfigurations
-          attribute.insert(0, String::from("homeConfigurations"));
-          // Re-validate after prepending
-          if attribute.len() > 2 {
-            bail!(
-              "Attribute path is too specific: {}. Home Manager only allows \
-               configuration names. Please either:\n  1. Use the flake \
-               reference without attributes (e.g., '.')\n  2. Specify only \
-               the configuration name (e.g., '.#{}')",
-              attribute.join("."),
-              attribute.get(1).unwrap_or(&"<unknown>".to_string())
-            );
-          }
+          bail!(
+            "Attribute path is too specific: {}. Home Manager only allows \
+             configuration names. Please either:\n  1. Use the flake \
+             reference without attributes (e.g., '.')\n  2. Specify only the \
+             configuration name (e.g., '.#{}')",
+            attribute.join("."),
+            attribute.get(1).unwrap_or(&"<unknown>".to_string())
+          );
         }
 
         debug!(
-          "Using explicit attribute path from installable: {:?}",
-          attribute
+          "Using explicit attribute path from installable: {}",
+          attribute.join(".")
         );
         return Ok(res);
       }
@@ -307,53 +290,53 @@ where
 
       // Check if an explicit configuration name was provided via the flag
       if let Some(config_name) = configuration_name {
-        // Verify the provided configuration exists
         let func = format!(r#" x: x ? "{config_name}" "#);
+        let installable = Installable::Flake {
+          reference: flake_reference.clone(),
+          attribute: attribute.clone(),
+        };
+
+        // Verify the provided configuration exists
         let check_res = commands::Command::new("nix")
           .with_required_env()
           .arg("eval")
           .args(&extra_args)
           .arg("--apply")
           .arg(func)
-          .args(
-            (Installable::Flake {
-              reference: flake_reference.clone(),
-              attribute: attribute.clone(),
-            })
-            .to_args(),
-          )
+          .args(installable.to_args())
           .run_capture()
-          .wrap_err(format!(
-            "Failed running nix eval to check for explicit configuration \
-             '{config_name}'"
-          ))?;
+          .wrap_err_with(|| {
+            format!(
+              "Failed running nix eval to check for explicit configuration \
+               '{config_name}'"
+            )
+          })?;
 
-        if check_res.map(|s| s.trim().to_owned()).as_deref() == Some("true") {
-          debug!("Using explicit configuration from flag: {config_name:?}");
+        let exists = check_res.as_deref().map(|s| s.trim()) == Some("true");
 
-          attribute.push(config_name);
-          if push_drv {
-            attribute.extend(toplevel.clone());
+        if !exists {
+          let mut error_path = attribute.clone();
+          error_path.push(config_name);
+          let full_path = Installable::Flake {
+            reference: flake_reference,
+            attribute: error_path,
           }
-
-          found_config = true;
-        } else {
-          // Explicit config provided but not found
-          let tried_attr_path = {
-            let mut attr_path = attribute.clone();
-            attr_path.push(config_name);
-            Installable::Flake {
-              reference: flake_reference,
-              attribute: attr_path,
-            }
-            .to_args()
-            .join(" ")
-          };
+          .to_args()
+          .join(" ");
           bail!(
             "Explicitly specified home-manager configuration not found: \
-             {tried_attr_path}"
+             {full_path}"
           );
         }
+
+        debug!("Using explicit configuration from flag: {config_name:?}");
+
+        attribute.push(config_name);
+        if push_drv {
+          attribute.extend(toplevel.clone());
+        }
+
+        found_config = true;
       }
 
       // If no explicit config was found via flag, try automatic detection
@@ -365,19 +348,19 @@ where
 
         for attr_name in [format!("{username}@{hostname}"), username] {
           let func = format!(r#" x: x ? "{attr_name}" "#);
+
+          let installable = Installable::Flake {
+            reference: flake_reference.clone(),
+            attribute: attribute.clone(),
+          };
+
           let check_res = commands::Command::new("nix")
             .with_required_env()
             .arg("eval")
             .args(&extra_args)
             .arg("--apply")
             .arg(func)
-            .args(
-              (Installable::Flake {
-                reference: flake_reference.clone(),
-                attribute: attribute.clone(),
-              })
-              .to_args(),
-            )
+            .args(installable.to_args())
             .run_capture()
             .wrap_err(format!(
               "Failed running nix eval to check for automatic configuration \
@@ -389,14 +372,19 @@ where
             attr_path.push(attr_name.clone());
             attr_path
           };
-          tried.push(current_try_attr.clone());
+          tried.push(current_try_attr);
 
-          if check_res.map(|s| s.trim().to_owned()).as_deref() == Some("true") {
+          let exists = check_res.as_deref().map(|s| s.trim()) == Some("true");
+
+          if exists {
             debug!("Using automatically detected configuration: {}", attr_name);
+
             attribute.push(attr_name);
+
             if push_drv {
               attribute.extend(toplevel.clone());
             }
+
             found_config = true;
             break;
           }

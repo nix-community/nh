@@ -129,7 +129,7 @@ impl OsArgs {
       OsSubcommand::Switch(args)
       | OsSubcommand::Boot(args)
       | OsSubcommand::Test(args) => {
-        if args.rebuild.uses_flakes() {
+        if args.uses_flakes() {
           Box::new(FlakeFeatures)
         } else {
           Box::new(LegacyFeatures)
@@ -167,13 +167,13 @@ impl OsArgs {
 #[derive(Debug, Subcommand)]
 pub enum OsSubcommand {
   /// Build and activate the new configuration, and make it the boot default
-  Switch(OsRebuildActivateArgs),
+  Switch(OsRebuildArgs),
 
   /// Build the new configuration and make it the boot default
-  Boot(OsRebuildActivateArgs),
+  Boot(OsRebuildArgs),
 
   /// Build and activate the new configuration
-  Test(OsRebuildActivateArgs),
+  Test(OsRebuildArgs),
 
   /// Build the new configuration
   Build(OsRebuildArgs),
@@ -263,12 +263,6 @@ pub struct OsRebuildArgs {
   /// Skip pre-activation system validation checks
   #[arg(long, env = "NH_NO_VALIDATE")]
   pub no_validate: bool,
-}
-
-#[derive(Debug, Args)]
-pub struct OsRebuildActivateArgs {
-  #[command(flatten)]
-  pub rebuild: OsRebuildArgs,
 
   /// Show activation logs
   #[arg(long, env = "NH_SHOW_ACTIVATION_LOGS")]
