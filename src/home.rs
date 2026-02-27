@@ -11,7 +11,7 @@ use crate::{
   commands::Command,
   installable::{CommandContext, Installable},
   interface::{self, DiffType, HomeRebuildArgs, HomeReplArgs, HomeSubcommand},
-  remote::{self, RemoteBuildConfig, RemoteHost},
+  remote::{self, RemoteBuildConfig},
   update::update,
   util::{get_hostname, print_dix_diff},
 };
@@ -97,11 +97,8 @@ impl HomeRebuildArgs {
     )?;
 
     // If a build host is specified, use remote build semantics
-    if let Some(ref build_host_str) = self.build_host {
+    if let Some(build_host) = self.build_host {
       info!("Building Home-Manager configuration");
-
-      let build_host = RemoteHost::parse(build_host_str)
-        .wrap_err("Invalid build host specification")?;
 
       let config = RemoteBuildConfig {
         build_host,

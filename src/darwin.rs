@@ -15,7 +15,7 @@ use crate::{
     DarwinSubcommand,
     DiffType,
   },
-  remote::{self, RemoteBuildConfig, RemoteHost},
+  remote::{self, RemoteBuildConfig},
   update::update,
   util::{get_hostname, print_dix_diff},
 };
@@ -111,11 +111,8 @@ impl DarwinRebuildArgs {
     let toplevel = toplevel_for(hostname, installable, "toplevel")?;
 
     // If a build host is specified, use remote build semantics
-    if let Some(ref build_host_str) = self.build_host {
+    if let Some(build_host) = self.build_host.clone() {
       info!("Building Darwin configuration");
-
-      let build_host = RemoteHost::parse(build_host_str)
-        .wrap_err("Invalid build host specification")?;
 
       let config = RemoteBuildConfig {
         build_host,

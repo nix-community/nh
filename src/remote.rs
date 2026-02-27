@@ -12,6 +12,7 @@ use std::{
 };
 
 use color_eyre::{
+  Report,
   Result,
   eyre::{Context, bail, eyre},
 };
@@ -330,7 +331,7 @@ fn get_ssh_control_dir() -> &'static PathBuf {
 /// - `user@hostname`
 /// - `ssh://[user@]hostname` (scheme stripped)
 /// - `ssh-ng://[user@]hostname` (scheme stripped)
-#[derive(Debug, Clone)]
+#[derive(Eq, PartialEq, Debug, Clone)]
 pub struct RemoteHost {
   /// The host string (may include user@)
   host: String,
@@ -473,6 +474,14 @@ impl RemoteHost {
 
     // Not IPv6 or not bracketed, return as-is
     self.host.clone()
+  }
+}
+
+impl std::str::FromStr for RemoteHost {
+  type Err = Report;
+
+  fn from_str(input: &str) -> Result<Self> {
+    Self::parse(input)
   }
 }
 

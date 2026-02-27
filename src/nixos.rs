@@ -249,10 +249,8 @@ impl OsRebuildActivateArgs {
       // Only copy if the output path exists locally (i.e., was copied back from
       // remote build)
       if out_path.exists() {
-        let target = RemoteHost::parse(target_host)
-          .wrap_err("Invalid target host specification")?;
         remote::copy_to_remote(
-          &target,
+          target_host,
           target_profile,
           self.rebuild.common.passthrough.use_substitutes,
         )
@@ -296,7 +294,7 @@ impl OsRebuildActivateArgs {
       validate_system_closure_remote(
         &resolved_profile,
         target_host,
-        self.rebuild.build_host.as_deref(),
+        self.rebuild.build_host.as_ref(),
       )?;
     } else {
       // For local activation, validate locally
@@ -325,9 +323,6 @@ impl OsRebuildActivateArgs {
 
     if let Test | Switch = variant {
       if let Some(target_host) = &self.rebuild.target_host {
-        let target = RemoteHost::parse(target_host)
-          .wrap_err("Invalid target host specification")?;
-
         let activation_type = match variant {
           Test => remote::ActivationType::Test,
           Switch => remote::ActivationType::Switch,
@@ -336,7 +331,7 @@ impl OsRebuildActivateArgs {
         };
 
         remote::activate_remote(
-          &target,
+          target_host,
           &resolved_profile,
           &remote::ActivateRemoteConfig {
             platform: remote::Platform::NixOS,
@@ -376,11 +371,8 @@ impl OsRebuildActivateArgs {
 
     if let Boot | Switch = variant {
       if let Some(target_host) = &self.rebuild.target_host {
-        let target = RemoteHost::parse(target_host)
-          .wrap_err("Invalid target host specification")?;
-
         remote::activate_remote(
-          &target,
+          target_host,
           &resolved_profile,
           &remote::ActivateRemoteConfig {
             platform:           remote::Platform::NixOS,
@@ -511,22 +503,11 @@ impl OsRebuildArgs {
     // 2. Copy derivation to build host (user-initiated SSH)
     // 3. Build on remote host
     // 4. Copy result back (to localhost or target_host)
-    if let Some(ref build_host_str) = self.build_host {
+    if let Some(build_host) = self.build_host.clone() {
       info!("{message}");
-
-      let build_host = RemoteHost::parse(build_host_str)
-        .wrap_err("Invalid build host specification")?;
-
-      let target_host = self
-        .target_host
-        .as_ref()
-        .map(|s| RemoteHost::parse(s))
-        .transpose()
-        .wrap_err("Invalid target host specification")?;
-
       let config = RemoteBuildConfig {
         build_host,
-        target_host,
+        target_host: self.target_host.clone(),
         use_nom: !self.common.no_nom,
         use_substitutes: self.common.passthrough.use_substitutes,
         extra_args: self
@@ -1084,12 +1065,9 @@ fn validate_system_closure(system_path: &Path) -> Result<()> {
 /// Similar to [`validate_system_closure`] but executes checks on a remote host.
 fn validate_system_closure_remote(
   system_path: &Path,
-  target_host: &str,
-  build_host: Option<&str>,
+  target_host: &RemoteHost,
+  build_host: Option<&RemoteHost>,
 ) -> Result<()> {
-  let target = remote::RemoteHost::parse(target_host)
-    .wrap_err("Invalid target host specification")?;
-
   // Build context string for error messages
   let context = build_host.map(|build| {
     if build == target_host {
@@ -1101,7 +1079,7 @@ fn validate_system_closure_remote(
 
   // Delegate to the generic remote validation function
   remote::validate_closure_remote(
-    &target,
+    target_host,
     system_path,
     ESSENTIAL_FILES,
     context.as_deref(),
