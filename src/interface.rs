@@ -230,6 +230,10 @@ pub struct OsRebuildArgs {
 
   /// When using a flake installable, select this hostname from
   /// nixosConfigurations
+  ///
+  /// When unspecified, defaults to the local hostname for local
+  /// deployments, and hostname of the target machine for remote
+  /// deployments (see --target-host).
   #[arg(long, short = 'H', global = true)]
   pub hostname: Option<String>,
 

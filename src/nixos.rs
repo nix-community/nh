@@ -446,7 +446,13 @@ impl OsRebuildArgs {
 
     let elevate = has_elevation_status(self.bypass_root_check, elevation)?;
 
-    let target_hostname = get_hostname(self.hostname.clone())?;
+    let target_hostname = get_hostname(
+      self
+        .hostname
+        .as_deref()
+        .or_else(|| self.target_host.as_ref().map(RemoteHost::hostname))
+        .map(ToOwned::to_owned),
+    )?;
     Ok((elevate, target_hostname))
   }
 

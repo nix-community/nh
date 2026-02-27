@@ -18,6 +18,18 @@ functionality, under the "Removed" section.
 
 ### Changed
 
+- The host used to select the `nixosConfiguration` now defaults to the `--target-host` for remote
+  deployments instead of the local hostname, unless the hostname is explicitly specified via the
+  `-H|--hostname` flag.
+
+### Fixed
+
+### Removed
+
+## 4.3.0
+
+### Changed
+
 - Passing the `--bypass-root-check` flag now elevates if the user is not root
   instead of calling Nix as non-root user.
 - A new `nh os build-image` subcommand for building a disk-image variant is now
