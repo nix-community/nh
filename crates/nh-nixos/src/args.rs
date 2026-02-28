@@ -1,14 +1,16 @@
 use std::{env, path::PathBuf};
 
 use clap::{Args, Subcommand, ValueEnum};
-use nh_core::checks::{
-  FeatureRequirements,
-  FlakeFeatures,
-  LegacyFeatures,
-  OsReplFeatures,
+use nh_core::{
+  args::NixBuildPassthroughArgs,
+  checks::{
+    FeatureRequirements,
+    FlakeFeatures,
+    LegacyFeatures,
+    OsReplFeatures,
+  },
+  installable::Installable,
 };
-use nh_installable::Installable;
-use nh_passthrough::NixBuildPassthroughArgs;
 use nh_remote::RemoteHost;
 
 use crate::{
@@ -144,7 +146,7 @@ pub struct OsRebuildArgs {
   pub common: CommonRebuildArgs,
 
   #[command(flatten)]
-  pub update_args: nh_util::update::UpdateArgs,
+  pub update_args: nh_core::update::UpdateArgs,
 
   /// When using a flake installable, select this hostname from
   /// nixosConfigurations

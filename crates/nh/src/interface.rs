@@ -1,8 +1,10 @@
 use anstyle::Style;
 use clap::{Args, Parser, Subcommand, ValueEnum, builder::Styles};
 use clap_verbosity_flag::InfoLevel;
-use nh_command::ElevationStrategy;
-use nh_core::checks::{FeatureRequirements, NoFeatures};
+use nh_core::{
+  checks::{FeatureRequirements, NoFeatures},
+  command::ElevationStrategy,
+};
 use nh_nixos;
 
 use crate::Result;
@@ -52,7 +54,7 @@ pub struct Main {
   /// 'passwordless' (use elevation without password prompt for remote hosts
   /// with NOPASSWD configured), or 'auto' (automatically detect available
   /// elevation programs in order: doas, sudo, run0, pkexec)
-  pub elevation_strategy: Option<nh_command::ElevationStrategyArg>,
+  pub elevation_strategy: Option<nh_core::command::ElevationStrategyArg>,
 
   #[command(subcommand)]
   pub command: NHCommand,

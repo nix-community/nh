@@ -12,7 +12,7 @@ use color_eyre::{
   eyre::{Context, ContextCompat, bail, eyre},
 };
 use inquire::Confirm;
-use nh_command::{Command, ElevationStrategy};
+use nh_core::command::{Command, ElevationStrategy};
 use nix::{
   errno::Errno,
   fcntl::AtFlags,
@@ -96,7 +96,7 @@ impl args::CleanMode {
       },
       Self::All(args) => {
         if !uid.is_root() {
-          nh_util::self_elevate(elevate);
+          nh_core::util::self_elevate(elevate);
         }
 
         let paths_to_check = [

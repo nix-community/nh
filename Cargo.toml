@@ -24,16 +24,12 @@ humantime = "2.3.0"
 inquire = { default-features = false, features = [ "crossterm" ], version = "0.9.1" }
 nh = { path = "crates/nh" }
 nh-clean = { path = "crates/nh-clean" }
-nh-command = { path = "crates/nh-command" }
 nh-core = { path = "crates/nh-core" }
 nh-darwin = { path = "crates/nh-darwin" }
 nh-home = { path = "crates/nh-home" }
-nh-installable = { path = "crates/nh-installable" }
 nh-nixos = { path = "crates/nh-nixos" }
-nh-passthrough = { path = "crates/nh-passthrough" }
 nh-remote = { path = "crates/nh-remote" }
 nh-search = { path = "crates/nh-search" }
-nh-util = { path = "crates/nh-util" }
 nix = { default-features = false, features = [ "fs", "user", "hostname" ], version = "0.31.1" }
 proptest = "1.9.0"
 regex = "1.12.2"

@@ -1,9 +1,8 @@
 use clap::Args;
-use nh_command::Command;
-use nh_installable::Installable;
+use color_eyre::Result;
 use tracing::warn;
 
-use crate::Result;
+use crate::{command::Command, installable::Installable};
 
 #[derive(Debug, Args)]
 pub struct UpdateArgs {

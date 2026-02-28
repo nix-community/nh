@@ -16,9 +16,11 @@ use color_eyre::{
   Result,
   eyre::{Context, bail, eyre},
 };
-use nh_command::{ElevationStrategy, cache_password, get_cached_password};
-use nh_installable::Installable;
-use nh_util::NixVariant;
+use nh_core::{
+  command::{ElevationStrategy, cache_password, get_cached_password},
+  installable::Installable,
+  util::NixVariant,
+};
 use secrecy::{ExposeSecret, SecretString};
 use subprocess::{Exec, ExitStatus, Redirection};
 use tracing::{debug, error, info, warn};
@@ -689,7 +691,7 @@ fn attempt_remote_cleanup(host: &RemoteHost, remote_cmd: &str) {
 /// safer to assist the user instead. Without those features, remote deployment
 /// may never succeed.
 fn get_flake_flags() -> Vec<&'static str> {
-  let variant = nh_util::get_nix_variant();
+  let variant = nh_core::util::get_nix_variant();
   match variant {
     NixVariant::Determinate => vec![],
     NixVariant::Nix | NixVariant::Lix => {
@@ -1116,7 +1118,7 @@ pub struct ActivateRemoteConfig {
   /// - `None`: No elevation, run commands as the remote user
   /// - `Some(strategy)`: Use the specified elevation strategy (sudo, doas,
   ///   etc.)
-  pub elevation: Option<nh_command::ElevationStrategy>,
+  pub elevation: Option<ElevationStrategy>,
 }
 
 /// Activate a system configuration on a remote host.

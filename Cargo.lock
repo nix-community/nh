@@ -93,9 +93,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.100"
+version = "1.0.102"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
+checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "atomic-waker"
@@ -358,16 +358,6 @@ dependencies = [
 
 [[package]]
 name = "core-foundation"
-version = "0.9.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91e195e091a93c46f7102ec7818a2aa394e1e1771c3ab4825963fa03e45afb8f"
-dependencies = [
- "core-foundation-sys",
- "libc",
-]
-
-[[package]]
-name = "core-foundation"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b2a6cd9ae233e7f62ba4e9353e81a88df7fc8a5987b8d445b4d90c879bd156f6"
@@ -525,9 +515,9 @@ dependencies = [
 
 [[package]]
 name = "env_filter"
-version = "0.1.4"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1bf3c259d255ca70051b30e2e95b5446cdb8949ac4cd22c0d7fd634d89f568e2"
+checksum = "7a1c3cc8e57274ec99de65301228b537f1e4eedc1b8e0f9411c6caac8ae7308f"
 dependencies = [
  "log",
  "regex",
@@ -541,9 +531,9 @@ checksum = "c7f84e12ccf0a7ddc17a6c41c93326024c42920d7ee630d04950e6926645c0fe"
 
 [[package]]
 name = "env_logger"
-version = "0.11.8"
+version = "0.11.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13c863f0904021b108aa8b2f55046443e6b1ebde8fd4a15c399893aae4fa069f"
+checksum = "b2daee4ea451f429a58296525ddf28b45a3b64f1acf6587e2067437bb11e218d"
 dependencies = [
  "anstream",
  "anstyle",
@@ -1079,9 +1069,9 @@ checksum = "92ecc6618181def0457392ccd0ee51198e065e016d1d527a7ac1b6dc7c1f09d2"
 
 [[package]]
 name = "jiff"
-version = "0.2.18"
+version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e67e8da4c49d6d9909fe03361f9b620f58898859f5c7aded68351e85e71ecf50"
+checksum = "b3e3d65f018c6ae946ab16e80944b97096ed73c35b221d1c478a6c81d8f57940"
 dependencies = [
  "jiff-static",
  "log",
@@ -1092,9 +1082,9 @@ dependencies = [
 
 [[package]]
 name = "jiff-static"
-version = "0.2.18"
+version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0c84ee7f197eca9a86c6fd6cb771e55eb991632f15f2bc3ca6ec838929e6e78"
+checksum = "a17c2b211d863c7fde02cbea8a3c1a439b98e109286554f2860bdded7ff83818"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1251,7 +1241,6 @@ dependencies = [
  "clap_mangen",
  "color-eyre",
  "nh-clean",
- "nh-command",
  "nh-core",
  "nh-darwin",
  "nh-home",
@@ -1272,29 +1261,11 @@ dependencies = [
  "color-eyre",
  "humantime",
  "inquire",
- "nh-command",
- "nh-util",
+ "nh-core",
  "nix",
  "regex",
  "tracing",
  "yansi",
-]
-
-[[package]]
-name = "nh-command"
-version = "0.1.0"
-dependencies = [
- "color-eyre",
- "inquire",
- "nh-installable",
- "nh-passthrough",
- "secrecy",
- "serial_test",
- "shlex",
- "subprocess",
- "thiserror 2.0.18",
- "tracing",
- "which",
 ]
 
 [[package]]
@@ -1303,14 +1274,22 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "color-eyre",
- "nh-installable",
- "nh-passthrough",
- "nh-util",
+ "dix",
+ "inquire",
+ "nix",
  "proptest",
+ "regex",
+ "secrecy",
  "semver",
  "serde_json",
  "serial_test",
+ "shlex",
+ "subprocess",
+ "tempfile",
+ "thiserror 2.0.18",
  "tracing",
+ "which",
+ "yansi",
 ]
 
 [[package]]
@@ -1320,11 +1299,8 @@ dependencies = [
  "clap",
  "color-eyre",
  "inquire",
- "nh-command",
  "nh-core",
- "nh-installable",
  "nh-remote",
- "nh-util",
  "nix",
  "tempfile",
  "tracing",
@@ -1337,24 +1313,10 @@ dependencies = [
  "clap",
  "color-eyre",
  "inquire",
- "nh-command",
  "nh-core",
- "nh-installable",
  "nh-remote",
- "nh-util",
  "tempfile",
  "tracing",
-]
-
-[[package]]
-name = "nh-installable"
-version = "0.1.0"
-dependencies = [
- "clap",
- "color-eyre",
- "serial_test",
- "tracing",
- "yansi",
 ]
 
 [[package]]
@@ -1365,23 +1327,11 @@ dependencies = [
  "clap",
  "color-eyre",
  "inquire",
- "nh-command",
  "nh-core",
- "nh-installable",
- "nh-passthrough",
  "nh-remote",
- "nh-util",
  "nix",
  "serde_json",
  "tempfile",
- "tracing",
-]
-
-[[package]]
-name = "nh-passthrough"
-version = "0.1.0"
-dependencies = [
- "clap",
  "tracing",
 ]
 
@@ -1391,9 +1341,7 @@ version = "0.1.0"
 dependencies = [
  "color-eyre",
  "inquire",
- "nh-command",
- "nh-installable",
- "nh-util",
+ "nh-core",
  "proptest",
  "secrecy",
  "serial_test",
@@ -1419,23 +1367,6 @@ dependencies = [
  "textwrap",
  "tracing",
  "yansi",
-]
-
-[[package]]
-name = "nh-util"
-version = "0.1.0"
-dependencies = [
- "clap",
- "color-eyre",
- "dix",
- "nh-command",
- "nh-installable",
- "nix",
- "regex",
- "serde_json",
- "system-configuration",
- "tempfile",
- "tracing",
 ]
 
 [[package]]
@@ -1973,7 +1904,7 @@ version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d99feebc72bae7ab76ba994bb5e121b8d83d910ca40b36e0921f53becc41784"
 dependencies = [
- "core-foundation 0.10.1",
+ "core-foundation",
  "core-foundation-sys",
  "jni",
  "log",
@@ -2080,7 +2011,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b3297343eaf830f66ede390ea39da1d462b6b0c1b000f420d0a83f898bbbe6ef"
 dependencies = [
  "bitflags",
- "core-foundation 0.10.1",
+ "core-foundation",
  "core-foundation-sys",
  "libc",
  "security-framework-sys",
@@ -2342,27 +2273,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "system-configuration"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a13f3d0daba03132c0aa9767f98351b3488edc2c100cda2d2ec2b04f3d8d3c8b"
-dependencies = [
- "bitflags",
- "core-foundation 0.9.4",
- "system-configuration-sys",
-]
-
-[[package]]
-name = "system-configuration-sys"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e1d1b10ced5ca923a1fcb8d03e96b8d3268065d724548c0211415ff6ac6bac4"
-dependencies = [
- "core-foundation-sys",
- "libc",
 ]
 
 [[package]]

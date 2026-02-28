@@ -5,11 +5,14 @@ use color_eyre::{
   Result,
   eyre::{Context, bail},
 };
-use nh_command::{Command, ElevationStrategy};
-use nh_core::args::DiffType;
-use nh_installable::{CommandContext, Installable};
+use nh_core::{
+  args::DiffType,
+  command::{Command, ElevationStrategy},
+  installable::{CommandContext, Installable},
+  update::update,
+  util::{get_hostname, print_dix_diff},
+};
 use nh_remote::{self, RemoteBuildConfig};
-use nh_util::{get_hostname, print_dix_diff, update::update};
 use tracing::{debug, info, warn};
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
@@ -132,7 +135,7 @@ impl DarwinRebuildArgs {
       nh_remote::build_remote(&toplevel, &config, Some(&out_path))
         .wrap_err("Failed to build Darwin configuration")?;
     } else {
-      nh_command::Build::new(toplevel)
+      nh_core::command::Build::new(toplevel)
         .extra_arg("--out-link")
         .extra_arg(&out_path)
         .extra_args(&self.extra_args)

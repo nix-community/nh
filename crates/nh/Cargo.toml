@@ -21,7 +21,6 @@ clap.workspace                = true
 clap-verbosity-flag.workspace = true
 color-eyre.workspace          = true
 nh-clean.workspace            = true
-nh-command.workspace          = true
 nh-core.workspace             = true
 nh-darwin.workspace           = true
 nh-home.workspace             = true

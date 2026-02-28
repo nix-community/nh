@@ -5,17 +5,19 @@ use std::{
 };
 
 use color_eyre::eyre::{Context, Result, bail, eyre};
-use nh_command::{self, Command, ElevationStrategy};
-use nh_installable::{CommandContext, Installable};
-use nh_remote::{self, RemoteBuildConfig, RemoteHost};
-use nh_util::{
-  ensure_ssh_key_login,
-  get_build_image_variants,
-  get_build_image_variants_flake,
-  get_hostname,
-  print_dix_diff,
+use nh_core::{
+  command::{self, Command, ElevationStrategy},
+  installable::{CommandContext, Installable},
   update::update,
+  util::{
+    ensure_ssh_key_login,
+    get_build_image_variants,
+    get_build_image_variants_flake,
+    get_hostname,
+    print_dix_diff,
+  },
 };
+use nh_remote::{self, RemoteBuildConfig, RemoteHost};
 use tracing::{debug, info, warn};
 
 use crate::{
@@ -537,7 +539,7 @@ impl OsRebuildArgs {
       Ok(Some(actual_store_path))
     } else {
       // Local build - use the existing path
-      nh_command::Build::new(toplevel)
+      command::Build::new(toplevel)
         .extra_arg("--out-link")
         .extra_arg(out_path)
         .extra_args(&self.extra_args)
@@ -1122,10 +1124,10 @@ fn missing_switch_to_configuration_error() -> color_eyre::eyre::Report {
 /// as `nh os` subcommands should not be run directly as root.
 fn has_elevation_status(
   bypass_root_check: bool,
-  elevation: &nh_command::ElevationStrategy,
+  elevation: &command::ElevationStrategy,
 ) -> Result<bool> {
   // If elevation strategy is None, never elevate
-  if matches!(elevation, nh_command::ElevationStrategy::None) {
+  if matches!(elevation, command::ElevationStrategy::None) {
     return Ok(false);
   }
 

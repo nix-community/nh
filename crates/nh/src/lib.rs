@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use color_eyre::Result;
-use nh_command::{ElevationStrategy, ElevationStrategyArg};
+use nh_core::command::{ElevationStrategy, ElevationStrategyArg};
 
 pub mod interface;
 pub mod logging;

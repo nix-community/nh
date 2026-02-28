@@ -9,8 +9,8 @@ use nh_core::{
     HomeReplFeatures,
     LegacyFeatures,
   },
+  installable::Installable,
 };
-use nh_installable::Installable;
 use nh_remote::RemoteHost;
 
 #[derive(Debug, Subcommand)]
@@ -57,7 +57,7 @@ pub struct HomeRebuildArgs {
   pub common: CommonRebuildArgs,
 
   #[command(flatten)]
-  pub update_args: nh_util::update::UpdateArgs,
+  pub update_args: nh_core::update::UpdateArgs,
 
   /// Name of the flake homeConfigurations attribute, like username@hostname
   ///

@@ -1,5 +1,3 @@
-pub mod update;
-
 use std::{
   collections::HashSet,
   fmt,
@@ -15,9 +13,10 @@ use color_eyre::{
   eyre::{self, Context, eyre},
   owo_colors::OwoColorize,
 };
-use nh_command::{Command, ElevationStrategy};
 use regex::Regex;
 use tracing::{debug, info, warn};
+
+use crate::command::{Command, ElevationStrategy};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NixVariant {
@@ -380,11 +379,11 @@ pub fn self_elevate(strategy: ElevationStrategy) -> ! {
 /// - The JSON output cannot be parsed
 /// - The installable does not have images attribute
 pub fn get_build_image_variants(
-  installable: &nh_installable::Installable,
+  installable: &crate::installable::Installable,
   hostname: &str,
 ) -> Result<Vec<String>> {
   let expr = match installable {
-    nh_installable::Installable::File { path, .. } => {
+    crate::installable::Installable::File { path, .. } => {
       format!(
         r#"
 let
@@ -397,7 +396,7 @@ in
         path.display(),
       )
     },
-    nh_installable::Installable::Expression { expression, .. } => {
+    crate::installable::Installable::Expression { expression, .. } => {
       format!(
         r#"
 let
@@ -452,7 +451,7 @@ in
 /// - The JSON output cannot be parsed
 /// - The flake installable does not have images attribute
 pub fn get_build_image_variants_flake(
-  installable: &nh_installable::Installable,
+  installable: &crate::installable::Installable,
 ) -> Result<Vec<String>> {
   let result = Command::new("nix")
     .arg("eval")
@@ -535,9 +534,8 @@ pub fn print_dix_diff(
 
 #[cfg(test)]
 mod tests {
-  use nh_installable::Installable;
-
   use super::*;
+  use crate::installable::Installable;
 
   #[test]
   fn test_get_build_image_variants_expression() {
