@@ -19,6 +19,7 @@ use crate::{
   commands::ElevationStrategy,
   generations::Field,
   installable::Installable,
+  remote::RemoteHost,
 };
 
 const fn make_style() -> Styles {
@@ -229,6 +230,10 @@ pub struct OsRebuildArgs {
 
   /// When using a flake installable, select this hostname from
   /// nixosConfigurations
+  ///
+  /// When unspecified, defaults to the local hostname for local
+  /// deployments, and hostname of the target machine for remote
+  /// deployments (see --target-host).
   #[arg(long, short = 'H', global = true)]
   pub hostname: Option<String>,
 
@@ -254,11 +259,11 @@ pub struct OsRebuildArgs {
 
   /// Deploy the built configuration to a different host over SSH
   #[arg(long)]
-  pub target_host: Option<String>,
+  pub target_host: Option<RemoteHost>,
 
   /// Build the configuration on a different host over SSH
   #[arg(long)]
-  pub build_host: Option<String>,
+  pub build_host: Option<RemoteHost>,
 
   /// Skip pre-activation system validation checks
   #[arg(long, env = "NH_NO_VALIDATE")]
@@ -568,7 +573,7 @@ pub struct HomeRebuildArgs {
 
   /// Build the configuration on a different host over SSH
   #[arg(long)]
-  pub build_host: Option<String>,
+  pub build_host: Option<RemoteHost>,
 }
 
 impl HomeRebuildArgs {
@@ -678,7 +683,7 @@ pub struct DarwinRebuildArgs {
 
   /// Build the configuration on a different host over SSH
   #[arg(long)]
-  pub build_host: Option<String>,
+  pub build_host: Option<RemoteHost>,
 }
 
 impl DarwinRebuildArgs {
