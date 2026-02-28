@@ -1255,6 +1255,7 @@ dependencies = [
  "elasticsearch-dsl",
  "humantime",
  "inquire",
+ "nh-installable",
  "nix",
  "proptest",
  "regex",
@@ -1276,6 +1277,17 @@ dependencies = [
  "tracing-subscriber",
  "urlencoding",
  "which",
+ "yansi",
+]
+
+[[package]]
+name = "nh-installable"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "color-eyre",
+ "serial_test",
+ "tracing",
  "yansi",
 ]
 

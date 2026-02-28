@@ -1,6 +1,7 @@
+use nh_installable::Installable;
 use tracing::warn;
 
-use crate::{Result, commands::Command, installable::Installable};
+use crate::{Result, commands::Command};
 
 pub fn update(
   installable: &Installable,

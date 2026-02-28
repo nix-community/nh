@@ -16,13 +16,13 @@ use color_eyre::{
   Result,
   eyre::{Context, bail, eyre},
 };
+use nh_installable::Installable;
 use secrecy::{ExposeSecret, SecretString};
 use subprocess::{Exec, ExitStatus, Redirection};
 use tracing::{debug, error, info, warn};
 
 use crate::{
   commands::{ElevationStrategy, cache_password, get_cached_password},
-  installable::Installable,
   util::NixVariant,
 };
 

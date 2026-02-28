@@ -4,7 +4,6 @@ mod commands;
 mod darwin;
 mod generations;
 mod home;
-mod installable;
 mod interface;
 mod json;
 mod logging;

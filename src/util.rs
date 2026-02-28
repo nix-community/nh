@@ -379,11 +379,11 @@ pub fn self_elevate(strategy: ElevationStrategy) -> ! {
 /// - The JSON output cannot be parsed
 /// - The installable does not have images attribute
 pub fn get_build_image_variants(
-  installable: &crate::installable::Installable,
+  installable: &nh_installable::Installable,
   hostname: &str,
 ) -> Result<Vec<String>> {
   let expr = match installable {
-    crate::installable::Installable::File { path, .. } => {
+    nh_installable::Installable::File { path, .. } => {
       format!(
         r#"
 let
@@ -396,7 +396,7 @@ in
         path.display(),
       )
     },
-    crate::installable::Installable::Expression { expression, .. } => {
+    nh_installable::Installable::Expression { expression, .. } => {
       format!(
         r#"
 let
@@ -451,7 +451,7 @@ in
 /// - The JSON output cannot be parsed
 /// - The flake installable does not have images attribute
 pub fn get_build_image_variants_flake(
-  installable: &crate::installable::Installable,
+  installable: &nh_installable::Installable,
 ) -> Result<Vec<String>> {
   let result = Command::new("nix")
     .arg("eval")
@@ -534,8 +534,9 @@ pub fn print_dix_diff(
 
 #[cfg(test)]
 mod tests {
+  use nh_installable::Installable;
+
   use super::*;
-  use crate::installable::Installable;
 
   #[test]
   fn test_get_build_image_variants_expression() {

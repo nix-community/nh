@@ -5,12 +5,12 @@ use std::{
 };
 
 use color_eyre::eyre::{Context, Result, bail, eyre};
+use nh_installable::{CommandContext, Installable};
 use tracing::{debug, info, warn};
 
 use crate::{
   commands::{self, Command, ElevationStrategy},
   generations,
-  installable::{CommandContext, Installable},
   interface::{
     self,
     DiffType,

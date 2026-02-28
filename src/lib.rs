@@ -5,7 +5,6 @@ pub mod commands;
 pub mod darwin;
 pub mod generations;
 pub mod home;
-pub mod installable;
 pub mod interface;
 pub mod json;
 pub mod logging;

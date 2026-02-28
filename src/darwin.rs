@@ -1,13 +1,13 @@
 use std::{convert::Into, path::PathBuf};
 
 use color_eyre::eyre::{Context, bail};
+use nh_installable::{CommandContext, Installable};
 use tracing::{debug, info, warn};
 
 use crate::{
   Result,
   commands,
   commands::{Command, ElevationStrategy},
-  installable::{CommandContext, Installable},
   interface::{
     DarwinArgs,
     DarwinRebuildArgs,

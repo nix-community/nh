@@ -3,6 +3,7 @@ use std::{env, path::PathBuf};
 use anstyle::Style;
 use clap::{Args, Parser, Subcommand, ValueEnum, builder::Styles};
 use clap_verbosity_flag::InfoLevel;
+use nh_installable::Installable;
 use tracing::warn;
 
 use crate::{
@@ -18,7 +19,6 @@ use crate::{
   },
   commands::ElevationStrategy,
   generations::Field,
-  installable::Installable,
   remote::RemoteHost,
 };
 

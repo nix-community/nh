@@ -4,12 +4,12 @@ use color_eyre::{
   Result,
   eyre::{Context, bail, eyre},
 };
+use nh_installable::{CommandContext, Installable};
 use tracing::{debug, info, warn};
 
 use crate::{
   commands,
   commands::Command,
-  installable::{CommandContext, Installable},
   interface::{self, DiffType, HomeRebuildArgs, HomeReplArgs, HomeSubcommand},
   remote::{self, RemoteBuildConfig},
   update::update,
