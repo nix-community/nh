@@ -14,5 +14,5 @@ workspace = true
 path = "src/passthrough.rs"
 
 [dependencies]
-clap.workspace                = true
-tracing.workspace             = true
+clap.workspace    = true
+tracing.workspace = true

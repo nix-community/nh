@@ -13,14 +13,14 @@ workspace = true
 path = "src/command.rs"
 
 [dependencies]
-color-eyre.workspace          = true
-inquire.workspace             = true
-nh-installable.workspace      = true
-nh-passthrough.workspace      = true
-secrecy.workspace             = true
-serial_test.workspace         = true
-shlex.workspace               = true
-subprocess.workspace          = true
-thiserror.workspace           = true
-tracing.workspace             = true
-which.workspace               = true
+color-eyre.workspace     = true
+inquire.workspace        = true
+nh-installable.workspace = true
+nh-passthrough.workspace = true
+secrecy.workspace        = true
+serial_test.workspace    = true
+shlex.workspace          = true
+subprocess.workspace     = true
+thiserror.workspace      = true
+tracing.workspace        = true
+which.workspace          = true

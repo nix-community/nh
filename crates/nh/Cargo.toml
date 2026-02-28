@@ -11,10 +11,9 @@ rust-version.workspace = true
 default-run            = "nh"
 
 [dev-dependencies]
-clap_mangen           = "0.2.31"
+clap_mangen.workspace = true
 proptest.workspace    = true
 serial_test.workspace = true
-
 
 
 [target.'cfg(target_os="macos")'.dependencies]
@@ -25,11 +24,11 @@ anstyle.workspace             = true
 clap.workspace                = true
 clap-verbosity-flag.workspace = true
 color-eyre.workspace          = true
+nh-clean.workspace            = true
 nh-command.workspace          = true
 nh-core.workspace             = true
 nh-darwin.workspace           = true
 nh-home.workspace             = true
-nh-clean.workspace            = true
 nh-nixos.workspace            = true
 nh-search.workspace           = true
 tracing.workspace             = true

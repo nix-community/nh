@@ -13,13 +13,13 @@ workspace = true
 path = "src/clean.rs"
 
 [dependencies]
-clap.workspace                = true
-color-eyre.workspace          = true
-humantime.workspace           = true
-inquire.workspace             = true
-nh-command.workspace          = true
-nh-util.workspace             = true
-nix.workspace                 = true
-regex.workspace               = true
-tracing.workspace             = true
-yansi.workspace               = true
+clap.workspace       = true
+color-eyre.workspace = true
+humantime.workspace  = true
+inquire.workspace    = true
+nh-command.workspace = true
+nh-util.workspace    = true
+nix.workspace        = true
+regex.workspace      = true
+tracing.workspace    = true
+yansi.workspace      = true
