@@ -25,7 +25,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
       lib.fileset.unions [
         ./.cargo
         ./.config
-        ./src
+        ./crates
         ./xtask
         ./Cargo.toml
         ./Cargo.lock
