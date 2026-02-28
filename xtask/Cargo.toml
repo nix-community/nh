@@ -6,8 +6,8 @@ publish           = false
 
 [dependencies]
 clap.workspace        = true
-clap_complete         = "4.5.61"
-clap_complete_nushell = "4.5.10"
-clap_mangen           = "0.2.31"
+clap_complete.workspace = true
+clap_complete_nushell.workspace = true
+clap_mangen.workspace     = true
 nh.workspace          = true
-roff                  = "0.2.2"
+roff.workspace         = true
