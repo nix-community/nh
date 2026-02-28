@@ -29,3 +29,6 @@ tracing.workspace     = true
 which.workspace       = true
 
 yansi.workspace = true
+
+[target.'cfg(target_os="macos")'.dependencies]
+system-configuration.workspace = true
