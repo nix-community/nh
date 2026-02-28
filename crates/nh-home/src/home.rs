@@ -1,22 +1,18 @@
 use std::{convert::Into, env, ffi::OsString, path::PathBuf};
 
+pub mod args;
+use args::{HomeRebuildArgs, HomeReplArgs, HomeSubcommand};
 use color_eyre::{
   Result,
   eyre::{Context, bail, eyre},
 };
+use nh_command::{self, Command};
 use nh_installable::{CommandContext, Installable};
+use nh_remote::{self, RemoteBuildConfig};
+use nh_util::{get_hostname, print_dix_diff, update::update};
 use tracing::{debug, info, warn};
 
-use crate::{
-  commands,
-  commands::Command,
-  interface::{self, DiffType, HomeRebuildArgs, HomeReplArgs, HomeSubcommand},
-  remote::{self, RemoteBuildConfig},
-  update::update,
-  util::{get_hostname, print_dix_diff},
-};
-
-impl interface::HomeArgs {
+impl args::HomeArgs {
   /// Run the `home` subcommand.
   ///
   /// # Parameters
@@ -121,12 +117,12 @@ impl HomeRebuildArgs {
       };
 
       // Initialize SSH control - guard will cleanup connections on drop
-      let _ssh_guard = remote::init_ssh_control();
+      let _ssh_guard = nh_remote::init_ssh_control();
 
-      remote::build_remote(&toplevel, &config, Some(&out_path))
+      nh_remote::build_remote(&toplevel, &config, Some(&out_path))
         .wrap_err("Failed to build Home-Manager configuration")?;
     } else {
-      commands::Build::new(toplevel)
+      nh_command::Build::new(toplevel)
         .extra_arg("--out-link")
         .extra_arg(&out_path)
         .extra_args(&self.extra_args)
@@ -187,7 +183,7 @@ impl HomeRebuildArgs {
     // just do nothing for None case (fresh installs)
     if let Some(generation) = prev_generation {
       match self.common.diff {
-        DiffType::Never => {
+        nh_core::args::DiffType::Never => {
           debug!("Not running dix as the --diff flag is set to never.");
         },
         _ => {
@@ -306,7 +302,7 @@ where
       if let Some(config_name) = configuration_name {
         // Verify the provided configuration exists
         let func = format!(r#" x: x ? "{config_name}" "#);
-        let check_res = commands::Command::new("nix")
+        let check_res = nh_command::Command::new("nix")
           .with_required_env()
           .arg("eval")
           .args(&extra_args)
@@ -362,7 +358,7 @@ where
 
         for attr_name in [format!("{username}@{hostname}"), username] {
           let func = format!(r#" x: x ? "{attr_name}" "#);
-          let check_res = commands::Command::new("nix")
+          let check_res = nh_command::Command::new("nix")
             .with_required_env()
             .arg("eval")
             .args(&extra_args)

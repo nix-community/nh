@@ -1,7 +1,20 @@
+use clap::Args;
+use nh_command::Command;
 use nh_installable::Installable;
 use tracing::warn;
 
-use crate::{Result, commands::Command};
+use crate::Result;
+
+#[derive(Debug, Args)]
+pub struct UpdateArgs {
+  #[arg(short = 'u', long = "update", conflicts_with = "update_input")]
+  /// Update all flake inputs
+  pub update_all: bool,
+
+  #[arg(short = 'U', long = "update-input", conflicts_with = "update_all")]
+  /// Update the specified flake input(s)
+  pub update_input: Option<Vec<String>>,
+}
 
 pub fn update(
   installable: &Installable,

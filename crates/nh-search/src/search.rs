@@ -1,6 +1,10 @@
 use std::{process::Stdio, sync::OnceLock, time::Instant};
 
-use color_eyre::eyre::{Context, bail};
+pub mod args;
+use color_eyre::{
+  Result,
+  eyre::{Context, bail},
+};
 use elasticsearch_dsl::{
   Operator,
   Query,
@@ -8,13 +12,12 @@ use elasticsearch_dsl::{
   SearchResponse,
   TextQueryType,
 };
-use interface::SearchArgs;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace, warn};
 use yansi::{Color, Paint};
 
-use crate::{Result, interface};
+const NH_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // List of deprecated NixOS versions
 // Add new versions as they become deprecated.
@@ -74,7 +77,7 @@ struct JSONOutput {
   results:    Vec<SearchResult>,
 }
 
-impl SearchArgs {
+impl args::SearchArgs {
   #[allow(clippy::missing_errors_doc)]
   pub fn run(&self) -> Result<()> {
     trace!("args: {self:?}");

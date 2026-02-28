@@ -1,0 +1,38 @@
+[package]
+name                   = "nh"
+license.workspace      = true
+repository             = "https://github.com/nix-community/nh"
+description            = "Yet Another Nix Helper"
+keywords               = [ "nix", "nixos", "nix-darwin", "helper", "CLI" ]
+readme                 = "README.md"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+
+[dev-dependencies]
+clap_mangen           = "0.2.31"
+proptest.workspace    = true
+serial_test.workspace = true
+
+
+
+[target.'cfg(target_os="macos")'.dependencies]
+system-configuration.workspace = true
+
+[dependencies]
+anstyle.workspace             = true
+clap.workspace                = true
+clap-verbosity-flag.workspace = true
+color-eyre.workspace          = true
+nh-command.workspace          = true
+nh-core.workspace             = true
+nh-darwin.workspace           = true
+nh-home.workspace             = true
+nh-installable.workspace      = true
+nh-clean.workspace            = true
+nh-nixos.workspace            = true
+nh-remote.workspace           = true
+nh-search.workspace           = true
+tracing.workspace             = true
+tracing-subscriber.workspace  = true
+yansi.workspace               = true

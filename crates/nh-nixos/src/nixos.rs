@@ -5,13 +5,21 @@ use std::{
 };
 
 use color_eyre::eyre::{Context, Result, bail, eyre};
+use nh_command::{self, Command, ElevationStrategy};
 use nh_installable::{CommandContext, Installable};
+use nh_remote::{self, RemoteBuildConfig, RemoteHost};
+use nh_util::{
+  ensure_ssh_key_login,
+  get_build_image_variants,
+  get_build_image_variants_flake,
+  get_hostname,
+  print_dix_diff,
+  update::update,
+};
 use tracing::{debug, info, warn};
 
 use crate::{
-  commands::{self, Command, ElevationStrategy},
-  generations,
-  interface::{
+  args::{
     self,
     DiffType,
     OsBuildImageArgs,
@@ -23,15 +31,7 @@ use crate::{
     OsRollbackArgs,
     OsSubcommand::{self},
   },
-  remote::{self, RemoteBuildConfig, RemoteHost},
-  update::update,
-  util::{
-    ensure_ssh_key_login,
-    get_build_image_variants,
-    get_build_image_variants_flake,
-    get_hostname,
-    print_dix_diff,
-  },
+  generations,
 };
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
@@ -49,7 +49,7 @@ const ESSENTIAL_FILES: &[(&str, &str)] = &[
   ("sw/bin", "system path"),
 ];
 
-impl interface::OsArgs {
+impl args::OsArgs {
   /// Executes the NixOS subcommand.
   ///
   /// # Parameters
@@ -186,7 +186,7 @@ impl OsRebuildActivateArgs {
     let _ssh_guard = if self.rebuild.build_host.is_some()
       || self.rebuild.target_host.is_some()
     {
-      Some(remote::init_ssh_control())
+      Some(nh_remote::init_ssh_control())
     } else {
       None
     };
@@ -249,7 +249,7 @@ impl OsRebuildActivateArgs {
       // Only copy if the output path exists locally (i.e., was copied back from
       // remote build)
       if out_path.exists() {
-        remote::copy_to_remote(
+        nh_remote::copy_to_remote(
           target_host,
           target_profile,
           self.rebuild.common.passthrough.use_substitutes,
@@ -324,17 +324,17 @@ impl OsRebuildActivateArgs {
     if let Test | Switch = variant {
       if let Some(target_host) = &self.rebuild.target_host {
         let activation_type = match variant {
-          Test => remote::ActivationType::Test,
-          Switch => remote::ActivationType::Switch,
+          Test => nh_remote::ActivationType::Test,
+          Switch => nh_remote::ActivationType::Switch,
           #[allow(clippy::unreachable, reason = "Should never happen.")]
           _ => unreachable!(),
         };
 
-        remote::activate_remote(
+        nh_remote::activate_remote(
           target_host,
           &resolved_profile,
-          &remote::ActivateRemoteConfig {
-            platform: remote::Platform::NixOS,
+          &nh_remote::ActivateRemoteConfig {
+            platform: nh_remote::Platform::NixOS,
             activation_type,
             install_bootloader: false,
             show_logs: self.show_activation_logs,
@@ -371,12 +371,12 @@ impl OsRebuildActivateArgs {
 
     if let Boot | Switch = variant {
       if let Some(target_host) = &self.rebuild.target_host {
-        remote::activate_remote(
+        nh_remote::activate_remote(
           target_host,
           &resolved_profile,
-          &remote::ActivateRemoteConfig {
-            platform:           remote::Platform::NixOS,
-            activation_type:    remote::ActivationType::Boot,
+          &nh_remote::ActivateRemoteConfig {
+            platform:           nh_remote::Platform::NixOS,
+            activation_type:    nh_remote::ActivationType::Boot,
             install_bootloader: self.rebuild.install_bootloader,
             show_logs:          false,
             elevation:          elevate.then_some(elevation),
@@ -532,12 +532,12 @@ impl OsRebuildArgs {
       };
 
       let actual_store_path =
-        remote::build_remote(&toplevel, &config, Some(out_path))?;
+        nh_remote::build_remote(&toplevel, &config, Some(out_path))?;
 
       Ok(Some(actual_store_path))
     } else {
       // Local build - use the existing path
-      commands::Build::new(toplevel)
+      nh_command::Build::new(toplevel)
         .extra_arg("--out-link")
         .extra_arg(out_path)
         .extra_args(&self.extra_args)
@@ -1084,7 +1084,7 @@ fn validate_system_closure_remote(
   });
 
   // Delegate to the generic remote validation function
-  remote::validate_closure_remote(
+  nh_remote::validate_closure_remote(
     target_host,
     system_path,
     ESSENTIAL_FILES,
@@ -1122,10 +1122,10 @@ fn missing_switch_to_configuration_error() -> color_eyre::eyre::Report {
 /// as `nh os` subcommands should not be run directly as root.
 fn has_elevation_status(
   bypass_root_check: bool,
-  elevation: &commands::ElevationStrategy,
+  elevation: &nh_command::ElevationStrategy,
 ) -> Result<bool> {
   // If elevation strategy is None, never elevate
-  if matches!(elevation, commands::ElevationStrategy::None) {
+  if matches!(elevation, nh_command::ElevationStrategy::None) {
     return Ok(false);
   }
 

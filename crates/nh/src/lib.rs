@@ -1,28 +1,15 @@
-mod checks;
-mod clean;
-mod commands;
-mod darwin;
-mod generations;
-mod home;
-mod interface;
-mod json;
-mod logging;
-mod nixos;
-mod remote;
-mod search;
-mod update;
-mod util;
-
 use std::str::FromStr;
 
 use color_eyre::Result;
+use nh_command::{ElevationStrategy, ElevationStrategyArg};
 
-use crate::commands::{ElevationStrategy, ElevationStrategyArg};
+pub mod interface;
+pub mod logging;
 
 pub const NH_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const NH_REV: Option<&str> = option_env!("NH_REV");
 
-fn main() -> Result<()> {
+pub fn main() -> Result<()> {
   let mut args = <crate::interface::Main as clap::Parser>::parse();
 
   // Backward compatibility: support NH_ELEVATION_PROGRAM env var if
@@ -58,12 +45,12 @@ fn main() -> Result<()> {
   tracing::debug!(%NH_VERSION, ?NH_REV);
 
   // Check Nix version upfront
-  checks::verify_nix_environment()?;
+  nh_core::checks::verify_nix_environment()?;
 
   // Once we assert required Nix features, validate NH environment checks
   // For now, this is just NH_* variables being set. More checks may be
   // added to setup_environment in the future.
-  checks::verify_variables()?;
+  nh_core::checks::verify_variables()?;
 
   let elevation =
     args

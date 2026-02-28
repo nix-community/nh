@@ -12,13 +12,12 @@ use color_eyre::{
   eyre::{self, Context, bail},
 };
 use nh_installable::Installable;
+use nh_passthrough::NixBuildPassthroughArgs;
 use secrecy::{ExposeSecret, SecretString};
 use subprocess::{Exec, ExitStatus, Redirection};
 use thiserror::Error;
 use tracing::{debug, info, warn};
 use which::which;
-
-use crate::interface::NixBuildPassthroughArgs;
 
 static PASSWORD_CACHE: OnceLock<Mutex<HashMap<String, SecretString>>> =
   OnceLock::new();

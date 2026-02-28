@@ -1,10 +1,9 @@
 use std::{cmp::Ordering, env};
 
 use color_eyre::Result;
+use nh_util::{self, NixVariant, normalize_version_string};
 use semver::Version;
 use tracing::{debug, warn};
-
-use crate::util::{self, NixVariant, normalize_version_string};
 
 /// Verifies if the installed Nix version meets requirements
 ///
@@ -30,8 +29,8 @@ pub fn check_nix_version() -> Result<()> {
     return Ok(());
   }
 
-  let nix_variant = util::get_nix_variant();
-  let version = util::get_nix_version()?;
+  let nix_variant = nh_util::get_nix_variant();
+  let version = nh_util::get_nix_version()?;
   let version_normal = normalize_version_string(&version);
 
   // Minimum supported versions. Those should generally correspond to
@@ -53,7 +52,7 @@ pub fn check_nix_version() -> Result<()> {
   // responsible enough to provide timely security updates. In other
   // words I simply don't care about DetNix.
   let min_version = match nix_variant {
-    util::NixVariant::Lix => MIN_LIX_VERSION,
+    nh_util::NixVariant::Lix => MIN_LIX_VERSION,
     _ => MIN_NIX_VERSION,
   };
 
@@ -170,7 +169,7 @@ pub trait FeatureRequirements {
 
     debug!("Required Nix features: {}", required.join(", "));
 
-    let missing = util::get_missing_experimental_features(&required)?;
+    let missing = nh_util::get_missing_experimental_features(&required)?;
     if !missing.is_empty() {
       return Err(color_eyre::eyre::eyre!(
         "Missing required experimental features for this command: {}",
@@ -195,7 +194,7 @@ impl FeatureRequirements for FlakeFeatures {
     // as they simply decided to mark those as no-longer-experimental-lol.
     // Remove redundant experimental features if the Nix variant is
     // determinate.
-    let variant = util::get_nix_variant();
+    let variant = nh_util::get_nix_variant();
     if !matches!(variant, NixVariant::Determinate) {
       features.push("nix-command");
       features.push("flakes");
@@ -235,7 +234,7 @@ impl FeatureRequirements for OsReplFeatures {
     }
 
     // For flake repls, check if we need experimental features
-    match util::get_nix_variant() {
+    match nh_util::get_nix_variant() {
       NixVariant::Determinate => {
         // Determinate Nix doesn't need experimental features
       },
@@ -244,7 +243,7 @@ impl FeatureRequirements for OsReplFeatures {
         features.push("flakes");
 
         // Lix-specific repl-flake feature for older versions
-        if let Ok(version) = util::get_nix_version() {
+        if let Ok(version) = nh_util::get_nix_version() {
           let normalized_version = normalize_version_string(&version);
           if let Ok(current) = Version::parse(&normalized_version) {
             if let Ok(threshold) = Version::parse("2.93.0") {
@@ -281,7 +280,7 @@ impl FeatureRequirements for HomeReplFeatures {
     }
 
     // For flake repls, only need nix-command and flakes
-    let variant = util::get_nix_variant();
+    let variant = nh_util::get_nix_variant();
     if !matches!(variant, NixVariant::Determinate) {
       features.push("nix-command");
       features.push("flakes");
@@ -307,7 +306,7 @@ impl FeatureRequirements for DarwinReplFeatures {
     }
 
     // For flake repls, only need nix-command and flakes
-    let variant = util::get_nix_variant();
+    let variant = nh_util::get_nix_variant();
     if !matches!(variant, NixVariant::Determinate) {
       features.push("nix-command");
       features.push("flakes");

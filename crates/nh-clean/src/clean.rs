@@ -6,8 +6,13 @@ use std::{
   time::SystemTime,
 };
 
-use color_eyre::eyre::{Context, ContextCompat, bail, eyre};
+pub mod args;
+use color_eyre::{
+  Result,
+  eyre::{Context, ContextCompat, bail, eyre},
+};
 use inquire::Confirm;
+use nh_command::{Command, ElevationStrategy};
 use nix::{
   errno::Errno,
   fcntl::AtFlags,
@@ -16,12 +21,6 @@ use nix::{
 use regex::Regex;
 use tracing::{Level, debug, info, instrument, span, warn};
 use yansi::{Color, Paint};
-
-use crate::{
-  Result,
-  commands::{Command, ElevationStrategy},
-  interface,
-};
 
 // Nix impl:
 // https://github.com/NixOS/nix/blob/master/src/nix-collect-garbage/nix-collect-garbage.cc
@@ -70,7 +69,7 @@ where
   })
 }
 
-impl interface::CleanMode {
+impl args::CleanMode {
   /// Run the clean operation for the selected mode.
   ///
   /// # Errors
@@ -97,7 +96,7 @@ impl interface::CleanMode {
       },
       Self::All(args) => {
         if !uid.is_root() {
-          crate::util::self_elevate(elevate);
+          nh_util::self_elevate(elevate);
         }
 
         let paths_to_check = [

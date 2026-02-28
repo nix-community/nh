@@ -1,24 +1,16 @@
 use std::{convert::Into, path::PathBuf};
-
-use color_eyre::eyre::{Context, bail};
-use nh_installable::{CommandContext, Installable};
-use tracing::{debug, info, warn};
-
-use crate::{
+pub mod args;
+use args::{DarwinArgs, DarwinRebuildArgs, DarwinReplArgs, DarwinSubcommand};
+use color_eyre::{
   Result,
-  commands,
-  commands::{Command, ElevationStrategy},
-  interface::{
-    DarwinArgs,
-    DarwinRebuildArgs,
-    DarwinReplArgs,
-    DarwinSubcommand,
-    DiffType,
-  },
-  remote::{self, RemoteBuildConfig},
-  update::update,
-  util::{get_hostname, print_dix_diff},
+  eyre::{Context, bail},
 };
+use nh_command::{Command, ElevationStrategy};
+use nh_core::args::DiffType;
+use nh_installable::{CommandContext, Installable};
+use nh_remote::{self, RemoteBuildConfig};
+use nh_util::{get_hostname, print_dix_diff, update::update};
+use tracing::{debug, info, warn};
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
 const CURRENT_PROFILE: &str = "/run/current-system";
@@ -135,12 +127,12 @@ impl DarwinRebuildArgs {
       };
 
       // Initialize SSH control - guard will cleanup connections on drop
-      let _ssh_guard = remote::init_ssh_control();
+      let _ssh_guard = nh_remote::init_ssh_control();
 
-      remote::build_remote(&toplevel, &config, Some(&out_path))
+      nh_remote::build_remote(&toplevel, &config, Some(&out_path))
         .wrap_err("Failed to build Darwin configuration")?;
     } else {
-      commands::Build::new(toplevel)
+      nh_command::Build::new(toplevel)
         .extra_arg("--out-link")
         .extra_arg(&out_path)
         .extra_args(&self.extra_args)

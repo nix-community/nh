@@ -1,3 +1,5 @@
+pub mod update;
+
 use std::{
   collections::HashSet,
   fmt,
@@ -13,10 +15,9 @@ use color_eyre::{
   eyre::{self, Context, eyre},
   owo_colors::OwoColorize,
 };
+use nh_command::{Command, ElevationStrategy};
 use regex::Regex;
 use tracing::{debug, info, warn};
-
-use crate::commands::{Command, ElevationStrategy};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NixVariant {
