@@ -8,6 +8,7 @@ readme                 = "README.md"
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true
+default-run            = "nh"
 
 [dev-dependencies]
 clap_mangen           = "0.2.31"
