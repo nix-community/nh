@@ -15,10 +15,6 @@ clap_mangen.workspace = true
 proptest.workspace    = true
 serial_test.workspace = true
 
-
-[target.'cfg(target_os="macos")'.dependencies]
-system-configuration.workspace = true
-
 [dependencies]
 anstyle.workspace             = true
 clap.workspace                = true

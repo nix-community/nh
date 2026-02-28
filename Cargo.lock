@@ -1259,7 +1259,6 @@ dependencies = [
  "nh-search",
  "proptest",
  "serial_test",
- "system-configuration",
  "tracing",
  "tracing-subscriber",
  "yansi",
@@ -1434,6 +1433,7 @@ dependencies = [
  "nix",
  "regex",
  "serde_json",
+ "system-configuration",
  "tempfile",
  "tracing",
 ]

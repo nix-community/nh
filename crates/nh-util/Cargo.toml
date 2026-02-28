@@ -13,6 +13,9 @@ workspace = true
 [lib]
 path = "src/util.rs"
 
+[target.'cfg(target_os="macos")'.dependencies]
+system-configuration.workspace = true
+
 [dependencies]
 clap.workspace           = true
 color-eyre.workspace     = true
