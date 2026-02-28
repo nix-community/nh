@@ -10,5 +10,4 @@ clap_complete         = "4.5.61"
 clap_complete_nushell = "4.5.10"
 clap_mangen           = "0.2.31"
 nh.workspace          = true
-nh-core.workspace     = true
 roff                  = "0.2.2"

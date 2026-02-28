@@ -1255,9 +1255,7 @@ dependencies = [
  "nh-core",
  "nh-darwin",
  "nh-home",
- "nh-installable",
  "nh-nixos",
- "nh-remote",
  "nh-search",
  "proptest",
  "serial_test",
@@ -1271,30 +1269,15 @@ dependencies = [
 name = "nh-clean"
 version = "0.1.0"
 dependencies = [
- "anstyle",
  "clap",
- "clap-verbosity-flag",
  "color-eyre",
- "dix",
  "humantime",
  "inquire",
  "nh-command",
- "nh-installable",
- "nh-passthrough",
  "nh-util",
  "nix",
- "proptest",
  "regex",
- "secrecy",
- "semver",
- "serde_json",
- "serial_test",
- "shlex",
- "subprocess",
- "tempfile",
- "thiserror 2.0.18",
  "tracing",
- "which",
  "yansi",
 ]
 
@@ -1302,107 +1285,66 @@ dependencies = [
 name = "nh-command"
 version = "0.1.0"
 dependencies = [
- "anstyle",
- "clap",
- "clap-verbosity-flag",
  "color-eyre",
- "dix",
  "inquire",
  "nh-installable",
  "nh-passthrough",
- "nix",
- "proptest",
- "regex",
  "secrecy",
- "semver",
- "serde_json",
  "serial_test",
  "shlex",
  "subprocess",
- "tempfile",
  "thiserror 2.0.18",
  "tracing",
  "which",
- "yansi",
 ]
 
 [[package]]
 name = "nh-core"
 version = "0.1.0"
 dependencies = [
- "anstyle",
  "clap",
- "clap-verbosity-flag",
  "color-eyre",
- "dix",
- "inquire",
- "nh-command",
  "nh-installable",
  "nh-passthrough",
- "nh-remote",
  "nh-util",
- "nix",
  "proptest",
- "regex",
- "secrecy",
  "semver",
  "serde_json",
  "serial_test",
- "shlex",
- "subprocess",
- "tempfile",
- "thiserror 2.0.18",
  "tracing",
- "which",
- "yansi",
 ]
 
 [[package]]
 name = "nh-darwin"
 version = "0.1.0"
 dependencies = [
- "anstyle",
- "chrono",
  "clap",
- "clap-verbosity-flag",
  "color-eyre",
  "inquire",
  "nh-command",
  "nh-core",
  "nh-installable",
- "nh-passthrough",
  "nh-remote",
  "nh-util",
  "nix",
- "serde_json",
- "serial_test",
  "tempfile",
  "tracing",
- "yansi",
 ]
 
 [[package]]
 name = "nh-home"
 version = "0.1.0"
 dependencies = [
- "anstyle",
- "chrono",
  "clap",
- "clap-verbosity-flag",
  "color-eyre",
  "inquire",
  "nh-command",
  "nh-core",
  "nh-installable",
- "nh-passthrough",
  "nh-remote",
  "nh-util",
- "nix",
- "serde_json",
- "serial_test",
  "tempfile",
  "tracing",
- "yansi",
 ]
 
 [[package]]
@@ -1420,10 +1362,8 @@ dependencies = [
 name = "nh-nixos"
 version = "0.1.0"
 dependencies = [
- "anstyle",
  "chrono",
  "clap",
- "clap-verbosity-flag",
  "color-eyre",
  "inquire",
  "nh-command",
@@ -1434,103 +1374,51 @@ dependencies = [
  "nh-util",
  "nix",
  "serde_json",
- "serial_test",
  "tempfile",
  "tracing",
- "yansi",
 ]
 
 [[package]]
 name = "nh-passthrough"
 version = "0.1.0"
 dependencies = [
- "anstyle",
  "clap",
- "clap-verbosity-flag",
- "color-eyre",
- "dix",
- "inquire",
- "nh-installable",
- "nix",
- "proptest",
- "regex",
- "secrecy",
- "semver",
- "serde_json",
- "serial_test",
- "shlex",
- "subprocess",
- "tempfile",
- "thiserror 2.0.18",
  "tracing",
- "which",
- "yansi",
 ]
 
 [[package]]
 name = "nh-remote"
 version = "0.1.0"
 dependencies = [
- "anstyle",
- "clap",
- "clap-verbosity-flag",
  "color-eyre",
- "dix",
  "inquire",
  "nh-command",
  "nh-installable",
- "nh-passthrough",
  "nh-util",
- "nix",
  "proptest",
- "regex",
  "secrecy",
- "semver",
- "serde_json",
  "serial_test",
  "shlex",
  "signal-hook 0.4.3",
  "subprocess",
- "tempfile",
- "thiserror 2.0.18",
  "tracing",
  "which",
- "yansi",
 ]
 
 [[package]]
 name = "nh-search"
 version = "0.1.0"
 dependencies = [
- "anstyle",
  "clap",
- "clap-verbosity-flag",
  "color-eyre",
- "dix",
  "elasticsearch-dsl",
- "inquire",
- "nh-command",
- "nh-installable",
- "nh-passthrough",
- "nh-util",
- "nix",
- "proptest",
  "regex",
  "reqwest",
- "secrecy",
- "semver",
  "serde",
  "serde_json",
- "serial_test",
- "shlex",
- "signal-hook 0.4.3",
- "subprocess",
  "supports-hyperlinks",
- "tempfile",
  "textwrap",
- "thiserror 2.0.18",
  "tracing",
- "which",
  "yansi",
 ]
 
@@ -1538,29 +1426,16 @@ dependencies = [
 name = "nh-util"
 version = "0.1.0"
 dependencies = [
- "anstyle",
  "clap",
- "clap-verbosity-flag",
  "color-eyre",
  "dix",
- "inquire",
  "nh-command",
  "nh-installable",
- "nh-passthrough",
  "nix",
- "proptest",
  "regex",
- "secrecy",
- "semver",
  "serde_json",
- "serial_test",
- "shlex",
- "subprocess",
  "tempfile",
- "thiserror 2.0.18",
  "tracing",
- "which",
- "yansi",
 ]
 
 [[package]]
@@ -3300,7 +3175,6 @@ dependencies = [
  "clap_complete_nushell",
  "clap_mangen",
  "nh",
- "nh-core",
  "roff",
 ]
 

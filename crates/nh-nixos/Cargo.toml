@@ -10,10 +10,8 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
-anstyle.workspace             = true
 chrono.workspace              = true
 clap.workspace                = true
-clap-verbosity-flag.workspace = true
 color-eyre.workspace          = true
 inquire.workspace             = true
 nh-command.workspace          = true
@@ -24,7 +22,5 @@ nh-remote.workspace           = true
 nh-util.workspace             = true
 nix.workspace                 = true
 serde_json.workspace          = true
-serial_test.workspace         = true
 tempfile.workspace            = true
 tracing.workspace             = true
-yansi.workspace               = true
