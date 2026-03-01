@@ -25,7 +25,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
       lib.fileset.unions [
         ./.cargo
         ./.config
-        ./src
+        ./crates
         ./xtask
         ./Cargo.toml
         ./Cargo.lock
@@ -39,12 +39,6 @@ rustPlatform.buildRustPackage (finalAttrs: {
     makeBinaryWrapper
   ];
 
-  cargoBuildFlags = [
-    "-p"
-    "nh"
-    "-p"
-    "xtask"
-  ];
   cargoLock.lockFile = ./Cargo.lock;
 
   postInstall = lib.optionalString (stdenv.buildPlatform.canExecute stdenv.hostPlatform) ''
@@ -120,7 +114,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
   # the fastest way of running those since it's significantly faster than
   # `cargo test`, and has a nicer UI with CI-friendly characteristics.
   useNextest = true;
-  cargoTestFlags = [ "-p nh" ];
+  cargoTestFlags = [ "--workspace" ];
 
   env.NH_REV = rev;
 

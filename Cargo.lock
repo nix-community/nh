@@ -93,9 +93,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.100"
+version = "1.0.102"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
+checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "atomic-waker"
@@ -525,9 +525,9 @@ dependencies = [
 
 [[package]]
 name = "env_filter"
-version = "0.1.4"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1bf3c259d255ca70051b30e2e95b5446cdb8949ac4cd22c0d7fd634d89f568e2"
+checksum = "7a1c3cc8e57274ec99de65301228b537f1e4eedc1b8e0f9411c6caac8ae7308f"
 dependencies = [
  "log",
  "regex",
@@ -541,9 +541,9 @@ checksum = "c7f84e12ccf0a7ddc17a6c41c93326024c42920d7ee630d04950e6926645c0fe"
 
 [[package]]
 name = "env_logger"
-version = "0.11.8"
+version = "0.11.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13c863f0904021b108aa8b2f55046443e6b1ebde8fd4a15c399893aae4fa069f"
+checksum = "b2daee4ea451f429a58296525ddf28b45a3b64f1acf6587e2067437bb11e218d"
 dependencies = [
  "anstream",
  "anstyle",
@@ -1079,9 +1079,9 @@ checksum = "92ecc6618181def0457392ccd0ee51198e065e016d1d527a7ac1b6dc7c1f09d2"
 
 [[package]]
 name = "jiff"
-version = "0.2.18"
+version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e67e8da4c49d6d9909fe03361f9b620f58898859f5c7aded68351e85e71ecf50"
+checksum = "b3e3d65f018c6ae946ab16e80944b97096ed73c35b221d1c478a6c81d8f57940"
 dependencies = [
  "jiff-static",
  "log",
@@ -1092,9 +1092,9 @@ dependencies = [
 
 [[package]]
 name = "jiff-static"
-version = "0.2.18"
+version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0c84ee7f197eca9a86c6fd6cb771e55eb991632f15f2bc3ca6ec838929e6e78"
+checksum = "a17c2b211d863c7fde02cbea8a3c1a439b98e109286554f2860bdded7ff83818"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1246,36 +1246,137 @@ name = "nh"
 version = "4.3.0"
 dependencies = [
  "anstyle",
- "chrono",
  "clap",
  "clap-verbosity-flag",
  "clap_mangen",
  "color-eyre",
- "dix",
- "elasticsearch-dsl",
+ "nh-clean",
+ "nh-core",
+ "nh-darwin",
+ "nh-home",
+ "nh-nixos",
+ "nh-search",
+ "proptest",
+ "serial_test",
+ "tracing",
+ "tracing-subscriber",
+ "yansi",
+]
+
+[[package]]
+name = "nh-clean"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "color-eyre",
  "humantime",
+ "inquire",
+ "nh-core",
+ "nix",
+ "regex",
+ "tracing",
+ "yansi",
+]
+
+[[package]]
+name = "nh-core"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "color-eyre",
+ "dix",
  "inquire",
  "nix",
  "proptest",
  "regex",
- "reqwest",
  "secrecy",
  "semver",
- "serde",
  "serde_json",
+ "serial_test",
+ "shlex",
+ "subprocess",
+ "system-configuration",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
+ "which",
+ "yansi",
+]
+
+[[package]]
+name = "nh-darwin"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "color-eyre",
+ "inquire",
+ "nh-core",
+ "nh-remote",
+ "nix",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
+name = "nh-home"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "color-eyre",
+ "inquire",
+ "nh-core",
+ "nh-remote",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
+name = "nh-nixos"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "clap",
+ "color-eyre",
+ "inquire",
+ "nh-core",
+ "nh-remote",
+ "nix",
+ "serde_json",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
+name = "nh-remote"
+version = "0.1.0"
+dependencies = [
+ "color-eyre",
+ "inquire",
+ "nh-core",
+ "proptest",
+ "secrecy",
  "serial_test",
  "shlex",
  "signal-hook 0.4.3",
  "subprocess",
- "supports-hyperlinks",
- "system-configuration",
- "tempfile",
- "textwrap",
- "thiserror 2.0.18",
  "tracing",
- "tracing-subscriber",
- "urlencoding",
  "which",
+]
+
+[[package]]
+name = "nh-search"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "color-eyre",
+ "elasticsearch-dsl",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "supports-hyperlinks",
+ "textwrap",
+ "tracing",
  "yansi",
 ]
 
@@ -1826,7 +1927,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2506,12 +2607,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "urlencoding"
-version = "2.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da"
-
-[[package]]
 name = "utf8_iter"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2705,7 +2800,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

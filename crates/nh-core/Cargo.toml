@@ -1,0 +1,34 @@
+[package]
+name                   = "nh-core"
+version                = "0.1.0"
+publish                = false
+edition.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+clap.workspace        = true
+color-eyre.workspace  = true
+dix.workspace         = true
+inquire.workspace     = true
+nix.workspace         = true
+proptest.workspace    = true
+regex.workspace       = true
+secrecy.workspace     = true
+semver.workspace      = true
+serde_json.workspace  = true
+serial_test.workspace = true
+shlex.workspace       = true
+subprocess.workspace  = true
+tempfile.workspace    = true
+thiserror.workspace   = true
+tracing.workspace     = true
+which.workspace       = true
+
+yansi.workspace = true
+
+[target.'cfg(target_os="macos")'.dependencies]
+system-configuration.workspace = true

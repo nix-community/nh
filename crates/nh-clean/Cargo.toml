@@ -1,0 +1,24 @@
+[package]
+name                   = "nh-clean"
+version                = "0.1.0"
+publish                = false
+edition.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+path = "src/clean.rs"
+
+[dependencies]
+clap.workspace       = true
+color-eyre.workspace = true
+humantime.workspace  = true
+inquire.workspace    = true
+nh-core.workspace    = true
+nix.workspace        = true
+regex.workspace      = true
+tracing.workspace    = true
+yansi.workspace      = true

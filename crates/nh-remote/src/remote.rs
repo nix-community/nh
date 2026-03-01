@@ -16,15 +16,14 @@ use color_eyre::{
   Result,
   eyre::{Context, bail, eyre},
 };
-use secrecy::{ExposeSecret, SecretString};
-use subprocess::{Exec, ExitStatus, Redirection};
-use tracing::{debug, error, info, warn};
-
-use crate::{
-  commands::{ElevationStrategy, cache_password, get_cached_password},
+use nh_core::{
+  command::{ElevationStrategy, cache_password, get_cached_password},
   installable::Installable,
   util::NixVariant,
 };
+use secrecy::{ExposeSecret, SecretString};
+use subprocess::{Exec, ExitStatus, Redirection};
+use tracing::{debug, error, info, warn};
 
 /// Global flag indicating whether a SIGINT (Ctrl+C) was received.
 static INTERRUPTED: OnceLock<Arc<AtomicBool>> = OnceLock::new();
@@ -692,7 +691,7 @@ fn attempt_remote_cleanup(host: &RemoteHost, remote_cmd: &str) {
 /// safer to assist the user instead. Without those features, remote deployment
 /// may never succeed.
 fn get_flake_flags() -> Vec<&'static str> {
-  let variant = crate::util::get_nix_variant();
+  let variant = nh_core::util::get_nix_variant();
   match variant {
     NixVariant::Determinate => vec![],
     NixVariant::Nix | NixVariant::Lix => {
@@ -1119,7 +1118,7 @@ pub struct ActivateRemoteConfig {
   /// - `None`: No elevation, run commands as the remote user
   /// - `Some(strategy)`: Use the specified elevation strategy (sudo, doas,
   ///   etc.)
-  pub elevation: Option<crate::commands::ElevationStrategy>,
+  pub elevation: Option<ElevationStrategy>,
 }
 
 /// Activate a system configuration on a remote host.

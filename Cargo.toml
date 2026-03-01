@@ -1,55 +1,54 @@
-
 [workspace]
-members = [ ".", "xtask" ]
+members  = [ "xtask", "crates/*" ]
+resolver = "3"
 
 [workspace.package]
 edition      = "2024"
+license      = "EUPL-1.2"
 rust-version = "1.91.1"
 version      = "4.3.0"
 
-[workspace.dependencies.clap]
-features = [ "cargo", "color", "derive", "env", "unstable-styles" ]
-version  = "4.5.51"
 
-[package]
-name                   = "nh"
-license                = "EUPL-1.2"
-repository             = "https://github.com/nix-community/nh"
-description            = "Yet Another Nix Helper"
-keywords               = [ "nix", "nixos", "nix-darwin", "helper", "CLI" ]
-readme                 = "README.md"
-version.workspace      = true
-edition.workspace      = true
-rust-version.workspace = true
-
-[lib]
-path = "src/lib.rs"
-
-[dependencies]
+[workspace.dependencies]
 anstyle = "1.0.13"
 chrono = "0.4.42"
-clap.workspace = true
+clap = { features = [ "cargo", "color", "derive", "env", "unstable-styles" ], version = "4.5.51" }
 clap-verbosity-flag = { default-features = false, features = [ "tracing" ], version = "3.0.4" }
+clap_complete = "4.5.61"
+clap_complete_nushell = "4.5.10"
+clap_mangen = "0.2.31"
 color-eyre = { default-features = false, features = [ "track-caller" ], version = "0.6.5" }
 dix = "1.4.2"
 elasticsearch-dsl = "0.4.24"
 humantime = "2.3.0"
 inquire = { default-features = false, features = [ "crossterm" ], version = "0.9.1" }
+nh = { path = "crates/nh" }
+nh-clean = { path = "crates/nh-clean" }
+nh-core = { path = "crates/nh-core" }
+nh-darwin = { path = "crates/nh-darwin" }
+nh-home = { path = "crates/nh-home" }
+nh-nixos = { path = "crates/nh-nixos" }
+nh-remote = { path = "crates/nh-remote" }
+nh-search = { path = "crates/nh-search" }
 nix = { default-features = false, features = [ "fs", "user", "hostname" ], version = "0.31.1" }
+proptest = "1.9.0"
 regex = "1.12.2"
 reqwest = { default-features = false, features = [
   "blocking",
   "json",
   "rustls",
 ], version = "0.13.1" }
+roff = "0.2.2"
 secrecy = { features = [ "serde" ], version = "0.10.3" }
 semver = "1.0.27"
 serde = { features = [ "derive" ], version = "1.0.228" }
 serde_json = "1.0.145"
+serial_test = "3.2.0"
 shlex = "1.3.0"
 signal-hook = "0.4.1"
 subprocess = "0.2.9"
 supports-hyperlinks = "3.1.0"
+system-configuration = "0.7.0"
 tempfile = "3.23.0"
 textwrap = { features = [ "terminal_size" ], version = "0.16.2" }
 thiserror = "2.0.17"
@@ -59,20 +58,7 @@ urlencoding = "2.1.3"
 which = "8.0.0"
 yansi = "1.0.1"
 
-[target.'cfg(target_os="macos")'.dependencies]
-system-configuration = "0.7.0"
-
-[dev-dependencies]
-clap_mangen = "0.2.31"
-proptest    = "1.9.0"
-serial_test = "3.2.0"
-
-[profile.release]
-lto       = true
-opt-level = 3
-strip     = true
-
-[lints.clippy]
+[workspace.lints.clippy]
 complexity = { level = "warn", priority = -1 }
 nursery    = { level = "warn", priority = -1 }
 pedantic   = { level = "warn", priority = -1 }
@@ -107,3 +93,8 @@ expect_used   = "warn"
 todo          = "warn"
 unimplemented = "warn"
 unreachable   = "warn"
+
+[profile.release]
+lto       = true
+opt-level = 3
+strip     = true

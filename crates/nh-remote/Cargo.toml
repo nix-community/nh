@@ -1,0 +1,27 @@
+[package]
+name                   = "nh-remote"
+version                = "0.1.0"
+publish                = false
+edition.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+
+[lib]
+path = "src/remote.rs"
+
+[dependencies]
+color-eyre.workspace  = true
+inquire.workspace     = true
+nh-core.workspace     = true
+proptest.workspace    = true
+secrecy.workspace     = true
+serial_test.workspace = true
+shlex.workspace       = true
+signal-hook.workspace = true
+subprocess.workspace  = true
+tracing.workspace     = true
+which.workspace       = true
