@@ -25,6 +25,7 @@ pub struct SearchArgs {
   pub json: bool,
 
   /// Name of the package to search
+  #[arg(required = true)]
   pub query: Vec<String>,
 }
 
