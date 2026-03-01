@@ -1,8 +1,8 @@
 use std::{env, path::PathBuf};
 
-use clap::{Args, Subcommand, ValueEnum};
+use clap::{Args, Subcommand};
 use nh_core::{
-  args::NixBuildPassthroughArgs,
+  args::{DiffType, NixBuildPassthroughArgs},
   checks::{
     FeatureRequirements,
     FlakeFeatures,
@@ -211,18 +211,6 @@ impl OsRebuildArgs {
     // Check installable type
     matches!(self.common.installable, Installable::Flake { .. })
   }
-}
-
-#[derive(ValueEnum, Clone, Default, Debug)]
-pub enum DiffType {
-  /// Display package diff only if the of the
-  /// current and the deployed configuration matches
-  #[default]
-  Auto,
-  /// Always display package diff
-  Always,
-  /// Never display package diff
-  Never,
 }
 
 #[derive(Debug, Args)]

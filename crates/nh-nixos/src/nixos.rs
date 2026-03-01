@@ -6,6 +6,7 @@ use std::{
 
 use color_eyre::eyre::{Context, Result, bail, eyre};
 use nh_core::{
+  args::DiffType,
   command::{self, Command, ElevationStrategy},
   installable::{CommandContext, Installable},
   update::update,
@@ -23,7 +24,6 @@ use tracing::{debug, info, warn};
 use crate::{
   args::{
     self,
-    DiffType,
     OsBuildImageArgs,
     OsBuildVmArgs,
     OsGenerationsArgs,

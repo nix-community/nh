@@ -1,5 +1,5 @@
 use anstyle::Style;
-use clap::{Args, Parser, Subcommand, ValueEnum, builder::Styles};
+use clap::{Args, Parser, Subcommand, builder::Styles};
 use clap_verbosity_flag::InfoLevel;
 use nh_core::{
   checks::{FeatureRequirements, NoFeatures},
@@ -94,18 +94,6 @@ impl NHCommand {
       Self::Darwin(args) => args.run(elevation),
     }
   }
-}
-
-#[derive(ValueEnum, Clone, Default, Debug)]
-pub enum DiffType {
-  /// Display package diff only if the of the
-  /// current and the deployed configuration matches
-  #[default]
-  Auto,
-  /// Always display package diff
-  Always,
-  /// Never display package diff
-  Never,
 }
 
 #[derive(Debug, Args)]
