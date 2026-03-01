@@ -1,5 +1,7 @@
-use std::{convert::Into, path::PathBuf};
 pub mod args;
+
+use std::{convert::Into, path::PathBuf};
+
 use args::{DarwinArgs, DarwinRebuildArgs, DarwinReplArgs, DarwinSubcommand};
 use color_eyre::{
   Result,

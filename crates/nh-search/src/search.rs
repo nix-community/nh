@@ -1,6 +1,7 @@
+pub mod args;
+
 use std::{process::Stdio, sync::OnceLock, time::Instant};
 
-pub mod args;
 use color_eyre::{
   Result,
   eyre::{Context, bail},

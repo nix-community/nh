@@ -1,3 +1,5 @@
+pub mod args;
+
 use std::{
   collections::{BTreeMap, HashMap},
   fmt,
@@ -6,7 +8,6 @@ use std::{
   time::SystemTime,
 };
 
-pub mod args;
 use color_eyre::{
   Result,
   eyre::{Context, ContextCompat, bail, eyre},

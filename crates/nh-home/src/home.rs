@@ -1,6 +1,7 @@
+pub mod args;
+
 use std::{convert::Into, env, ffi::OsString, path::PathBuf};
 
-pub mod args;
 use args::{HomeRebuildArgs, HomeReplArgs, HomeSubcommand};
 use color_eyre::{
   Result,
