@@ -459,10 +459,10 @@ fn cleanable_generations(
 
     if let Some(caps) = captures {
       // Check if this generation belongs to the current profile
-      if let Some(profile_name) = caps.get(1) {
-        if profile_name.as_str() != name {
-          continue;
-        }
+      if let Some(profile_name) = caps.get(1)
+        && profile_name.as_str() != name
+      {
+        continue;
       }
       if let Some(number) = caps.get(2) {
         let last_modified = path

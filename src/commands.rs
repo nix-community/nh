@@ -400,12 +400,12 @@ impl Command {
     }
 
     // Only propagate HOME for non-elevated commands
-    if self.elevate.is_none() {
-      if let Ok(home) = std::env::var("HOME") {
-        self
-          .env_vars
-          .insert("HOME".to_string(), EnvAction::Set(home));
-      }
+    if self.elevate.is_none()
+      && let Ok(home) = std::env::var("HOME")
+    {
+      self
+        .env_vars
+        .insert("HOME".to_string(), EnvAction::Set(home));
     }
 
     // INFO: Setting HOME to "" for macos
@@ -497,10 +497,9 @@ impl Command {
       })?;
     if program_name == "sudo"
       && !matches!(elevation_strategy, ElevationStrategy::Passwordless)
+      && let Ok(askpass) = std::env::var("NH_SUDO_ASKPASS")
     {
-      if let Ok(askpass) = std::env::var("NH_SUDO_ASKPASS") {
-        cmd = cmd.env("SUDO_ASKPASS", askpass).arg("-A");
-      }
+      cmd = cmd.env("SUDO_ASKPASS", askpass).arg("-A");
     }
 
     // NH_PRESERVE_ENV: set to "0" to disable preserving environment variables,
@@ -546,10 +545,10 @@ impl Command {
       .ok_or_else(|| {
         eyre::eyre!("Failed to determine elevation program name")
       })?;
-    if program_name == "sudo" {
-      if let Ok(_askpass) = std::env::var("NH_SUDO_ASKPASS") {
-        parts.push("-A".to_string());
-      }
+    if program_name == "sudo"
+      && let Ok(_askpass) = std::env::var("NH_SUDO_ASKPASS")
+    {
+      parts.push("-A".to_string());
     }
 
     let preserve_env = std::env::var("NH_PRESERVE_ENV")
@@ -605,10 +604,10 @@ impl Command {
     }
 
     // check if using SUDO_ASKPASS
-    if sudo_parts[1] == "-A" {
-      if let Ok(askpass) = std::env::var("NH_SUDO_ASKPASS") {
-        std_cmd.env("SUDO_ASKPASS", askpass);
-      }
+    if sudo_parts[1] == "-A"
+      && let Ok(askpass) = std::env::var("NH_SUDO_ASKPASS")
+    {
+      std_cmd.env("SUDO_ASKPASS", askpass);
     }
     Ok(std_cmd)
   }
@@ -873,12 +872,12 @@ impl Build {
 
       // Check the exit status of the FIRST process (nix build)
       // This is the one that matters. If Nix fails, we should fail as well
-      if let Some(nix_proc) = processes.first() {
-        if let Some(exit_status) = nix_proc.exit_status() {
-          match exit_status {
-            ExitStatus::Exited(0) => (),
-            other => bail!(ExitError(other)),
-          }
+      if let Some(nix_proc) = processes.first()
+        && let Some(exit_status) = nix_proc.exit_status()
+      {
+        match exit_status {
+          ExitStatus::Exited(0) => (),
+          other => bail!(ExitError(other)),
         }
       }
     } else {

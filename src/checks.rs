@@ -246,12 +246,11 @@ impl FeatureRequirements for OsReplFeatures {
         // Lix-specific repl-flake feature for older versions
         if let Ok(version) = util::get_nix_version() {
           let normalized_version = normalize_version_string(&version);
-          if let Ok(current) = Version::parse(&normalized_version) {
-            if let Ok(threshold) = Version::parse("2.93.0") {
-              if current < threshold {
-                features.push("repl-flake");
-              }
-            }
+          if let Ok(current) = Version::parse(&normalized_version)
+            && let Ok(threshold) = Version::parse("2.93.0")
+            && current < threshold
+          {
+            features.push("repl-flake");
           }
         }
       },
