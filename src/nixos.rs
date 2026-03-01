@@ -1204,12 +1204,12 @@ fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
     };
 
     let path = entry.path();
-    if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
-      if name.starts_with("system-") && name.ends_with("-link") {
-        if let Some(gen_info) = generations::describe(&path) {
-          generations.push(gen_info);
-        }
-      }
+    if let Some(name) = path.file_name().and_then(|s| s.to_str())
+      && name.starts_with("system-")
+      && name.ends_with("-link")
+      && let Some(gen_info) = generations::describe(&path)
+    {
+      generations.push(gen_info);
     }
   }
 
@@ -1306,11 +1306,10 @@ impl OsReplArgs {
     if let Installable::Flake {
       ref mut attribute, ..
     } = target_installable
+      && attribute.is_empty()
     {
-      if attribute.is_empty() {
-        attribute.push(String::from("nixosConfigurations"));
-        attribute.push(hostname);
-      }
+      attribute.push(String::from("nixosConfigurations"));
+      attribute.push(hostname);
     }
 
     Command::new("nix")

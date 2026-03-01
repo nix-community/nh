@@ -29,27 +29,26 @@ fn main() -> Result<()> {
   // Backward compatibility: support NH_ELEVATION_PROGRAM env var if
   // NH_ELEVATION_STRATEGY is not set.
   // TODO: Remove this fallback in a future version
-  if args.elevation_strategy.is_none() {
-    if let Some(old_value) = std::env::var("NH_ELEVATION_PROGRAM")
+  if args.elevation_strategy.is_none()
+    && let Some(old_value) = std::env::var("NH_ELEVATION_PROGRAM")
       .ok()
       .filter(|v| !v.is_empty())
-    {
-      tracing::warn!(
-        "NH_ELEVATION_PROGRAM is deprecated, use NH_ELEVATION_STRATEGY \
-         instead. Falling back to NH_ELEVATION_PROGRAM for backward \
-         compatibility. Accepted values: none, passwordless, program:<path>"
-      );
-      match ElevationStrategyArg::from_str(&old_value) {
-        Ok(strategy) => args.elevation_strategy = Some(strategy),
-        Err(e) => {
-          tracing::warn!(
-            "Failed to parse NH_ELEVATION_PROGRAM value '{}': {}. Falling \
-             back to none.",
-            old_value,
-            e
-          );
-        },
-      }
+  {
+    tracing::warn!(
+      "NH_ELEVATION_PROGRAM is deprecated, use NH_ELEVATION_STRATEGY instead. \
+       Falling back to NH_ELEVATION_PROGRAM for backward compatibility. \
+       Accepted values: none, passwordless, program:<path>"
+    );
+    match ElevationStrategyArg::from_str(&old_value) {
+      Ok(strategy) => args.elevation_strategy = Some(strategy),
+      Err(e) => {
+        tracing::warn!(
+          "Failed to parse NH_ELEVATION_PROGRAM value '{}': {}. Falling back \
+           to none.",
+          old_value,
+          e
+        );
+      },
     }
   }
 

@@ -53,10 +53,10 @@ impl FromArgMatches for Installable {
     if let Some(i) = installable {
       let canonincal = fs::canonicalize(i);
 
-      if let Ok(p) = canonincal {
-        if p.starts_with("/nix/store") {
-          return Ok(Self::Store { path: p });
-        }
+      if let Ok(p) = canonincal
+        && p.starts_with("/nix/store")
+      {
+        return Ok(Self::Store { path: p });
       }
     }
 
@@ -274,9 +274,9 @@ impl Installable {
   ///
   /// If the installable is not Unspecified, returns it as-is.
   /// Otherwise, checks env vars in priority order based on the command context:
-  /// - For NixOS: NH_OS_FLAKE, then NH_FLAKE
-  /// - For Home: NH_HOME_FLAKE, then NH_FLAKE
-  /// - For Darwin: NH_DARWIN_FLAKE, then NH_FLAKE
+  /// - For NixOS: `NH_OS_FLAKE`, then `NH_FLAKE`
+  /// - For Home: `NH_HOME_FLAKE`, then `NH_FLAKE`
+  /// - For Darwin: `NH_DARWIN_FLAKE`, then `NH_FLAKE`
   ///
   /// Returns an error if no installable could be resolved and no default is
   /// available.

@@ -239,11 +239,10 @@ impl DarwinReplArgs {
     if let Installable::Flake {
       ref mut attribute, ..
     } = target_installable
+      && attribute.is_empty()
     {
-      if attribute.is_empty() {
-        attribute.push(String::from("darwinConfigurations"));
-        attribute.push(hostname);
-      }
+      attribute.push(String::from("darwinConfigurations"));
+      attribute.push(hostname);
     }
 
     Command::new("nix")
