@@ -16,7 +16,7 @@ use color_eyre::{
 use regex::Regex;
 use tracing::{debug, info, warn};
 
-use crate::commands::{Command, ElevationStrategy};
+use crate::command::{Command, ElevationStrategy};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NixVariant {
@@ -342,10 +342,10 @@ pub fn get_missing_experimental_features(
 /// # Examples
 ///
 /// ```rust
-/// use nh::commands::ElevationStrategy;
+/// use nh_core::command::ElevationStrategy;
 ///
 /// // Elevate the current process to run as root
-/// let elevate: fn(ElevationStrategy) -> ! = nh::util::self_elevate;
+/// let elevate: fn(ElevationStrategy) -> ! = nh_core::util::self_elevate;
 /// ```
 #[allow(clippy::panic, clippy::expect_used)]
 pub fn self_elevate(strategy: ElevationStrategy) -> ! {
