@@ -24,6 +24,9 @@ functionality, under the "Removed" section.
 
 ### Fixed
 
+- Nushell completions now properly complete and expand the `installable` argument by treating it 
+  like a path instead of a string.
+
 ### Removed
 
 ## 4.3.0

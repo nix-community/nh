@@ -129,6 +129,7 @@ impl Args for Installable {
         Arg::new("installable")
           .action(ArgAction::Set)
           .value_name("INSTALLABLE")
+          .value_parser(clap::builder::PathBufValueParser::new())
           .help("Which installable to use")
           .long_help(format!(
             r"Which installable to use.
