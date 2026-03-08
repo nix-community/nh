@@ -386,10 +386,17 @@ impl OsRebuildActivateArgs {
         )
         .wrap_err("Bootloader activation failed")?;
       } else {
+        // Use the base system closure instead of the specialisation one.
+        // This is what makes all specialisations visible in the bootloader
+        // instead of only the one with the specialisation.
+        let base_store_path = out_path
+          .canonicalize()
+          .context("Failed to resolve base output path to store path")?;
+
         Command::new("nix")
           .elevate(elevate.then_some(elevation.clone()))
           .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
-          .arg(canonical_out_path)
+          .arg(&base_store_path)
           .with_required_env()
           .run()
           .wrap_err("Failed to set system profile")?;
