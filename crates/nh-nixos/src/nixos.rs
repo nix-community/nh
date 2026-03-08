@@ -279,6 +279,14 @@ impl OsRebuildActivateArgs {
         .context("Failed to resolve output path to actual store path")?
     };
 
+    let boot_profile: PathBuf = if let Some(store_path) = actual_store_path {
+      store_path.to_path_buf()
+    } else {
+      out_path
+        .canonicalize()
+        .context("Failed to resolve output path to actual store path")?
+    };
+
     let should_skip = self.rebuild.no_validate;
 
     if should_skip {
@@ -375,7 +383,7 @@ impl OsRebuildActivateArgs {
       if let Some(target_host) = &self.rebuild.target_host {
         nh_remote::activate_remote(
           target_host,
-          &resolved_profile,
+          &boot_profile,
           &nh_remote::ActivateRemoteConfig {
             platform:           nh_remote::Platform::NixOS,
             activation_type:    nh_remote::ActivationType::Boot,
@@ -389,12 +397,13 @@ impl OsRebuildActivateArgs {
         Command::new("nix")
           .elevate(elevate.then_some(elevation.clone()))
           .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
-          .arg(canonical_out_path)
+          .arg(&boot_profile)
           .with_required_env()
           .run()
           .wrap_err("Failed to set system profile")?;
 
-        let mut cmd = Command::new(switch_to_configuration)
+        let mut cmd =
+          Command::new(boot_profile.join("bin/switch-to-configuration"))
           .arg("boot")
           .elevate(elevate.then_some(elevation))
           .message("Adding configuration to bootloader")
