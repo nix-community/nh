@@ -715,14 +715,37 @@ fn convert_extra_args(extra_args: &[OsString]) -> Result<Vec<String>> {
 }
 
 /// Run a command on a remote host via SSH.
+///
+/// # Arguments
+///
+/// * `host` - The remote host to connect to
+/// * `args` - The command arguments to run on the remote host
+/// * `capture_stdout` - Whether to capture and return stdout
+/// * `interactive` - If false, runs in batch mode (no password prompts,
+///   host-key confirmations, with connection timeout). Suitable for optional
+///   probes that should fail fast.
 fn run_remote_command(
   host: &RemoteHost,
   args: &[&str],
   capture_stdout: bool,
+  interactive: bool,
 ) -> Result<Option<String>> {
-  let ssh_opts = get_ssh_opts();
+  let mut ssh_opts = get_ssh_opts();
 
-  debug!("Running remote command on {}: {}", host, args.join(" "));
+  if !interactive {
+    // Add batch mode options to prevent blocking on interactive prompts
+    ssh_opts.push("-o".to_string());
+    ssh_opts.push("BatchMode=yes".to_string());
+    ssh_opts.push("-o".to_string());
+    ssh_opts.push("ConnectTimeout=10".to_string());
+  }
+
+  debug!(
+    "Running {}remote command on {}: {}",
+    if interactive { "" } else { "batch " },
+    host,
+    args.join(" ")
+  );
 
   let quoted_args: Vec<String> = args.iter().map(|s| shell_quote(s)).collect();
   let remote_cmd = quoted_args.join(" ");
@@ -1827,7 +1850,7 @@ fn build_on_remote_with_nom(
   let query_refs: Vec<&str> =
     query_args.iter().map(std::string::String::as_str).collect();
 
-  let result = run_remote_command(host, &query_refs, true);
+  let result = run_remote_command(host, &query_refs, true, true)?;
 
   // Check if interrupted during query
   if get_interrupt_flag().load(Ordering::Relaxed) {
@@ -1836,7 +1859,7 @@ fn build_on_remote_with_nom(
   }
 
   let result =
-    result?.ok_or_else(|| eyre!("Failed to get output path after build"))?;
+    result.ok_or_else(|| eyre!("Failed to get output path after build"))?;
 
   let out_path = result
     .lines()
@@ -1847,6 +1870,57 @@ fn build_on_remote_with_nom(
 
   debug!("Remote build output: {}", out_path);
   Ok(out_path)
+}
+
+/// Get the current system profile path on a remote host.
+///
+/// Reads the `/run/current-system` symlink on the remote host to determine
+/// the currently active NixOS system configuration path.
+///
+/// This function uses batch mode SSH (non-interactive) with a connection
+/// timeout, so it will fail fast if SSH is not properly configured rather
+/// than blocking on password prompts or host-key confirmations.
+///
+/// # Arguments
+///
+/// * `host` - The remote host to query
+///
+/// # Returns
+///
+/// Returns `Ok(PathBuf)` with the current system path (e.g.,
+/// `/nix/store/xxx-nixos-system-hostname-version`).
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - SSH connection to the remote host fails
+/// - The remote command fails
+/// - `/run/current-system` doesn't exist or isn't a symlink
+/// - The output contains invalid UTF-8
+pub fn get_remote_current_system(host: &RemoteHost) -> Result<PathBuf> {
+  debug!("Getting current system path from remote host '{}'", host);
+
+  let result = run_remote_command(
+    host,
+    &["readlink", "/run/current-system"],
+    true,  // capture stdout
+    false, // non-interactive (batch mode)
+  )?;
+
+  let path_str = result
+    .ok_or_else(|| eyre!("No output from readlink /run/current-system"))?
+    .trim()
+    .to_string();
+
+  if path_str.is_empty() {
+    bail!(
+      "/run/current-system is empty or doesn't exist on '{}'",
+      host
+    );
+  }
+
+  debug!("Remote current system on '{}': {}", host, path_str);
+  Ok(PathBuf::from(path_str))
 }
 
 #[cfg(test)]

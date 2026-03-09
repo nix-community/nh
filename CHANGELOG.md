@@ -21,6 +21,9 @@ functionality, under the "Removed" section.
 - The host used to select the `nixosConfiguration` now defaults to the `--target-host` for remote
   deployments instead of the local hostname, unless the hostname is explicitly specified via the
   `-H|--hostname` flag.
+- `nh os build -H <hostname>` now compares the new configuration against the remote host's current
+  system via SSH instead of always comparing against the local `/run/current-system`. If SSH
+  connection fails, the diff is skipped with a warning.
 
 ### Fixed
 

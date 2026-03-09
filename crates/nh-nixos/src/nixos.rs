@@ -605,32 +605,132 @@ impl OsRebuildArgs {
   fn handle_dix_diff(&self, target_profile: &Path) {
     match self.common.diff {
       DiffType::Always => {
-        let _ = print_dix_diff(&PathBuf::from(CURRENT_PROFILE), target_profile);
+        let old_profile = self.resolve_old_profile_for_diff();
+        match old_profile {
+          Some(ref p) if p.exists() => {
+            let _ = print_dix_diff(p, target_profile);
+          },
+          Some(ref p) => {
+            warn!(
+              "Cannot show diff: remote profile '{}' not available locally. \
+               Specify --target-host to compare against the remote host's \
+               current system.",
+              p.display()
+            );
+          },
+          None => {
+            warn!(
+              "Cannot show diff: failed to determine remote baseline. Specify \
+               --target-host to compare against the remote host's current \
+               system."
+            );
+          },
+        }
       },
       DiffType::Never => {
         debug!("Not running dix as the --diff flag is set to never.");
       },
       DiffType::Auto => {
-        // Only run dix if no explicit hostname was provided and no remote
-        // build/target host is specified, implying a local system build.
-        if self.hostname.is_none()
-          && self.target_host.is_none()
-          && self.build_host.is_none()
-        {
-          debug!(
-            "Comparing with target profile: {}",
-            target_profile.display()
-          );
-          let _ =
-            print_dix_diff(&PathBuf::from(CURRENT_PROFILE), target_profile);
+        // Smart detection: try to get the appropriate old profile based on
+        // context
+        if let Some(old_profile) = self.resolve_old_profile_for_diff() {
+          if old_profile.exists() {
+            debug!("Comparing with old profile: {}", old_profile.display());
+            let _ = print_dix_diff(&old_profile, target_profile);
+          } else {
+            debug!(
+              "Old profile '{}' does not exist locally, skipping diff. The \
+               remote system's closure may not have been copied to this \
+               machine.",
+              old_profile.display()
+            );
+          }
         } else {
           debug!(
-            "Not running dix as a remote host is involved or an explicit \
-             hostname was provided."
+            "Not running dix as no suitable old profile could be determined \
+             (remote host may be unreachable or this is a fresh deployment)."
           );
         }
       },
     }
+  }
+
+  /// Resolves the appropriate "old" profile to compare against for diff
+  /// display.
+  ///
+  /// This function determines the correct baseline configuration based on the
+  /// build context:
+  ///
+  /// - If `--target-host` is specified: fetches the current system from that
+  ///   remote host via SSH
+  /// - If `-H hostname` is specified (and different from local hostname):
+  ///   attempts to fetch from that hostname via SSH (may fail gracefully)
+  /// - Otherwise: uses the local `/run/current-system`
+  ///
+  /// # Returns
+  ///
+  /// - `Some(PathBuf)` with the old profile path if successfully determined
+  /// - `None` if the old profile cannot be determined (e.g., SSH failure)
+  fn resolve_old_profile_for_diff(&self) -> Option<PathBuf> {
+    // Case 1: target_host specified - get current system from that host
+    if let Some(target_host) = &self.target_host {
+      debug!(
+        "Getting current system from target host '{}' for diff comparison",
+        target_host.hostname()
+      );
+      match nh_remote::get_remote_current_system(target_host) {
+        Ok(path) => return Some(path),
+        Err(e) => {
+          warn!(
+            "Failed to get current system from target host '{}': {}. Skipping \
+             diff.",
+            target_host.hostname(),
+            e
+          );
+          return None;
+        },
+      }
+    }
+
+    // Case 2: hostname specified via -H flag
+    if let Some(ref hostname) = self.hostname {
+      // Check if this is the local hostname
+      let local_hostname = get_hostname(None).ok();
+      if local_hostname.as_deref() != Some(hostname.as_str()) {
+        // Different hostname specified - try SSH connection
+        debug!(
+          "Attempting to get current system from hostname '{}' for diff \
+           comparison",
+          hostname
+        );
+        // Treat the hostname as a remote host
+        let remote_host = match nh_remote::RemoteHost::parse(hostname) {
+          Ok(h) => h,
+          Err(e) => {
+            debug!(
+              "Could not parse hostname '{}' as remote host: {}. Skipping \
+               diff.",
+              hostname, e
+            );
+            return None;
+          },
+        };
+        match nh_remote::get_remote_current_system(&remote_host) {
+          Ok(path) => return Some(path),
+          Err(e) => {
+            warn!(
+              "Failed to get current system from hostname '{}' (SSH may not \
+               be configured): {}. Skipping diff.",
+              hostname, e
+            );
+            return None;
+          },
+        }
+      }
+    }
+
+    // Case 3: Local build or fallback to local system
+    Some(PathBuf::from(CURRENT_PROFILE))
   }
 
   // final_attr is the attribute of config.system.build.X to evaluate.
