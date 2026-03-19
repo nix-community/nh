@@ -51,9 +51,9 @@ impl FromArgMatches for Installable {
     let expr = matches.get_one::<String>("expr");
 
     if let Some(i) = installable {
-      let canonincal = fs::canonicalize(i);
+      let canonical = fs::canonicalize(i);
 
-      if let Ok(p) = canonincal {
+      if let Ok(p) = canonical {
         if p.starts_with("/nix/store") {
           return Ok(Self::Store { path: p });
         }
