@@ -249,6 +249,48 @@ pub fn init_ssh_control() -> SshControlGuard {
   SshControlGuard { control_dir }
 }
 
+/// Pre-establish a `ControlMaster` SSH connection to `host`.
+///
+/// This runs `ssh -T <opts> <host> true` using nh's own SSH argument
+/// construction (options strictly before the hostname),  and thus creating a
+/// multiplexed master connection in the control socket directory.
+///
+/// Subsequent SSH invocations that delegate to Nix internals (e.g. `nix copy
+/// --to ssh://...`) will reuse this already-authenticated socket via
+/// `ControlMaster=auto`, even if those internals would otherwise pass SSH flags
+/// in the wrong order.
+///
+/// Must be called after [`init_ssh_control`] so that the control directory
+/// exists.
+///
+/// # Errors
+///
+/// Returns an error if the SSH connection cannot be established.
+pub fn open_ssh_control_master(host: &RemoteHost) -> Result<()> {
+  let ssh_opts = get_ssh_opts();
+  debug!("Establishing SSH ControlMaster to '{host}'");
+
+  let mut cmd = Exec::cmd("ssh");
+  for opt in &ssh_opts {
+    cmd = cmd.arg(opt);
+  }
+  cmd = cmd.arg("-T").arg(host.ssh_host()).arg("true");
+
+  let capture = cmd
+    .capture()
+    .wrap_err_with(|| format!("Failed to connect to remote host '{host}'"))?;
+
+  if !capture.exit_status.success() {
+    bail!(
+      "SSH connection to '{}' failed:\n{}",
+      host,
+      capture.stderr_str().trim()
+    );
+  }
+
+  Ok(())
+}
+
 /// Cache for the SSH control socket directory.
 static SSH_CONTROL_DIR: OnceLock<PathBuf> = OnceLock::new();
 

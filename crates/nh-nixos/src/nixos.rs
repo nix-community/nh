@@ -188,7 +188,23 @@ impl OsRebuildActivateArgs {
     let _ssh_guard = if self.rebuild.build_host.is_some()
       || self.rebuild.target_host.is_some()
     {
-      Some(nh_remote::init_ssh_control())
+      let guard = nh_remote::init_ssh_control();
+
+      // Pre-establish ControlMaster connections so that delegated SSH
+      // invocations (e.g. `nix copy --to ssh://...`) reuse the already-
+      // authenticated socket rather than opening a fresh connection where
+      // SSH option ordering may differ.
+      if let Some(build_host) = &self.rebuild.build_host {
+        nh_remote::open_ssh_control_master(build_host)
+          .context("Failed to establish SSH connection to build host")?;
+      }
+
+      if let Some(target_host) = &self.rebuild.target_host {
+        nh_remote::open_ssh_control_master(target_host)
+          .context("Failed to establish SSH connection to target host")?;
+      }
+
+      Some(guard)
     } else {
       None
     };
