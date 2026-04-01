@@ -11,10 +11,10 @@ use std::{
 use color_eyre::{
   Result,
   eyre::{self, Context, eyre},
-  owo_colors::OwoColorize,
 };
 use regex::Regex;
 use tracing::{debug, info, warn};
+use yansi::Paint;
 
 use crate::command::{Command, ElevationStrategy};
 
@@ -519,12 +519,12 @@ pub fn print_dix_diff(
 
   println!(
     "{arrows} {old}",
-    arrows = "<<<".bold(),
+    arrows = Paint::new("<<<").bold(),
     old = old_generation.display(),
   );
   println!(
     "{arrows} {new}",
-    arrows = ">>>".bold(),
+    arrows = Paint::new(">>>").bold(),
     new = std::fs::canonicalize(new_generation)
       .unwrap_or_else(|_| new_generation.to_path_buf())
       .display(),
