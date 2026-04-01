@@ -16,6 +16,7 @@ use color_eyre::{
   Result,
   eyre::{Context, bail, eyre},
 };
+use indicatif::{ProgressBar, ProgressStyle};
 use nh_core::{
   command::{ElevationStrategy, cache_password, get_cached_password},
   installable::Installable,
@@ -1020,13 +1021,16 @@ fn copy_closure_from(
 /// - The `nix copy` command fails (e.g., insufficient disk space on remote,
 ///   network issues, authentication failures)
 /// - The path does not exist in the local store
+///
+/// # Panics
+///
+/// Panics if the spinner template is invalid. This cannot happen in practice
+/// as the template is a hardcoded literal.
 pub fn copy_to_remote(
   host: &RemoteHost,
   path: &Path,
   use_substitutes: bool,
 ) -> Result<()> {
-  info!("Copying closure to remote host '{}'", host);
-
   let flake_flags = get_flake_flags();
   let mut cmd = Exec::cmd("nix")
     .args(&flake_flags)
@@ -1041,13 +1045,30 @@ pub fn copy_to_remote(
 
   debug!(?cmd, "nix copy --to");
 
+  // Haha spinner go brr
+  let spinner = ProgressBar::new_spinner();
+  #[expect(clippy::expect_used)]
+  spinner.set_style(
+    ProgressStyle::default_spinner()
+      .template("{spinner:.green} {msg}")
+      .expect("hardcoded template is valid"),
+  );
+  spinner.set_message(format!("Copying closure to remote host '{host}'..."));
+  spinner.enable_steady_tick(Duration::from_millis(80));
+
   let capture = cmd
     .capture()
     .wrap_err("Failed to copy closure to remote host")?;
 
+  // We finish and *clear*, because the log line needs to come next. If we try
+  // to make the spinner change the text, we cannot reliably match the `info!`
+  // or `error!` style.
+  spinner.finish_and_clear();
   if !capture.exit_status.success() {
+    error!("Failed to copy closure to remote host '{host}'");
     bail!("nix copy --to '{}' failed:\n{}", host, capture.stderr_str());
   }
+  info!("Copied closure to remote host '{host}'");
 
   Ok(())
 }

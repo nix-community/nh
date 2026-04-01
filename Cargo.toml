@@ -10,26 +10,29 @@ version      = "4.3.0"
 
 
 [workspace.dependencies]
-anstyle = "1.0.13"
-chrono = "0.4.42"
-clap = { features = [ "cargo", "color", "derive", "env", "unstable-styles" ], version = "4.5.51" }
-clap-verbosity-flag = { default-features = false, features = [ "tracing" ], version = "3.0.4" }
-clap_complete = "4.5.61"
-clap_complete_nushell = "4.5.10"
-clap_mangen = "0.2.31"
-color-eyre = { default-features = false, features = [ "track-caller" ], version = "0.6.5" }
-dix = "1.4.2"
-elasticsearch-dsl = "0.4.24"
-humantime = "2.3.0"
-inquire = { default-features = false, features = [ "crossterm" ], version = "0.9.1" }
-nh = { path = "crates/nh" }
-nh-clean = { path = "crates/nh-clean" }
-nh-core = { path = "crates/nh-core" }
+nh        = { path = "crates/nh" }
+nh-clean  = { path = "crates/nh-clean" }
+nh-core   = { path = "crates/nh-core" }
 nh-darwin = { path = "crates/nh-darwin" }
-nh-home = { path = "crates/nh-home" }
-nh-nixos = { path = "crates/nh-nixos" }
+nh-home   = { path = "crates/nh-home" }
+nh-nixos  = { path = "crates/nh-nixos" }
 nh-remote = { path = "crates/nh-remote" }
 nh-search = { path = "crates/nh-search" }
+
+anstyle               = "1.0.13"
+chrono                = "0.4.42"
+clap                  = { features = [ "cargo", "color", "derive", "env", "unstable-styles" ], version = "4.5.51" }
+clap-verbosity-flag   = { default-features = false, features = [ "tracing" ], version = "3.0.4" }
+clap_complete         = "4.5.61"
+clap_complete_nushell = "4.5.10"
+clap_mangen           = "0.2.31"
+color-eyre            = { default-features = false, features = [ "track-caller" ], version = "0.6.5" }
+dix                   = "1.4.2"
+elasticsearch-dsl     = "0.4.24"
+humantime             = "2.3.0"
+indicatif             = "0.18.4"
+inquire               = { default-features = false, features = [ "crossterm" ], version = "0.9.1" }
+
 nix = { default-features = false, features = [ "fs", "user", "hostname" ], version = "0.31.1" }
 proptest = "1.9.0"
 regex = "1.12.2"
