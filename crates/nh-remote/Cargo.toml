@@ -11,6 +11,7 @@ path = "src/remote.rs"
 
 [dependencies]
 color-eyre.workspace  = true
+indicatif.workspace   = true
 inquire.workspace     = true
 nh-core.workspace     = true
 proptest.workspace    = true

@@ -16,6 +16,7 @@ use color_eyre::{
   Result,
   eyre::{Context, bail, eyre},
 };
+use indicatif::{ProgressBar, ProgressStyle};
 use nh_core::{
   command::{ElevationStrategy, cache_password, get_cached_password},
   installable::Installable,
@@ -247,6 +248,48 @@ fn cleanup_ssh_control_sockets(control_dir: &std::path::Path) {
 pub fn init_ssh_control() -> SshControlGuard {
   let control_dir = get_ssh_control_dir().clone();
   SshControlGuard { control_dir }
+}
+
+/// Pre-establish a `ControlMaster` SSH connection to `host`.
+///
+/// This runs `ssh -T <opts> <host> true` using nh's own SSH argument
+/// construction (options strictly before the hostname),  and thus creating a
+/// multiplexed master connection in the control socket directory.
+///
+/// Subsequent SSH invocations that delegate to Nix internals (e.g. `nix copy
+/// --to ssh://...`) will reuse this already-authenticated socket via
+/// `ControlMaster=auto`, even if those internals would otherwise pass SSH flags
+/// in the wrong order.
+///
+/// Must be called after [`init_ssh_control`] so that the control directory
+/// exists.
+///
+/// # Errors
+///
+/// Returns an error if the SSH connection cannot be established.
+pub fn open_ssh_control_master(host: &RemoteHost) -> Result<()> {
+  let ssh_opts = get_ssh_opts();
+  debug!("Establishing SSH ControlMaster to '{host}'");
+
+  let mut cmd = Exec::cmd("ssh");
+  for opt in &ssh_opts {
+    cmd = cmd.arg(opt);
+  }
+  cmd = cmd.arg("-T").arg(host.ssh_host()).arg("true");
+
+  let capture = cmd
+    .capture()
+    .wrap_err_with(|| format!("Failed to connect to remote host '{host}'"))?;
+
+  if !capture.exit_status.success() {
+    bail!(
+      "SSH connection to '{}' failed:\n{}",
+      host,
+      capture.stderr_str().trim()
+    );
+  }
+
+  Ok(())
 }
 
 /// Cache for the SSH control socket directory.
@@ -978,13 +1021,16 @@ fn copy_closure_from(
 /// - The `nix copy` command fails (e.g., insufficient disk space on remote,
 ///   network issues, authentication failures)
 /// - The path does not exist in the local store
+///
+/// # Panics
+///
+/// Panics if the spinner template is invalid. This cannot happen in practice
+/// as the template is a hardcoded literal.
 pub fn copy_to_remote(
   host: &RemoteHost,
   path: &Path,
   use_substitutes: bool,
 ) -> Result<()> {
-  info!("Copying closure to remote host '{}'", host);
-
   let flake_flags = get_flake_flags();
   let mut cmd = Exec::cmd("nix")
     .args(&flake_flags)
@@ -999,13 +1045,30 @@ pub fn copy_to_remote(
 
   debug!(?cmd, "nix copy --to");
 
+  // Haha spinner go brr
+  let spinner = ProgressBar::new_spinner();
+  #[expect(clippy::expect_used)]
+  spinner.set_style(
+    ProgressStyle::default_spinner()
+      .template("{spinner:.green} {msg}")
+      .expect("hardcoded template is valid"),
+  );
+  spinner.set_message(format!("Copying closure to remote host '{host}'..."));
+  spinner.enable_steady_tick(Duration::from_millis(80));
+
   let capture = cmd
     .capture()
     .wrap_err("Failed to copy closure to remote host")?;
 
+  // We finish and *clear*, because the log line needs to come next. If we try
+  // to make the spinner change the text, we cannot reliably match the `info!`
+  // or `error!` style.
+  spinner.finish_and_clear();
   if !capture.exit_status.success() {
+    error!("Failed to copy closure to remote host '{host}'");
     bail!("nix copy --to '{}' failed:\n{}", host, capture.stderr_str());
   }
+  info!("Copied closure to remote host '{host}'");
 
   Ok(())
 }

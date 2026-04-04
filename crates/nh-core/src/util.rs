@@ -11,10 +11,10 @@ use std::{
 use color_eyre::{
   Result,
   eyre::{self, Context, eyre},
-  owo_colors::OwoColorize,
 };
 use regex::Regex;
 use tracing::{debug, info, warn};
+use yansi::Paint;
 
 use crate::command::{Command, ElevationStrategy};
 
@@ -193,30 +193,49 @@ pub fn get_nix_version() -> Result<String> {
   Ok(version_str.to_string())
 }
 
-/// Prompts the user for ssh key login if needed
+/// Prompts the user for ssh key login if needed.
 ///
 /// # Errors
 ///
 /// Returns an error if:
 /// - The `ssh-add -L` command fails to execute
 /// - The `ssh-add` command fails to spawn or complete
+///
+/// # Note
+///
+/// This func is a no-op when no SSH agent socket is configured (which is
+/// unlikely but possible), i.e., when no `SSH_AUTH_SOCK` is set. This behaviour
+/// is valid, and SSH can authenticate via the keys in `~/.ssh` or via
+/// `~/.ssh/config` without an agent. NH should be able to handle the
+/// case without erroring.
 pub fn ensure_ssh_key_login() -> Result<()> {
-  // ssh-add -L checks if there are any currently usable ssh keys
+  // No usable agent socket means ssh-add has nothing to talk to.
+  let agent_available = std::env::var_os("SSH_AUTH_SOCK")
+    .is_some_and(|s| std::path::Path::new(&s).exists());
+  if !agent_available {
+    debug!("SSH agent socket not available, skipping ssh-add check");
 
+    return Ok(());
+  }
+
+  // ssh-add -L checks if there are any currently usable ssh keys
   if StdCommand::new("ssh-add")
     .arg("-L")
     .stdout(Stdio::null())
+    .stderr(Stdio::null())
     .status()?
     .success()
   {
     return Ok(());
   }
+
   StdCommand::new("ssh-add")
     .stdin(Stdio::inherit())
     .stdout(Stdio::inherit())
     .stderr(Stdio::inherit())
     .spawn()?
     .wait()?;
+
   Ok(())
 }
 
@@ -500,12 +519,12 @@ pub fn print_dix_diff(
 
   println!(
     "{arrows} {old}",
-    arrows = "<<<".bold(),
+    arrows = Paint::new("<<<").bold(),
     old = old_generation.display(),
   );
   println!(
     "{arrows} {new}",
-    arrows = ">>>".bold(),
+    arrows = Paint::new(">>>").bold(),
     new = std::fs::canonicalize(new_generation)
       .unwrap_or_else(|_| new_generation.to_path_buf())
       .display(),
