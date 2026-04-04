@@ -24,9 +24,12 @@ functionality, under the "Removed" section.
 
 ### Fixed
 
-- Nushell completions now properly complete and expand the `installable` argument by treating it
-  like a path instead of a string.
-- Specialisations now get correctly installed when running nh os {switch, boot} with a specialisation selected.
+- Nushell completions now properly complete and expand the `installable`
+  argument by treating it like a path instead of a string.
+- Specialisations now get correctly installed when running nh os {switch, boot}
+  with a specialisation selected.
+- The environment variable `NH_SHOW_ACTIVATION_LOGS` now supports `1` (and
+  more!) as a value again.
 
 ### Removed
 
