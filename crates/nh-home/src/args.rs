@@ -82,7 +82,7 @@ pub struct HomeRebuildArgs {
   pub backup_extension: Option<String>,
 
   /// Show activation logs
-  #[arg(long, env = "NH_SHOW_ACTIVATION_LOGS")]
+  #[arg(long, env = "NH_SHOW_ACTIVATION_LOGS", value_parser = clap::builder::BoolishValueParser::new())]
   pub show_activation_logs: bool,
 
   /// Build the configuration on a different host over SSH
