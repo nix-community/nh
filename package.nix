@@ -127,6 +127,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
     mainProgram = "nh";
     maintainers = with lib.maintainers; [
       drupol
+      faukah
       NotAShelf
       viperML
     ];
