@@ -89,7 +89,7 @@ impl args::OsArgs {
         }
         args.build_only(&Build, None, &elevation)
       },
-      OsSubcommand::BuildVm(args) => args.build_vm(elevation),
+      OsSubcommand::BuildVm(args) => args.build_vm(&elevation),
       OsSubcommand::Repl(args) => args.run(),
       OsSubcommand::Info(args) => args.info(),
       OsSubcommand::Rollback(args) => args.rollback(elevation),
@@ -109,7 +109,7 @@ enum OsRebuildVariant {
 }
 
 impl OsBuildVmArgs {
-  fn build_vm(self, elevation: ElevationStrategy) -> Result<()> {
+  fn build_vm(self, elevation: &ElevationStrategy) -> Result<()> {
     let attr = if self.with_bootloader {
       "vmWithBootLoader"
     } else {
@@ -126,7 +126,7 @@ impl OsBuildVmArgs {
 
     // Show warning if no hostname was explicitly provided for VM builds
     if self.common.hostname.is_none() {
-      let (_, target_hostname) = self.common.setup_build_context(&elevation)?;
+      let (_, target_hostname) = self.common.setup_build_context(elevation)?;
       tracing::warn!(
         "Guessing system is {target_hostname} for a VM image. If this isn't \
          intended, use --hostname to change."
@@ -136,7 +136,7 @@ impl OsBuildVmArgs {
     self.common.build_only(
       &OsRebuildVariant::BuildVm,
       Some(&[attr]),
-      &elevation,
+      elevation,
     )?;
 
     // If --run flag is set, execute the VM
