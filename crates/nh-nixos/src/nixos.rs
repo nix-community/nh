@@ -626,31 +626,38 @@ impl OsRebuildArgs {
   }
 
   fn handle_dix_diff(&self, target_profile: &Path) {
+    let current_profile = PathBuf::from(CURRENT_PROFILE);
+
     match self.common.diff {
       DiffType::Always => {
-        let _ = print_dix_diff(&PathBuf::from(CURRENT_PROFILE), target_profile);
+        let _ = print_dix_diff(&current_profile, target_profile);
       },
       DiffType::Never => {
         debug!("Not running dix as the --diff flag is set to never.");
       },
       DiffType::Auto => {
-        // Only run dix if no explicit hostname was provided and no remote
-        // build/target host is specified, implying a local system build.
-        if self.hostname.is_none()
-          && self.target_host.is_none()
-          && self.build_host.is_none()
-        {
-          debug!(
-            "Comparing with target profile: {}",
+        // Since dix relies on both system's derivations existing on the local
+        // machine, we only generate the diff if no remote
+        // target host is specified, implying a local system build.
+        if self.target_host.is_some() {
+          debug!("Not running dix as a remote host is involved.");
+        } else if !current_profile.exists() {
+          warn!(
+            "current profile {} does not exist, skipping dix diffing",
+            current_profile.display()
+          );
+        } else if !target_profile.exists() {
+          warn!(
+            "target profile {} does not exist, skipping dix diffing",
             target_profile.display()
           );
-          let _ =
-            print_dix_diff(&PathBuf::from(CURRENT_PROFILE), target_profile);
         } else {
           debug!(
-            "Not running dix as a remote host is involved or an explicit \
-             hostname was provided."
+            "Comparing current profile {} with target profile: {}",
+            current_profile.display(),
+            target_profile.display()
           );
+          let _ = print_dix_diff(&current_profile, target_profile);
         }
       },
     }
