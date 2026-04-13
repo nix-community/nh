@@ -141,10 +141,10 @@ impl HomeRebuildArgs {
       env::var("USER").map_err(|_| eyre!("Couldn't get username"))?;
     let home_dir =
       env::var("HOME").map_err(|_| eyre!("Couldn't get home directory"))?;
-    let state_home =
-      env::var("XDG_STATE_HOME").unwrap_or(format!("{home_dir}/.local/state"));
-    let data_home =
-      env::var("XDG_DATA_HOME").unwrap_or(format!("{home_dir}/.local/share"));
+    let state_home = env::var("XDG_STATE_HOME")
+      .unwrap_or_else(|_| format!("{home_dir}/.local/state"));
+    let data_home = env::var("XDG_DATA_HOME")
+      .unwrap_or_else(|_| format!("{home_dir}/.local/share"));
 
     // Match Home Manager's profile discovery: prefer $XDG_STATE_HOME if set,
     // otherwise fall back to the global per-user profile directory.

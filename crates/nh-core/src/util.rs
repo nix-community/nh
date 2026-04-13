@@ -552,6 +552,7 @@ pub fn print_dix_diff(
 }
 
 #[cfg(test)]
+#[expect(clippy::expect_used, clippy::unwrap_used, reason = "Fine in tests")]
 mod tests {
   use super::*;
   use crate::installable::Installable;

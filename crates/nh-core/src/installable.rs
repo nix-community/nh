@@ -258,6 +258,7 @@ impl Installable {
         }
       },
 
+      #[expect(clippy::unreachable)]
       Self::Unspecified => {
         unreachable!(
           "Unspecified installable should have been resolved before calling \
@@ -732,6 +733,7 @@ impl Installable {
 }
 
 #[cfg(test)]
+#[expect(clippy::panic, clippy::unwrap_used, reason = "Fine in tests")]
 mod tests {
   use std::env;
 
@@ -792,7 +794,7 @@ mod tests {
         assert_eq!(reference, "/etc/nixos");
         assert_eq!(attribute, vec!["myhost"]);
       },
-      _ => panic!("Expected Flake, got {:?}", resolved),
+      _ => panic!("Expected Flake, got {resolved:?}"),
     }
 
     unsafe {
@@ -820,7 +822,7 @@ mod tests {
         assert_eq!(reference, "/etc/nixos");
         assert_eq!(attribute, vec!["myhost"]);
       },
-      _ => panic!("Expected Flake, got {:?}", resolved),
+      _ => panic!("Expected Flake, got {resolved:?}"),
     }
 
     unsafe {
@@ -849,7 +851,7 @@ mod tests {
         assert_eq!(reference, "/home/user/flake");
         assert_eq!(attribute, vec!["fallback"]);
       },
-      _ => panic!("Expected Flake, got {:?}", resolved),
+      _ => panic!("Expected Flake, got {resolved:?}"),
     }
 
     unsafe {
@@ -877,7 +879,7 @@ mod tests {
         assert_eq!(reference, "~/.config/home-manager");
         assert_eq!(attribute, vec!["myuser"]);
       },
-      _ => panic!("Expected Flake, got {:?}", resolved),
+      _ => panic!("Expected Flake, got {resolved:?}"),
     }
 
     unsafe {
@@ -905,7 +907,7 @@ mod tests {
         assert_eq!(reference, "~/.config/home-manager");
         assert_eq!(attribute, vec!["myuser"]);
       },
-      _ => panic!("Expected Flake, got {:?}", resolved),
+      _ => panic!("Expected Flake, got {resolved:?}"),
     }
 
     unsafe {
@@ -934,7 +936,7 @@ mod tests {
         assert_eq!(reference, "/etc/nix-darwin");
         assert_eq!(attribute, vec!["macbook"]);
       },
-      _ => panic!("Expected Flake, got {:?}", resolved),
+      _ => panic!("Expected Flake, got {resolved:?}"),
     }
 
     unsafe {
@@ -962,7 +964,7 @@ mod tests {
         assert_eq!(reference, "/etc/nix-darwin");
         assert_eq!(attribute, vec!["macbook"]);
       },
-      _ => panic!("Expected Flake, got {:?}", resolved),
+      _ => panic!("Expected Flake, got {resolved:?}"),
     }
 
     unsafe {
@@ -1017,7 +1019,7 @@ mod tests {
         assert_eq!(reference, "/etc/nixos");
         assert!(attribute.is_empty());
       },
-      _ => panic!("Expected Flake, got {:?}", resolved),
+      _ => panic!("Expected Flake, got {resolved:?}"),
     }
 
     unsafe {
@@ -1047,7 +1049,7 @@ mod tests {
         assert_eq!(reference, "~/.config/home-manager");
         assert_eq!(attribute, vec!["homeConfigurations", "user"]);
       },
-      _ => panic!("Expected Flake, got {:?}", resolved),
+      _ => panic!("Expected Flake, got {resolved:?}"),
     }
 
     unsafe {
@@ -1084,7 +1086,7 @@ mod tests {
         assert_eq!(reference, "~/.config/home-manager");
         assert_eq!(attribute, vec!["user"]);
       },
-      _ => panic!("Expected Flake, got {:?}", resolved),
+      _ => panic!("Expected Flake, got {resolved:?}"),
     }
 
     unsafe {
