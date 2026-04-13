@@ -717,11 +717,18 @@ impl OsRollbackArgs {
   fn rollback(&self, elevation: ElevationStrategy) -> Result<()> {
     let elevate = has_elevation_status(self.bypass_root_check, &elevation)?;
 
+    let generations = list_generations()?;
+
+    let current_generation = generations
+      .iter()
+      .find(|g| g.current)
+      .ok_or_else(|| eyre!("Current generation not found"))?;
+
     // Find previous generation or specific generation
     let target_generation = if let Some(gen_number) = self.to {
-      find_generation_by_number(gen_number)?
+      get_generation_by_number(gen_number, &generations)?
     } else {
-      find_previous_generation()?
+      &find_previous_generation(current_generation.number, &generations)?
     };
 
     info!("Rolling back to generation {}", target_generation.number);
@@ -784,15 +791,6 @@ impl OsRollbackArgs {
       }
     }
 
-    // Get current generation number for potential rollback
-    let current_gen_number = match get_current_generation_number() {
-      Ok(num) => num,
-      Err(e) => {
-        warn!("Failed to get current generation number: {}", e);
-        0
-      },
-    };
-
     // Set the system profile
     info!("Setting system profile...");
 
@@ -850,9 +848,9 @@ impl OsRollbackArgs {
       },
       Err(e) => {
         // If activation fails, rollback the profile
-        if current_gen_number > 0 {
-          let current_gen_link =
-            profile_dir.join(format!("system-{current_gen_number}-link"));
+        if current_generation.number > 0 {
+          let current_gen_link = profile_dir
+            .join(format!("system-{}-link", current_generation.number));
 
           Command::new("ln")
                         .arg("-sfn") // Force, symbolic link
@@ -1180,11 +1178,10 @@ fn has_elevation_status(
   Ok(!is_root)
 }
 
-fn find_previous_generation() -> Result<generations::GenerationInfo> {
-  let current_number = get_current_generation_number()?;
-
-  let mut generations = list_generations()?;
-
+fn find_previous_generation(
+  current_number: u64,
+  generations: &[generations::GenerationInfo],
+) -> Result<generations::GenerationInfo> {
   let Some(current_idx) =
     generations.iter().position(|g| g.number == current_number)
   else {
@@ -1195,28 +1192,19 @@ fn find_previous_generation() -> Result<generations::GenerationInfo> {
     bail!("No generation older than the current one exists");
   }
 
-  let previous_generation = generations.swap_remove(current_idx - 1);
+  let previous_generation = generations[current_idx - 1].clone();
 
   Ok(previous_generation)
 }
 
-fn find_generation_by_number(
+fn get_generation_by_number(
   number: u64,
-) -> Result<generations::GenerationInfo> {
-  list_generations()?
-    .into_iter()
+  generations: &[generations::GenerationInfo],
+) -> Result<&generations::GenerationInfo> {
+  generations
+    .iter()
     .find(|g| g.number == number)
     .ok_or_else(|| eyre!("Generation {} not found", number))
-}
-
-fn get_current_generation_number() -> Result<u64> {
-  let generations = list_generations()?;
-  let current_gen = generations
-    .iter()
-    .find(|g| g.current)
-    .ok_or_else(|| eyre!("Current generation not found"))?;
-
-  Ok(current_gen.number)
 }
 
 fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
