@@ -25,7 +25,7 @@ clap                  = { features = [ "cargo", "color", "derive", "env", "unsta
 clap-verbosity-flag   = { default-features = false, features = [ "tracing" ], version = "3.0.4" }
 clap_complete         = "4.5.61"
 clap_complete_nushell = "4.5.10"
-clap_mangen           = "0.2.31"
+clap_mangen           = "0.3.0"
 color-eyre            = { default-features = false, features = [ "track-caller" ], version = "0.6.5" }
 dix                   = "1.4.2"
 elasticsearch-dsl     = "0.4.24"
