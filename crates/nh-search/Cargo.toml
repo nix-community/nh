@@ -13,6 +13,7 @@ path = "src/search.rs"
 clap.workspace                = true
 color-eyre.workspace          = true
 elasticsearch-dsl.workspace   = true
+nh-ui.workspace               = true
 regex.workspace               = true
 reqwest.workspace             = true
 serde.workspace               = true

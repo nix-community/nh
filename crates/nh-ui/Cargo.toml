@@ -7,8 +7,9 @@ license.workspace      = true
 rust-version.workspace = true
 
 [dependencies]
-color-eyre.workspace = true
-crossterm.workspace  = true
+color-eyre.workspace          = true
+crossterm.workspace           = true
+supports-hyperlinks.workspace = true
 
 [lints]
 workspace = true

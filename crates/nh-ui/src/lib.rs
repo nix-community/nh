@@ -1,5 +1,9 @@
 //! Simple synchronous terminal prompts using crossterm.
-use std::io::{self, Read, Write, stdout};
+
+use std::{
+  io::{self, Read, Write, stdout},
+  sync::OnceLock,
+};
 
 use color_eyre::Result;
 use crossterm::{
@@ -7,6 +11,22 @@ use crossterm::{
   style::{ResetColor, SetForegroundColor},
   terminal::{DisableLineWrap, EnableLineWrap, SetTitle},
 };
+
+static HYPERLINKS_SUPPORTED: OnceLock<bool> = OnceLock::new();
+
+/// Prints a clickable hyperlink in terminals that support it,
+/// otherwise prints plain text.
+pub fn print_hyperlink(text: &str, link: &str) {
+  let supported =
+    *HYPERLINKS_SUPPORTED.get_or_init(supports_hyperlinks::supports_hyperlinks);
+
+  if supported {
+    print!("\x1b]8;;{link}\x07");
+    println!("{text}\x1b]8;;\x07");
+  } else {
+    println!("{text}");
+  }
+}
 
 fn read_char() -> io::Result<char> {
   loop {

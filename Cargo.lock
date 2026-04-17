@@ -1401,6 +1401,7 @@ dependencies = [
  "clap",
  "color-eyre",
  "elasticsearch-dsl",
+ "nh-ui",
  "regex",
  "reqwest",
  "serde",
@@ -1417,6 +1418,7 @@ version = "0.1.0"
 dependencies = [
  "color-eyre",
  "crossterm",
+ "supports-hyperlinks",
 ]
 
 [[package]]

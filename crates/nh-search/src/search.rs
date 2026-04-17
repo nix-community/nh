@@ -13,6 +13,7 @@ use elasticsearch_dsl::{
   SearchResponse,
   TextQueryType,
 };
+use nh_ui::print_hyperlink;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace, warn};
@@ -49,25 +50,6 @@ struct SearchResult {
   package_system:          String,
   package_homepage:        Vec<String>,
   package_position:        Option<String>,
-}
-
-// Cache the hyperlink support check result
-static HYPERLINKS_SUPPORTED: OnceLock<bool> = OnceLock::new();
-
-/// Prints an underlined link in the terminal, where the visible text may be
-/// different from the link - or just print the text if hyperlinks aren't
-/// supported
-fn print_hyperlink(text: &str, link: &str) {
-  let hyperlinks =
-    *HYPERLINKS_SUPPORTED.get_or_init(supports_hyperlinks::supports_hyperlinks);
-
-  if hyperlinks {
-    print!("\x1b]8;;{link}\x07");
-    print!("{}", Paint::new(text).underline());
-    println!("\x1b]8;;\x07");
-  } else {
-    println!("{text}");
-  }
 }
 
 #[derive(Debug, Serialize)]
