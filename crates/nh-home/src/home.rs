@@ -14,6 +14,7 @@ use nh_core::{
   util::{get_hostname, print_dix_diff},
 };
 use nh_remote::{self, RemoteBuildConfig};
+use nh_ui::prompt_confirm;
 use tracing::{debug, info, warn};
 
 impl args::HomeArgs {
@@ -204,11 +205,7 @@ impl HomeRebuildArgs {
     }
 
     if self.common.ask {
-      let confirmation = inquire::Confirm::new("Apply the config?")
-        .with_default(false)
-        .prompt()?;
-
-      if !confirmation {
+      if !prompt_confirm("Apply the config?")? {
         bail!("User rejected the new config");
       }
     }

@@ -22,6 +22,7 @@ use nh_core::{
   installable::Installable,
   util::NixVariant,
 };
+use nh_ui::prompt_password;
 use secrecy::{ExposeSecret, SecretString};
 use subprocess::{Exec, Redirection};
 use tracing::{debug, error, info, warn};
@@ -1251,9 +1252,7 @@ fn activate_nixos_remote(
         Some(cached_password)
       } else {
         let password =
-          inquire::Password::new(&format!("[sudo] password for {host_str}:"))
-            .without_confirmation()
-            .prompt()
+          prompt_password(&format!("[sudo] password for {host_str}:"))
             .context("Failed to read sudo password")?;
         if password.is_empty() {
           bail!("Password cannot be empty");

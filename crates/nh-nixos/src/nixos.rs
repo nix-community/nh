@@ -19,6 +19,7 @@ use nh_core::{
   },
 };
 use nh_remote::{self, RemoteBuildConfig, RemoteHost};
+use nh_ui::prompt_confirm;
 use tracing::{debug, info, warn};
 
 use crate::{
@@ -254,11 +255,7 @@ impl OsRebuildActivateArgs {
     use OsRebuildVariant::{Boot, Switch, Test};
 
     if self.rebuild.common.ask {
-      let confirmation = inquire::Confirm::new("Apply the config?")
-        .with_default(false)
-        .prompt()?;
-
-      if !confirmation {
+      if !prompt_confirm("Apply the config?")? {
         bail!("User rejected the new config");
       }
     }
@@ -779,14 +776,10 @@ impl OsRollbackArgs {
     }
 
     if self.ask {
-      let confirmation = inquire::Confirm::new(&format!(
+      if !prompt_confirm(&format!(
         "Roll back to generation {}?",
         target_generation.number
-      ))
-      .with_default(false)
-      .prompt()?;
-
-      if !confirmation {
+      ))? {
         bail!("User rejected the rollback");
       }
     }

@@ -401,24 +401,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8b9f2e4c67f833b660cdb0a3523065869fb35570177239812ed4c905aeff87b"
 dependencies = [
  "bitflags",
- "crossterm_winapi",
- "derive_more",
  "document-features",
- "mio",
  "parking_lot",
  "rustix",
- "signal-hook 0.3.18",
- "signal-hook-mio",
- "winapi",
-]
-
-[[package]]
-name = "crossterm_winapi"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "acdd7c62a3665c7f6830a51635d9ac9b23ed385797f70a83bb8bafe9c572ab2b"
-dependencies = [
- "winapi",
 ]
 
 [[package]]
@@ -510,12 +495,6 @@ name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
-
-[[package]]
-name = "dyn-clone"
-version = "1.0.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
 name = "either"
@@ -1067,19 +1046,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "inquire"
-version = "0.9.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6654738b8024300cf062d04a1c13c10c8e2cea598ec1c47dc9b6641159429756"
-dependencies = [
- "bitflags",
- "crossterm",
- "dyn-clone",
- "unicode-segmentation",
- "unicode-width",
-]
-
-[[package]]
 name = "integer-sqrt"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1296,12 +1262,11 @@ dependencies = [
 
 [[package]]
 name = "mio"
-version = "1.1.1"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a69bcab0ad47271a0234d9422b131806bf3968021e5dc9328caf2d4cd58557fc"
+checksum = "50b7e5b27aa02a74bac8c3f23f448f8d87ff11f92d3aac1a6ed369ee08cc56c1"
 dependencies = [
  "libc",
- "log",
  "wasi",
  "windows-sys 0.61.2",
 ]
@@ -1335,8 +1300,8 @@ dependencies = [
  "clap",
  "color-eyre",
  "humantime",
- "inquire",
  "nh-core",
+ "nh-ui",
  "nix",
  "regex",
  "tracing",
@@ -1350,7 +1315,7 @@ dependencies = [
  "clap",
  "color-eyre",
  "dix",
- "inquire",
+ "nh-ui",
  "nix",
  "proptest",
  "regex",
@@ -1374,9 +1339,9 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "color-eyre",
- "inquire",
  "nh-core",
  "nh-remote",
+ "nh-ui",
  "nix",
  "tempfile",
  "tracing",
@@ -1388,9 +1353,9 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "color-eyre",
- "inquire",
  "nh-core",
  "nh-remote",
+ "nh-ui",
  "tempfile",
  "tracing",
 ]
@@ -1402,9 +1367,9 @@ dependencies = [
  "chrono",
  "clap",
  "color-eyre",
- "inquire",
  "nh-core",
  "nh-remote",
+ "nh-ui",
  "nix",
  "serde_json",
  "tempfile",
@@ -1417,13 +1382,13 @@ version = "0.1.0"
 dependencies = [
  "color-eyre",
  "indicatif",
- "inquire",
  "nh-core",
+ "nh-ui",
  "proptest",
  "secrecy",
  "serial_test",
  "shlex",
- "signal-hook 0.4.3",
+ "signal-hook",
  "subprocess",
  "tracing",
  "which",
@@ -1444,6 +1409,14 @@ dependencies = [
  "textwrap",
  "tracing",
  "yansi",
+]
+
+[[package]]
+name = "nh-ui"
+version = "0.1.0"
+dependencies = [
+ "color-eyre",
+ "crossterm",
 ]
 
 [[package]]
@@ -2218,33 +2191,12 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
 name = "signal-hook"
-version = "0.3.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d881a16cf4426aa584979d30bd82cb33429027e42122b169753d6ef1085ed6e2"
-dependencies = [
- "libc",
- "signal-hook-registry",
-]
-
-[[package]]
-name = "signal-hook"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b57709da74f9ff9f4a27dce9526eec25ca8407c45a7887243b031a58935fb8e"
 dependencies = [
  "libc",
  "signal-hook-registry",
-]
-
-[[package]]
-name = "signal-hook-mio"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b75a19a7a740b25bc7944bdee6172368f988763b744e3d4dfe753f6b4ece40cc"
-dependencies = [
- "libc",
- "mio",
- "signal-hook 0.3.18",
 ]
 
 [[package]]
@@ -2506,9 +2458,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.50.0"
+version = "1.52.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27ad5e34374e03cfffefc301becb44e9dc3c17584f414349ebe29ed26661822d"
+checksum = "b67dee974fe86fd92cc45b7a95fdd2f99a36a6d7b0d431a231178d3d670bbcc6"
 dependencies = [
  "bytes",
  "libc",

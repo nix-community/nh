@@ -12,8 +12,8 @@ use color_eyre::{
   Result,
   eyre::{Context, ContextCompat, bail, eyre},
 };
-use inquire::Confirm;
 use nh_core::command::{Command, ElevationStrategy};
+use nh_ui::prompt_confirm;
 use nix::{
   errno::Errno,
   fcntl::AtFlags,
@@ -337,11 +337,7 @@ impl args::CleanMode {
     }
 
     // Clean the paths
-    if args.ask
-      && !Confirm::new("Confirm the cleanup plan?")
-        .with_default(false)
-        .prompt()?
-    {
+    if args.ask && !prompt_confirm("Confirm the cleanup plan?")? {
       bail!("User rejected the cleanup plan");
     }
 

@@ -636,9 +636,7 @@ impl Command {
         Some(cached_password)
       } else {
         let password =
-          inquire::Password::new(&format!("[sudo] password for {host}:"))
-            .without_confirmation()
-            .prompt()
+          nh_ui::prompt_password(&format!("[sudo] password for {host}:"))
             .context("Failed to read sudo password")?;
         if password.is_empty() {
           bail!("Password cannot be empty");
