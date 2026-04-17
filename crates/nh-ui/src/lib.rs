@@ -1,7 +1,6 @@
 //! Simple synchronous terminal prompts using crossterm.
-
 use std::{
-  io::{self, Read, Write, stdout},
+  io::{self, Write, stdout},
   sync::OnceLock,
 };
 
@@ -13,7 +12,6 @@ use crossterm::{
   terminal::{
     DisableLineWrap,
     EnableLineWrap,
-    SetTitle,
     disable_raw_mode,
     enable_raw_mode,
   },
@@ -53,15 +51,6 @@ impl Drop for RawModeGuard {
   }
 }
 
-fn read_char() -> io::Result<char> {
-  loop {
-    let mut buf = [0u8; 1];
-    if io::stdin().read(&mut buf)? == 1 {
-      return Ok(buf[0] as char);
-    }
-  }
-}
-
 /// Prompts the user for a password with hidden input.
 ///
 /// # Errors
@@ -70,13 +59,12 @@ fn read_char() -> io::Result<char> {
 pub fn prompt_password(prompt: &str) -> Result<String> {
   let mut stdout = stdout();
 
-  execute!(stdout, SetTitle("Password Input"))?;
   execute!(stdout, DisableLineWrap)?;
   execute!(stdout, crossterm::style::Print(prompt))?;
   print!(": ");
   stdout.flush()?;
 
-  let _guard = RawModeGuard::new()?;
+  let guard = RawModeGuard::new()?;
   let mut password = String::new();
 
   loop {
@@ -109,22 +97,21 @@ pub fn prompt_password(prompt: &str) -> Result<String> {
     }
   }
 
-  drop(_guard);
+  drop(guard);
   execute!(stdout, EnableLineWrap)?;
   execute!(stdout, ResetColor)?;
 
   Ok(password)
 }
 
-/// Prompts the user for a yes/no confirmation.
+/// Prompts the user for a yes/no confirmation. Defaults to `false` when user
+/// presses Enter without input.
 ///
 /// # Errors
 ///
-/// Returns an error if reading from stdin fails.
+/// Returns an error if stdin is not a TTY or reading fails.
 pub fn prompt_confirm(prompt: &str) -> Result<bool> {
   let mut stdout = stdout();
-
-  execute!(stdout, SetTitle("Confirmation"))?;
 
   execute!(stdout, SetForegroundColor(crossterm::style::Color::Green))?;
   execute!(stdout, crossterm::style::Print("? "))?;
@@ -133,21 +120,25 @@ pub fn prompt_confirm(prompt: &str) -> Result<bool> {
   print!(" (y/n): ");
   stdout.flush()?;
 
+  let _guard = RawModeGuard::new()?;
+
   loop {
-    match read_char()? {
-      'y' | 'Y' => {
-        println!("yes");
-        return Ok(true);
-      },
-      'n' | 'N' => {
-        println!("no");
-        return Ok(false);
-      },
-      '\n' | '\r' => {
-        println!();
-        return Ok(false);
-      },
-      _ => {},
+    if let Event::Key(KeyEvent { code, .. }) = event::read()? {
+      match code {
+        KeyCode::Char('y' | 'Y') => {
+          println!("yes");
+          return Ok(true);
+        },
+        KeyCode::Char('n' | 'N') => {
+          println!("no");
+          return Ok(false);
+        },
+        KeyCode::Enter => {
+          println!();
+          return Ok(false);
+        },
+        _ => {},
+      }
     }
   }
 }
