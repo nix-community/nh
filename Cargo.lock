@@ -1337,7 +1337,7 @@ dependencies = [
 
 [[package]]
 name = "nh"
-version = "4.3.0"
+version = "4.3.1"
 dependencies = [
  "anstyle",
  "clap",
@@ -3334,7 +3334,7 @@ checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
 
 [[package]]
 name = "xtask"
-version = "4.3.0"
+version = "4.3.1"
 dependencies = [
  "clap",
  "clap_complete",

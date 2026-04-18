@@ -23,6 +23,7 @@ jobs:
         name: Checkout
         with:
           fetch-depth: 0
+          token: ${{ secrets.PAT }}
 
       - name: Read version
         run: |
@@ -36,8 +37,6 @@ jobs:
           echo "Read version: $VERSION"
 
       - name: Tag
-        env:
-          GH_TOKEN: ${{ secrets.PAT }}
         run: |
           set -e
           if git rev-parse "$nh_version" >/dev/null 2>&1; then

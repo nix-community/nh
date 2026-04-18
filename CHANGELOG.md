@@ -14,13 +14,13 @@ be put in the "Changed" section or, if it's just to remove code or
 functionality, under the "Removed" section.
 -->
 
-## Unreleased
+## 4.3.1
 
 ### Changed
 
-- The host used to select the `nixosConfiguration` now defaults to the `--target-host` for remote
-  deployments instead of the local hostname, unless the hostname is explicitly specified via the
-  `-H|--hostname` flag.
+- The host used to select the `nixosConfiguration` now defaults to the
+  `--target-host` for remote deployments instead of the local hostname, unless
+  the hostname is explicitly specified via the `-H|--hostname` flag.
 
 ### Fixed
 
