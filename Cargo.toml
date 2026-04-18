@@ -24,7 +24,7 @@ clap                  = { features = [ "cargo", "color", "derive", "env", "unsta
 clap-verbosity-flag   = { default-features = false, features = [ "tracing" ], version = "3.0.4" }
 clap_complete         = "4.5.61"
 clap_complete_nushell = "4.5.10"
-clap_mangen           = "0.2.31"
+clap_mangen           = { features = [ "env" ], version = "0.3.0" }
 color-eyre            = { default-features = false, features = [ "track-caller" ], version = "0.6.5" }
 dix                   = "1.4.2"
 elasticsearch-dsl     = "0.4.24"
@@ -81,6 +81,7 @@ question_mark_used             = "allow"
 similar_names                  = "allow"
 single_call_fn                 = "allow"
 std_instead_of_core            = "allow"
+struct_excessive_bools         = "allow"
 too_long_first_doc_paragraph   = "allow"
 too_many_lines                 = "allow"
 unused_trait_names             = "allow"

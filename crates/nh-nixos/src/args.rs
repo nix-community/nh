@@ -140,7 +140,6 @@ pub struct OsBuildVmArgs {
 }
 
 #[derive(Debug, Args)]
-#[allow(clippy::struct_excessive_bools)]
 pub struct OsRebuildArgs {
   #[command(flatten)]
   pub common: CommonRebuildArgs,

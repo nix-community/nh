@@ -139,11 +139,10 @@ impl FromStr for ElevationStrategyArg {
       "auto" => Ok(Self::Auto),
       "passwordless" => Ok(Self::Passwordless),
       _ => {
-        if let Some(rest) = s.strip_prefix("program:") {
-          Ok(Self::Program(PathBuf::from(rest)))
-        } else {
-          Ok(Self::Program(PathBuf::from(s)))
-        }
+        s.strip_prefix("program:").map_or_else(
+          || Ok(Self::Program(PathBuf::from(s))),
+          |rest| Ok(Self::Program(PathBuf::from(rest))),
+        )
       },
     }
   }
