@@ -17,7 +17,7 @@ use thiserror::Error;
 use tracing::{debug, info, warn};
 use which::which;
 
-use crate::{installable::Installable, interface::NixBuildPassthroughArgs};
+use crate::{args::NixBuildPassthroughArgs, installable::Installable};
 
 static PASSWORD_CACHE: OnceLock<Mutex<HashMap<String, SecretString>>> =
   OnceLock::new();
@@ -84,7 +84,9 @@ fn ssh_wrap(
       .arg(cmd.to_cmdline_lossy());
 
     if let Some(pwd) = password {
-      ssh_cmd = ssh_cmd.stdin(format!("{}\n", pwd.expose_secret()).as_str());
+      let stdin_data: Vec<u8> =
+        format!("{}\n", pwd.expose_secret()).into_bytes();
+      ssh_cmd = ssh_cmd.stdin(stdin_data);
     }
 
     ssh_cmd
@@ -137,11 +139,10 @@ impl FromStr for ElevationStrategyArg {
       "auto" => Ok(Self::Auto),
       "passwordless" => Ok(Self::Passwordless),
       _ => {
-        if let Some(rest) = s.strip_prefix("program:") {
-          Ok(Self::Program(PathBuf::from(rest)))
-        } else {
-          Ok(Self::Program(PathBuf::from(s)))
-        }
+        s.strip_prefix("program:").map_or_else(
+          || Ok(Self::Program(PathBuf::from(s))),
+          |rest| Ok(Self::Program(PathBuf::from(rest))),
+        )
       },
     }
   }
@@ -400,12 +401,12 @@ impl Command {
     }
 
     // Only propagate HOME for non-elevated commands
-    if self.elevate.is_none() {
-      if let Ok(home) = std::env::var("HOME") {
-        self
-          .env_vars
-          .insert("HOME".to_string(), EnvAction::Set(home));
-      }
+    if self.elevate.is_none()
+      && let Ok(home) = std::env::var("HOME")
+    {
+      self
+        .env_vars
+        .insert("HOME".to_string(), EnvAction::Set(home));
     }
 
     // INFO: Setting HOME to "" for macos
@@ -497,10 +498,9 @@ impl Command {
       })?;
     if program_name == "sudo"
       && !matches!(elevation_strategy, ElevationStrategy::Passwordless)
+      && let Ok(askpass) = std::env::var("NH_SUDO_ASKPASS")
     {
-      if let Ok(askpass) = std::env::var("NH_SUDO_ASKPASS") {
-        cmd = cmd.env("SUDO_ASKPASS", askpass).arg("-A");
-      }
+      cmd = cmd.env("SUDO_ASKPASS", askpass).arg("-A");
     }
 
     // NH_PRESERVE_ENV: set to "0" to disable preserving environment variables,
@@ -546,10 +546,10 @@ impl Command {
       .ok_or_else(|| {
         eyre::eyre!("Failed to determine elevation program name")
       })?;
-    if program_name == "sudo" {
-      if let Ok(_askpass) = std::env::var("NH_SUDO_ASKPASS") {
-        parts.push("-A".to_string());
-      }
+    if program_name == "sudo"
+      && let Ok(_askpass) = std::env::var("NH_SUDO_ASKPASS")
+    {
+      parts.push("-A".to_string());
     }
 
     let preserve_env = std::env::var("NH_PRESERVE_ENV")
@@ -605,10 +605,10 @@ impl Command {
     }
 
     // check if using SUDO_ASKPASS
-    if sudo_parts[1] == "-A" {
-      if let Ok(askpass) = std::env::var("NH_SUDO_ASKPASS") {
-        std_cmd.env("SUDO_ASKPASS", askpass);
-      }
+    if sudo_parts[1] == "-A"
+      && let Ok(askpass) = std::env::var("NH_SUDO_ASKPASS")
+    {
+      std_cmd.env("SUDO_ASKPASS", askpass);
     }
     Ok(std_cmd)
   }
@@ -852,10 +852,10 @@ impl Build {
     if self.nom {
       let pipeline = {
         base_command
-          .args(&["--log-format", "internal-json", "--verbose"])
+          .args(["--log-format", "internal-json", "--verbose"])
           .stderr(Redirection::Merge)
           .stdout(Redirection::Pipe)
-          | Exec::cmd("nom").args(&["--json"])
+          | Exec::cmd("nom").args(["--json"])
       }
       .stdout(Redirection::None);
       debug!(?pipeline);
@@ -864,21 +864,19 @@ impl Build {
       // Nix's exit status, not nom's. The pipeline's `join()` only returns
       // the exit status of the last command (nom), which always succeeds
       // even when Nix fails.
-      let mut processes = pipeline.popen()?;
+      let job = pipeline.start()?;
 
       // Wait for all processes to finish
-      for proc in &mut processes {
+      for proc in &job.processes {
         proc.wait()?;
       }
 
       // Check the exit status of the FIRST process (nix build)
       // This is the one that matters. If Nix fails, we should fail as well
-      if let Some(nix_proc) = processes.first() {
-        if let Some(exit_status) = nix_proc.exit_status() {
-          match exit_status {
-            ExitStatus::Exited(0) => (),
-            other => bail!(ExitError(other)),
-          }
+      if let Some(nix_proc) = job.processes.first() {
+        let exit_status = nix_proc.wait()?;
+        if !exit_status.success() {
+          bail!(ExitError(exit_status));
         }
       }
     } else {
@@ -889,9 +887,9 @@ impl Build {
       debug!(?cmd);
       let exit = cmd.join();
 
-      match exit? {
-        ExitStatus::Exited(0) => (),
-        other => bail!(ExitError(other)),
+      let exit_status = exit?;
+      if !exit_status.success() {
+        bail!(ExitError(exit_status));
       }
     }
 
@@ -1437,10 +1435,11 @@ mod tests {
   #[test]
   fn test_ssh_wrap_without_ssh() {
     let cmd = subprocess::Exec::cmd("echo").arg("hello");
-    let wrapped = ssh_wrap(cmd.clone(), None, None);
+    let expected = cmd.to_cmdline_lossy();
+    let wrapped = ssh_wrap(cmd, None, None);
 
     // Should return the original command unchanged
-    assert_eq!(wrapped.to_cmdline_lossy(), cmd.to_cmdline_lossy());
+    assert_eq!(wrapped.to_cmdline_lossy(), expected);
   }
 
   #[test]
@@ -1571,12 +1570,14 @@ mod tests {
 
   #[test]
   fn test_exit_error_display() {
-    let exit_status = subprocess::ExitStatus::Exited(1);
+    // Run a command that exits with status 1 to get a real ExitStatus
+    let exit_status = subprocess::Exec::cmd("false")
+      .join()
+      .expect("failed to run 'false'");
     let error = ExitError(exit_status);
 
     let error_string = format!("{error}");
     assert!(error_string.contains("Command exited with status"));
-    assert!(error_string.contains("Exited(1)"));
   }
 
   #[test]

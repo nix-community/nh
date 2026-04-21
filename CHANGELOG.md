@@ -14,7 +14,26 @@ be put in the "Changed" section or, if it's just to remove code or
 functionality, under the "Removed" section.
 -->
 
-## Unreleased
+## 4.3.1
+
+### Changed
+
+- The host used to select the `nixosConfiguration` now defaults to the
+  `--target-host` for remote deployments instead of the local hostname, unless
+  the hostname is explicitly specified via the `-H|--hostname` flag.
+
+### Fixed
+
+- Nushell completions now properly complete and expand the `installable`
+  argument by treating it like a path instead of a string.
+- Specialisations now get correctly installed when running nh os {switch, boot}
+  with a specialisation selected.
+- The environment variable `NH_SHOW_ACTIVATION_LOGS` now supports `1` (and
+  more!) as a value again.
+
+### Removed
+
+## 4.3.0
 
 ### Changed
 
@@ -108,6 +127,17 @@ functionality, under the "Removed" section.
     with a warning if NH can parse them.
 - Password caching now works across all remote operations.
 - Empty password validation prevents invalid credential caching.
+- Direnv caches in [alternative locations][direnv-alternative-caches] (e.g.,
+  `$XDG_CACHE_DIR/direnv/layouts`) will now be detected during `nh clean`.
+- Fixed `--use-substitutes` being incorrectly passed to `nix build`, causing
+  "unrecognised flag" errors.
+- nh now properly resolves installables, fixing issues when e.g. multiple
+  `NH_{FLAKE,FILE,{OS,HOME_DARWIN}_FLAKE}` environment variables are set.
+- For the `--keep-since` flag, the explanation linking to the documentation of
+  the `humantime` crate is now shown.
+- In the man page, print full available documentation details for each option.
+
+[direnv-alternative-caches]: https://github.com/direnv/direnv/wiki/Customizing-cache-location
 
 ### Removed
 

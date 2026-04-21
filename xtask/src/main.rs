@@ -43,9 +43,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   env::set_current_dir(project_root())?;
 
   match command {
-    Command::Man { out_dir } => man::generate(&out_dir).map_err(|e| e.into()),
+    Command::Man { out_dir } => {
+      man::generate(&out_dir).map_err(std::convert::Into::into)
+    },
     Command::Completions { out_dir, shell } => {
-      comp::generate(&out_dir, shell).map_err(|e| e.into())
+      comp::generate(&out_dir, shell).map_err(std::convert::Into::into)
     },
     Command::Dist => {
       let man_handle = std::thread::spawn(|| man::generate("man"));

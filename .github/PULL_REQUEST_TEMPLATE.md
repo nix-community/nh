@@ -7,11 +7,12 @@ fix an open issue or bug, please also link the relevant issue below this
 line. You may attach an issue to your pull request with `Fixes #<issue number>`
 above this comment, and it will be closed when your pull request is merged.
 -->
+<!--markdownlint-disable MD041-->
 
 ## Sanity Checking
 
 <!--
-Please check all that apply. As before, this section is not a hard requirement
+Please check all that apply. This section is not a hard requirement
 but checklists with more checked items are likely to be merged faster. You may
 save some time in maintainer reviews by performing self-reviews here before
 submitting your pull request.
@@ -20,8 +21,10 @@ If your pull request includes any change or unexpected behaviour not covered bel
 please do make sure to include it above in your description.
 -->
 
+[contribution guidelines]: https://github.com/nix-community/nh/blob/master/CONTRIBUTING.md
 [changelog]: https://github.com/nix-community/nh/tree/master/CHANGELOG.md
 
+- [ ] I have read and understood the [contribution guidelines]
 - [ ] I have updated the [changelog] as per my changes
 - [ ] I have tested, and self-reviewed my code
 - Style and consistency
@@ -36,7 +39,7 @@ please do make sure to include it above in your description.
         logic
   - [ ] I have documented the motive for those changes in the PR body or commit
         description.
-- Tested on platform(s)
+- Tested on platform(s):
   - [ ] `x86_64-linux`
   - [ ] `aarch64-linux`
   - [ ] `x86_64-darwin`

@@ -24,6 +24,11 @@ locally.
 
 ## Basic Usage
 
+NH supports a few workflows, indicated by a permutation of the flags described
+above. If `--target-host` is provided but `--hostname` or `-H` isn't, hostname
+will _instead default to the value provided in `--target-host`_. Below sections
+describe common workflows.
+
 ### Build Remotely, Deploy Locally
 
 ```bash

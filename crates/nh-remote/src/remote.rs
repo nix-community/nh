@@ -12,18 +12,19 @@ use std::{
 };
 
 use color_eyre::{
+  Report,
   Result,
   eyre::{Context, bail, eyre},
 };
-use secrecy::{ExposeSecret, SecretString};
-use subprocess::{Exec, ExitStatus, Redirection};
-use tracing::{debug, error, info, warn};
-
-use crate::{
-  commands::{ElevationStrategy, cache_password, get_cached_password},
+use indicatif::{ProgressBar, ProgressStyle};
+use nh_core::{
+  command::{ElevationStrategy, cache_password, get_cached_password},
   installable::Installable,
   util::NixVariant,
 };
+use secrecy::{ExposeSecret, SecretString};
+use subprocess::{Exec, Redirection};
+use tracing::{debug, error, info, warn};
 
 /// Global flag indicating whether a SIGINT (Ctrl+C) was received.
 static INTERRUPTED: OnceLock<Arc<AtomicBool>> = OnceLock::new();
@@ -70,25 +71,17 @@ fn build_remote_command(
       .and_then(|name| name.to_str())
       .ok_or_else(|| eyre!("Failed to determine elevation program name"))?;
 
+    // Use just the program name on the remote host
+    // so that the remote system resolves it via its own PATH
     match (program_name, strategy) {
       // sudo passwordless: use --non-interactive to fail if password required
       ("sudo", ElevationStrategy::Passwordless) => {
-        Ok(format!(
-          "{} --non-interactive {}",
-          program.display(),
-          base_cmd
-        ))
+        Ok(format!("sudo --non-interactive {base_cmd}"))
       },
-      ("sudo", _) => {
-        Ok(format!(
-          "{} --prompt= --stdin {}",
-          program.display(),
-          base_cmd
-        ))
-      },
+      ("sudo", _) => Ok(format!("sudo --prompt= --stdin {base_cmd}")),
       // doas passwordless: use -n flag (non-interactive)
       ("doas", ElevationStrategy::Passwordless) => {
-        Ok(format!("{} -n {}", program.display(), base_cmd))
+        Ok(format!("doas -n {base_cmd}"))
       },
       ("doas", _) => {
         bail!(
@@ -99,11 +92,7 @@ fn build_remote_command(
       },
       // run0 passwordless: use --no-ask-password flag
       ("run0", ElevationStrategy::Passwordless) => {
-        Ok(format!(
-          "{} --no-ask-password {}",
-          program.display(),
-          base_cmd
-        ))
+        Ok(format!("run0 --no-ask-password {base_cmd}"))
       },
       ("run0", _) => {
         bail!(
@@ -216,37 +205,37 @@ fn cleanup_ssh_control_sockets(control_dir: &std::path::Path) {
     let path = entry.path();
 
     // Only process files starting with "ssh-"
-    if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
-      if filename.starts_with("ssh-") {
-        debug!("Closing SSH control socket: {}", path.display());
+    if let Some(filename) = path.file_name().and_then(|n| n.to_str())
+      && filename.starts_with("ssh-")
+    {
+      debug!("Closing SSH control socket: {}", path.display());
 
-        // Run: ssh -o ControlPath=<socket> -O exit dummyhost
-        let result = Exec::cmd("ssh")
-          .args(&["-o", &format!("ControlPath={}", path.display())])
-          .args(&["-O", "exit", "dummyhost"])
-          .stdout(Redirection::Pipe)
-          .stderr(Redirection::Pipe)
-          .capture();
+      // Run: ssh -o ControlPath=<socket> -O exit dummyhost
+      let result = Exec::cmd("ssh")
+        .args(["-o", &format!("ControlPath={}", path.display())])
+        .args(["-O", "exit", "dummyhost"])
+        .stdout(Redirection::Pipe)
+        .stderr(Redirection::Pipe)
+        .capture();
 
-        match result {
-          Ok(capture) => {
-            if !capture.exit_status.success() {
-              // This is normal if the connection was already closed
-              debug!(
-                "SSH control socket cleanup exited with status {:?} for {}",
-                capture.exit_status,
-                path.display()
-              );
-            }
-          },
-          Err(e) => {
-            tracing::warn!(
-              "Failed to close SSH control socket at {}: {}",
-              path.display(),
-              e
+      match result {
+        Ok(capture) => {
+          if !capture.exit_status.success() {
+            // This is normal if the connection was already closed
+            debug!(
+              "SSH control socket cleanup exited with status {:?} for {}",
+              capture.exit_status,
+              path.display()
             );
-          },
-        }
+          }
+        },
+        Err(e) => {
+          tracing::warn!(
+            "Failed to close SSH control socket at {}: {}",
+            path.display(),
+            e
+          );
+        },
       }
     }
   }
@@ -259,6 +248,48 @@ fn cleanup_ssh_control_sockets(control_dir: &std::path::Path) {
 pub fn init_ssh_control() -> SshControlGuard {
   let control_dir = get_ssh_control_dir().clone();
   SshControlGuard { control_dir }
+}
+
+/// Pre-establish a `ControlMaster` SSH connection to `host`.
+///
+/// This runs `ssh -T <opts> <host> true` using nh's own SSH argument
+/// construction (options strictly before the hostname),  and thus creating a
+/// multiplexed master connection in the control socket directory.
+///
+/// Subsequent SSH invocations that delegate to Nix internals (e.g. `nix copy
+/// --to ssh://...`) will reuse this already-authenticated socket via
+/// `ControlMaster=auto`, even if those internals would otherwise pass SSH flags
+/// in the wrong order.
+///
+/// Must be called after [`init_ssh_control`] so that the control directory
+/// exists.
+///
+/// # Errors
+///
+/// Returns an error if the SSH connection cannot be established.
+pub fn open_ssh_control_master(host: &RemoteHost) -> Result<()> {
+  let ssh_opts = get_ssh_opts();
+  debug!("Establishing SSH ControlMaster to '{host}'");
+
+  let mut cmd = Exec::cmd("ssh");
+  for opt in &ssh_opts {
+    cmd = cmd.arg(opt);
+  }
+  cmd = cmd.arg("-T").arg(host.ssh_host()).arg("true");
+
+  let capture = cmd
+    .capture()
+    .wrap_err_with(|| format!("Failed to connect to remote host '{host}'"))?;
+
+  if !capture.exit_status.success() {
+    bail!(
+      "SSH connection to '{}' failed:\n{}",
+      host,
+      capture.stderr_str().trim()
+    );
+  }
+
+  Ok(())
 }
 
 /// Cache for the SSH control socket directory.
@@ -342,7 +373,7 @@ fn get_ssh_control_dir() -> &'static PathBuf {
 /// - `user@hostname`
 /// - `ssh://[user@]hostname` (scheme stripped)
 /// - `ssh-ng://[user@]hostname` (scheme stripped)
-#[derive(Debug, Clone)]
+#[derive(Eq, PartialEq, Debug, Clone)]
 pub struct RemoteHost {
   /// The host string (may include user@)
   host: String,
@@ -488,6 +519,14 @@ impl RemoteHost {
   }
 }
 
+impl std::str::FromStr for RemoteHost {
+  type Err = Report;
+
+  fn from_str(input: &str) -> Result<Self> {
+    Self::parse(input)
+  }
+}
+
 impl std::fmt::Display for RemoteHost {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}", self.host)
@@ -618,7 +657,7 @@ fn attempt_remote_cleanup(host: &RemoteHost, remote_cmd: &str) {
   debug!("Attempting remote cleanup on '{host}': pkill -INT --full <command>");
 
   // Use popen with timeout to avoid hanging on unresponsive hosts
-  let mut process = match ssh_cmd.popen() {
+  let mut job = match ssh_cmd.start() {
     Ok(p) => p,
     Err(e) => {
       info!("Failed to execute remote cleanup on '{host}': {e}");
@@ -628,14 +667,14 @@ fn attempt_remote_cleanup(host: &RemoteHost, remote_cmd: &str) {
 
   // Wait up to 5 seconds for cleanup to complete
   let timeout = Duration::from_secs(5);
-  match process.wait_timeout(timeout) {
+  match job.wait_timeout(timeout) {
     Ok(Some(_)) => {
       // Process exited, check status below
     },
     Ok(None) => {
       // Timeout - kill the process and continue
-      let _ = process.kill();
-      let _ = process.wait();
+      let _ = job.kill();
+      let _ = job.wait();
       info!("Remote cleanup on '{host}' timed out after 5 seconds");
       return;
     },
@@ -646,12 +685,13 @@ fn attempt_remote_cleanup(host: &RemoteHost, remote_cmd: &str) {
   }
 
   // Check exit status
-  if let Some(exit_status) = process.exit_status() {
+  let exit_status = job.wait().ok();
+  if let Some(exit_status) = exit_status {
     if exit_status.success() {
       info!("Cleaned up remote process on '{}'", host);
     } else {
       // Capture stderr for error diagnosis
-      let stderr = process.stderr.take().map_or_else(String::new, |mut e| {
+      let stderr = job.stderr.take().map_or_else(String::new, |mut e| {
         let mut s = String::new();
         let _ = e.read_to_string(&mut s);
         s
@@ -695,7 +735,7 @@ fn attempt_remote_cleanup(host: &RemoteHost, remote_cmd: &str) {
 /// safer to assist the user instead. Without those features, remote deployment
 /// may never succeed.
 fn get_flake_flags() -> Vec<&'static str> {
-  let variant = crate::util::get_nix_variant();
+  let variant = nh_core::util::get_nix_variant();
   match variant {
     NixVariant::Determinate => vec![],
     NixVariant::Nix | NixVariant::Lix => {
@@ -830,67 +870,58 @@ pub fn validate_closure_remote(
   essential_files: &[(&str, &str)],
   context_info: Option<&str>,
 ) -> Result<()> {
-  // Build all test commands for batched execution
-  let test_commands: Vec<String> = essential_files
-    .iter()
-    .map(|(file, _)| {
-      let remote_path = closure_path.join(file);
-      let path_str = remote_path.to_str().ok_or_else(|| {
-        eyre!("Path is not valid UTF-8: {}", remote_path.display())
-      })?;
-      let quoted_path = shlex::try_quote(path_str).map_err(|_| {
-        eyre!("Failed to quote path for shell: {}", remote_path.display())
-      })?;
-      Ok(format!("test -e {quoted_path}"))
-    })
-    .collect::<Result<Vec<_>>>()?;
-
-  // Join all tests with &&, so the command fails on first missing file
-  // We check each file individually afterward to identify which ones are
-  // missing
-  let batch_command = test_commands.join(" && ");
-
-  // Get SSH options for connection multiplexing
   let ssh_opts = get_ssh_opts();
 
-  // Execute batch check using SSH with proper connection multiplexing
-  let check_result = std::process::Command::new("ssh")
-    .args(&ssh_opts)
-    .arg(host.ssh_host())
-    .arg(&batch_command)
-    .output();
-
-  // If batch check succeeds, all files exist
-  if let Ok(output) = &check_result {
-    if output.status.success() {
-      return Ok(());
-    }
-  }
-
-  // Batch check failed or errored. Identify which files are missing
   let mut missing = Vec::new();
-  for ((file, description), test_cmd) in
-    essential_files.iter().zip(&test_commands)
-  {
+  let mut ssh_stderr = String::new();
+
+  for (file, description) in essential_files {
+    let remote_path = closure_path.join(file);
+    let path_str = remote_path.to_str().ok_or_else(|| {
+      eyre!("Path is not valid UTF-8: {}", remote_path.display())
+    })?;
+    let quoted_path = shlex::try_quote(path_str).map_err(|_| {
+      eyre!("Failed to quote path for shell: {}", remote_path.display())
+    })?;
+    let test_cmd = format!("test -e {quoted_path}");
+
     let check_result = std::process::Command::new("ssh")
       .args(&ssh_opts)
       .arg(host.ssh_host())
-      .arg(test_cmd)
+      .arg(&test_cmd)
       .output();
 
     match check_result {
       Ok(output) if !output.status.success() => {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !stderr.is_empty() {
+          ssh_stderr = stderr.to_string();
+          break;
+        }
         missing.push(format!("  - {file} ({description})"));
       },
+      Ok(_) => {}, // File exists
       Err(e) => {
-        return Err(eyre!(
+        bail!(
           "Failed to check file existence on remote host {}: {}",
           host,
           e
-        ));
+        )
       },
-      _ => {}, // File exists
     }
+  }
+
+  if !ssh_stderr.trim().is_empty() {
+    let host_context = context_info.map_or_else(
+      || format!("on remote host '{host}'"),
+      |ctx| format!("on remote host '{host}' ({ctx})"),
+    );
+
+    return Err(eyre!(
+      "Command execution failed {}: {}",
+      host_context,
+      ssh_stderr.trim()
+    ));
   }
 
   if !missing.is_empty() {
@@ -990,17 +1021,20 @@ fn copy_closure_from(
 /// - The `nix copy` command fails (e.g., insufficient disk space on remote,
 ///   network issues, authentication failures)
 /// - The path does not exist in the local store
+///
+/// # Panics
+///
+/// Panics if the spinner template is invalid. This cannot happen in practice
+/// as the template is a hardcoded literal.
 pub fn copy_to_remote(
   host: &RemoteHost,
   path: &Path,
   use_substitutes: bool,
 ) -> Result<()> {
-  info!("Copying closure to remote host '{}'", host);
-
   let flake_flags = get_flake_flags();
   let mut cmd = Exec::cmd("nix")
     .args(&flake_flags)
-    .args(&["copy", "--to"])
+    .args(["copy", "--to"])
     .arg(format!("ssh://{}", host.ssh_host()));
 
   if use_substitutes {
@@ -1011,13 +1045,30 @@ pub fn copy_to_remote(
 
   debug!(?cmd, "nix copy --to");
 
+  // Haha spinner go brr
+  let spinner = ProgressBar::new_spinner();
+  #[expect(clippy::expect_used)]
+  spinner.set_style(
+    ProgressStyle::default_spinner()
+      .template("{spinner:.green} {msg}")
+      .expect("hardcoded template is valid"),
+  );
+  spinner.set_message(format!("Copying closure to remote host '{host}'..."));
+  spinner.enable_steady_tick(Duration::from_millis(80));
+
   let capture = cmd
     .capture()
     .wrap_err("Failed to copy closure to remote host")?;
 
+  // We finish and *clear*, because the log line needs to come next. If we try
+  // to make the spinner change the text, we cannot reliably match the `info!`
+  // or `error!` style.
+  spinner.finish_and_clear();
   if !capture.exit_status.success() {
+    error!("Failed to copy closure to remote host '{host}'");
     bail!("nix copy --to '{}' failed:\n{}", host, capture.stderr_str());
   }
+  info!("Copied closure to remote host '{host}'");
 
   Ok(())
 }
@@ -1035,7 +1086,7 @@ fn copy_closure_between_remotes(
   let flake_flags = get_flake_flags();
   let mut cmd = Exec::cmd("nix")
     .args(&flake_flags)
-    .args(&["copy", "--from"])
+    .args(["copy", "--from"])
     .arg(format!("ssh://{}", from_host.ssh_host()))
     .arg("--to")
     .arg(format!("ssh://{}", to_host.ssh_host()));
@@ -1131,7 +1182,7 @@ pub struct ActivateRemoteConfig {
   /// - `None`: No elevation, run commands as the remote user
   /// - `Some(strategy)`: Use the specified elevation strategy (sudo, doas,
   ///   etc.)
-  pub elevation: Option<crate::commands::ElevationStrategy>,
+  pub elevation: Option<ElevationStrategy>,
 }
 
 /// Activate a system configuration on a remote host.
@@ -1244,7 +1295,7 @@ fn activate_nixos_remote(
       // Pass password via stdin if elevation is needed
       if let Some(ref password) = sudo_password {
         ssh_cmd =
-          ssh_cmd.stdin(format!("{}\n", password.expose_secret()).as_str());
+          ssh_cmd.stdin(format!("{}\n", password.expose_secret()).into_bytes());
       }
 
       debug!(?ssh_cmd, "Activating NixOS configuration");
@@ -1290,7 +1341,7 @@ fn activate_nixos_remote(
       // Pass password via stdin if elevation is needed
       if let Some(ref password) = sudo_password {
         profile_ssh_cmd = profile_ssh_cmd
-          .stdin(format!("{}\n", password.expose_secret()).as_str());
+          .stdin(format!("{}\n", password.expose_secret()).into_bytes());
       }
 
       debug!(?profile_ssh_cmd, "Setting NixOS profile");
@@ -1332,7 +1383,7 @@ fn activate_nixos_remote(
       // Pass password via stdin if elevation is needed
       if let Some(ref password) = sudo_password {
         boot_ssh_cmd = boot_ssh_cmd
-          .stdin(format!("{}\n", password.expose_secret()).as_str());
+          .stdin(format!("{}\n", password.expose_secret()).into_bytes());
       }
 
       debug!(?boot_ssh_cmd, "Bootloader activation");
@@ -1669,20 +1720,20 @@ fn build_on_remote_simple(
     .stdout(Redirection::Pipe)
     .stderr(Redirection::Pipe);
 
-  // Execute with popen to get process handle
-  let mut process = ssh_cmd.popen()?;
+  // Execute with start() to get a Job handle
+  let mut job = ssh_cmd.start()?;
 
   // Wait for completion with interrupt checking
   let exit_status = loop {
-    match process.wait_timeout(std::time::Duration::from_millis(100))? {
+    match job.wait_timeout(std::time::Duration::from_millis(100))? {
       Some(status) => break status,
       None => {
         // Check interrupt flag while waiting
         if get_interrupt_flag().load(Ordering::Relaxed) {
           debug!("Interrupt detected, killing SSH process");
 
-          let _ = process.kill();
-          let _ = process.wait(); // reap zombie
+          let _ = job.kill();
+          let _ = job.wait(); // reap zombie
 
           // Attempt remote cleanup if enabled
           attempt_remote_cleanup(host, &remote_cmd);
@@ -1695,7 +1746,7 @@ fn build_on_remote_simple(
 
   // Check exit status
   if !exit_status.success() {
-    let stderr = process
+    let stderr = job
       .stderr
       .take()
       .and_then(|mut e| {
@@ -1707,7 +1758,7 @@ fn build_on_remote_simple(
   }
 
   // Read stdout
-  let stdout = process
+  let stdout = job
     .stdout
     .take()
     .ok_or_else(|| eyre!("Failed to capture stdout"))?;
@@ -1775,13 +1826,12 @@ fn build_on_remote_with_nom(
   // ssh's exit status, not nom's. The pipeline's join() only returns
   // the exit status of the last command (nom), which always succeeds
   // even when the remote nix command fails.
-  let mut processes =
-    pipeline.popen().wrap_err("Remote build with nom failed")?;
+  let job = pipeline.start().wrap_err("Remote build with nom failed")?;
 
   // Use wait_timeout in a polling loop to check interrupt flag every 100ms
   let poll_interval = Duration::from_millis(100);
 
-  for proc in &mut processes {
+  for proc in &job.processes {
     #[allow(
       clippy::needless_continue,
       reason = "Better for explicitness and consistency"
@@ -1792,7 +1842,7 @@ fn build_on_remote_with_nom(
         debug!("Interrupt detected during build with nom");
         // Kill remaining local processes. This will cause SSH to terminate
         // the remote command automatically
-        for p in &mut processes {
+        for p in &job.processes {
           let _ = p.kill();
           let _ = p.wait(); // reap zombie
         }
@@ -1807,7 +1857,7 @@ fn build_on_remote_with_nom(
       match proc.wait_timeout(poll_interval)? {
         Some(_) => {
           // Process has exited, exit status is automatically cached in the
-          // Popen struct Move to next process
+          // Process handle. Move to next process.
           break;
         },
 
@@ -1823,12 +1873,10 @@ fn build_on_remote_with_nom(
   // Check the exit status of the FIRST process (ssh -> nix build)
   // This is the one that matters. If the remote build fails, we should fail
   // too
-  if let Some(ssh_proc) = processes.first() {
-    if let Some(exit_status) = ssh_proc.exit_status() {
-      match exit_status {
-        ExitStatus::Exited(0) => {},
-        other => bail!("Remote build failed with exit status: {other:?}"),
-      }
+  if let Some(ssh_proc) = job.processes.first() {
+    let exit_status = ssh_proc.wait()?;
+    if !exit_status.success() {
+      bail!("Remote build failed with exit status: {exit_status:?}");
     }
   }
 

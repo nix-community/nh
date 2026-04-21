@@ -1,22 +1,22 @@
+pub mod args;
+
 use std::{convert::Into, env, ffi::OsString, path::PathBuf};
 
+use args::{HomeRebuildArgs, HomeReplArgs, HomeSubcommand};
 use color_eyre::{
   Result,
   eyre::{Context, bail, eyre},
 };
-use tracing::{debug, info, warn};
-
-use crate::{
-  commands,
-  commands::Command,
-  installable::Installable,
-  interface::{self, DiffType, HomeRebuildArgs, HomeReplArgs, HomeSubcommand},
-  remote::{self, RemoteBuildConfig, RemoteHost},
+use nh_core::{
+  command::{self, Command},
+  installable::{CommandContext, Installable},
   update::update,
   util::{get_hostname, print_dix_diff},
 };
+use nh_remote::{self, RemoteBuildConfig};
+use tracing::{debug, info, warn};
 
-impl interface::HomeArgs {
+impl args::HomeArgs {
   /// Run the `home` subcommand.
   ///
   /// # Parameters
@@ -60,14 +60,6 @@ impl HomeRebuildArgs {
   fn rebuild(self, variant: &HomeRebuildVariant) -> Result<()> {
     use HomeRebuildVariant::Build;
 
-    if self.update_args.update_all || self.update_args.update_input.is_some() {
-      update(
-        &self.common.installable,
-        self.update_args.update_input,
-        self.common.passthrough.commit_lock_file,
-      )?;
-    }
-
     let (out_path, _tempdir_guard): (PathBuf, Option<tempfile::TempDir>) =
       if let Some(ref p) = self.common.out_link {
         (p.clone(), None)
@@ -78,32 +70,24 @@ impl HomeRebuildArgs {
 
     debug!("Output path: {out_path:?}");
 
-    // Use NH_HOME_FLAKE if available, otherwise use the provided installable
-    let installable = if let Ok(home_flake) = env::var("NH_HOME_FLAKE") {
-      debug!("Using NH_HOME_FLAKE: {}", home_flake);
-
-      let mut elems = home_flake.splitn(2, '#');
-      let reference = match elems.next() {
-        Some(r) => r.to_owned(),
-        None => return Err(eyre!("NH_HOME_FLAKE missing reference part")),
-      };
-      let attribute = elems
-        .next()
-        .map(crate::installable::parse_attribute)
-        .unwrap_or_default();
-
-      Installable::Flake {
-        reference,
-        attribute,
-      }
-    } else {
-      self.common.installable.clone()
-    };
+    let installable = self
+      .common
+      .installable
+      .clone()
+      .resolve(CommandContext::Home)?;
 
     let installable = match installable {
       Installable::Unspecified => Installable::try_find_default_for_home()?,
       other => other,
     };
+
+    if self.update_args.update_all || self.update_args.update_input.is_some() {
+      update(
+        &installable,
+        self.update_args.update_input,
+        self.common.passthrough.commit_lock_file,
+      )?;
+    }
 
     let toplevel = toplevel_for(
       installable,
@@ -113,11 +97,8 @@ impl HomeRebuildArgs {
     )?;
 
     // If a build host is specified, use remote build semantics
-    if let Some(ref build_host_str) = self.build_host {
+    if let Some(build_host) = self.build_host {
       info!("Building Home-Manager configuration");
-
-      let build_host = RemoteHost::parse(build_host_str)
-        .wrap_err("Invalid build host specification")?;
 
       let config = RemoteBuildConfig {
         build_host,
@@ -140,12 +121,12 @@ impl HomeRebuildArgs {
       };
 
       // Initialize SSH control - guard will cleanup connections on drop
-      let _ssh_guard = remote::init_ssh_control();
+      let _ssh_guard = nh_remote::init_ssh_control();
 
-      remote::build_remote(&toplevel, &config, Some(&out_path))
+      nh_remote::build_remote(&toplevel, &config, Some(&out_path))
         .wrap_err("Failed to build Home-Manager configuration")?;
     } else {
-      commands::Build::new(toplevel)
+      command::Build::new(toplevel)
         .extra_arg("--out-link")
         .extra_arg(&out_path)
         .extra_args(&self.extra_args)
@@ -156,22 +137,30 @@ impl HomeRebuildArgs {
         .wrap_err("Failed to build Home-Manager configuration")?;
     }
 
+    let username =
+      env::var("USER").map_err(|_| eyre!("Couldn't get username"))?;
+    let home_dir =
+      env::var("HOME").map_err(|_| eyre!("Couldn't get home directory"))?;
+    let state_home = env::var("XDG_STATE_HOME")
+      .unwrap_or_else(|_| format!("{home_dir}/.local/state"));
+    let data_home = env::var("XDG_DATA_HOME")
+      .unwrap_or_else(|_| format!("{home_dir}/.local/share"));
+
+    // Match Home Manager's profile discovery: prefer $XDG_STATE_HOME if set,
+    // otherwise fall back to the global per-user profile directory.
     let prev_generation: Option<PathBuf> = [
+      PathBuf::from(&state_home).join("nix/profiles/home-manager"),
       PathBuf::from("/nix/var/nix/profiles/per-user")
-        .join(env::var("USER").map_err(|_| eyre!("Couldn't get username"))?)
+        .join(&username)
         .join("home-manager"),
-      PathBuf::from(
-        env::var("HOME").map_err(|_| eyre!("Couldn't get home directory"))?,
-      )
-      .join(".local/state/nix/profiles/home-manager"),
     ]
     .into_iter()
     .find(|next| next.exists());
 
     debug!("Previous generation: {prev_generation:?}");
 
-    let spec_location = PathBuf::from(std::env::var("HOME")?)
-      .join(".local/share/home-manager/specialisation");
+    let spec_location =
+      PathBuf::from(data_home).join("home-manager/specialisation");
 
     let current_specialisation = spec_location.to_str().map_or_else(
       || {
@@ -184,7 +173,7 @@ impl HomeRebuildArgs {
     let target_specialisation = if self.no_specialisation {
       None
     } else {
-      current_specialisation.or(self.specialisation)
+      self.specialisation.or(current_specialisation)
     };
 
     debug!("target_specialisation: {target_specialisation:?}");
@@ -198,7 +187,7 @@ impl HomeRebuildArgs {
     // just do nothing for None case (fresh installs)
     if let Some(generation) = prev_generation {
       match self.common.diff {
-        DiffType::Never => {
+        nh_core::args::DiffType::Never => {
           debug!("Not running dix as the --diff flag is set to never.");
         },
         _ => {
@@ -317,7 +306,7 @@ where
       if let Some(config_name) = configuration_name {
         // Verify the provided configuration exists
         let func = format!(r#" x: x ? "{config_name}" "#);
-        let check_res = commands::Command::new("nix")
+        let check_res = Command::new("nix")
           .with_required_env()
           .arg("eval")
           .args(&extra_args)
@@ -373,7 +362,7 @@ where
 
         for attr_name in [format!("{username}@{hostname}"), username] {
           let func = format!(r#" x: x ? "{attr_name}" "#);
-          let check_res = commands::Command::new("nix")
+          let check_res = Command::new("nix")
             .with_required_env()
             .arg("eval")
             .args(&extra_args)
@@ -456,27 +445,7 @@ where
 
 impl HomeReplArgs {
   fn run(self) -> Result<()> {
-    // Use NH_HOME_FLAKE if available, otherwise use the provided installable
-    let installable = if let Ok(home_flake) = env::var("NH_HOME_FLAKE") {
-      debug!("Using NH_HOME_FLAKE: {home_flake}");
-
-      let mut elems = home_flake.splitn(2, '#');
-      let reference = match elems.next() {
-        Some(r) => r.to_owned(),
-        None => return Err(eyre!("NH_HOME_FLAKE missing reference part")),
-      };
-      let attribute = elems
-        .next()
-        .map(crate::installable::parse_attribute)
-        .unwrap_or_default();
-
-      Installable::Flake {
-        reference,
-        attribute,
-      }
-    } else {
-      self.installable
-    };
+    let installable = self.installable.resolve(CommandContext::Home)?;
 
     let installable = match installable {
       Installable::Unspecified => Installable::try_find_default_for_home()?,

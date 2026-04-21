@@ -25,7 +25,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
       lib.fileset.unions [
         ./.cargo
         ./.config
-        ./src
+        ./crates
         ./xtask
         ./Cargo.toml
         ./Cargo.lock
@@ -39,35 +39,31 @@ rustPlatform.buildRustPackage (finalAttrs: {
     makeBinaryWrapper
   ];
 
-  cargoBuildFlags = [
-    "-p"
-    "nh"
-    "-p"
-    "xtask"
-  ];
   cargoLock.lockFile = ./Cargo.lock;
 
-  postInstall = lib.optionalString (stdenv.buildPlatform.canExecute stdenv.hostPlatform) ''
-    # Run both shell completion and manpage generation tasks. Unlike the
-    # fine-grained variants, the 'dist' command doesn't allow specifying the
-    # path but that's fine, because we can simply install them from the implicit
-    # output directories.
-    $out/bin/xtask dist
+  postInstall =
+    lib.optionalString (stdenv.buildPlatform.canExecute stdenv.hostPlatform) ''
+      # Run both shell completion and manpage generation tasks. Unlike the
+      # fine-grained variants, the 'dist' command doesn't allow specifying the
+      # path but that's fine, because we can simply install them from the implicit
+      # output directories.
+      $out/bin/xtask dist
 
-    # The dist task above should've created
-    #  1. Shell completions in comp/
-    #  2. The NH manpage (nh.1) in man/
-    # Let's install those.
-    # The important thing to note here is that installShellCompletion cannot
-    # actually load *all* shell completions we generate with 'xtask dist'.
-    # Elvish, for example isn't supported. So we have to be very explicit
-    # about what we're installing, or this will fail.
-    installShellCompletion --cmd ${finalAttrs.meta.mainProgram} ./comp/*.{bash,fish,zsh,nu}
-    installManPage ./man/nh.1
-
-    # Avoid populating PATH with an 'xtask' cmd
-    rm $out/bin/xtask
-  '';
+      # The dist task above should've created
+      #  1. Shell completions in comp/
+      #  2. The NH manpage (nh.1) in man/
+      # Let's install those.
+      # The important thing to note here is that installShellCompletion cannot
+      # actually load *all* shell completions we generate with 'xtask dist'.
+      # Elvish, for example isn't supported. So we have to be very explicit
+      # about what we're installing, or this will fail.
+      installShellCompletion --cmd ${finalAttrs.meta.mainProgram} ./comp/*.{bash,fish,zsh,nu}
+      installManPage ./man/nh.1
+    ''
+    + ''
+      # Avoid populating PATH with an 'xtask' cmd
+      rm $out/bin/xtask
+    '';
 
   postFixup = ''
     wrapProgram $out/bin/nh \
@@ -120,7 +116,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
   # the fastest way of running those since it's significantly faster than
   # `cargo test`, and has a nicer UI with CI-friendly characteristics.
   useNextest = true;
-  cargoTestFlags = [ "-p nh" ];
+  cargoTestFlags = [ "--workspace" ];
 
   env.NH_REV = rev;
 
@@ -131,6 +127,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
     mainProgram = "nh";
     maintainers = with lib.maintainers; [
       drupol
+      faukah
       NotAShelf
       viperML
     ];

@@ -5,7 +5,6 @@ use std::{
   os::unix::process::CommandExt,
   path::Path,
   process::{Command as StdCommand, Stdio},
-  str,
   sync::{LazyLock, OnceLock},
 };
 
@@ -15,8 +14,9 @@ use color_eyre::{
 };
 use regex::Regex;
 use tracing::{debug, info, warn};
+use yansi::Paint;
 
-use crate::commands::{Command, ElevationStrategy};
+use crate::command::{Command, ElevationStrategy};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NixVariant {
@@ -193,30 +193,49 @@ pub fn get_nix_version() -> Result<String> {
   Ok(version_str.to_string())
 }
 
-/// Prompts the user for ssh key login if needed
+/// Prompts the user for ssh key login if needed.
 ///
 /// # Errors
 ///
 /// Returns an error if:
 /// - The `ssh-add -L` command fails to execute
 /// - The `ssh-add` command fails to spawn or complete
+///
+/// # Note
+///
+/// This func is a no-op when no SSH agent socket is configured (which is
+/// unlikely but possible), i.e., when no `SSH_AUTH_SOCK` is set. This behaviour
+/// is valid, and SSH can authenticate via the keys in `~/.ssh` or via
+/// `~/.ssh/config` without an agent. NH should be able to handle the
+/// case without erroring.
 pub fn ensure_ssh_key_login() -> Result<()> {
-  // ssh-add -L checks if there are any currently usable ssh keys
+  // No usable agent socket means ssh-add has nothing to talk to.
+  let agent_available = std::env::var_os("SSH_AUTH_SOCK")
+    .is_some_and(|s| std::path::Path::new(&s).exists());
+  if !agent_available {
+    debug!("SSH agent socket not available, skipping ssh-add check");
 
+    return Ok(());
+  }
+
+  // ssh-add -L checks if there are any currently usable ssh keys
   if StdCommand::new("ssh-add")
     .arg("-L")
     .stdout(Stdio::null())
+    .stderr(Stdio::null())
     .status()?
     .success()
   {
     return Ok(());
   }
+
   StdCommand::new("ssh-add")
     .stdin(Stdio::inherit())
     .stdout(Stdio::inherit())
     .stderr(Stdio::inherit())
     .spawn()?
     .wait()?;
+
   Ok(())
 }
 
@@ -342,10 +361,10 @@ pub fn get_missing_experimental_features(
 /// # Examples
 ///
 /// ```rust
-/// use nh::commands::ElevationStrategy;
+/// use nh_core::command::ElevationStrategy;
 ///
 /// // Elevate the current process to run as root
-/// let elevate: fn(ElevationStrategy) -> ! = nh::util::self_elevate;
+/// let elevate: fn(ElevationStrategy) -> ! = nh_core::util::self_elevate;
 /// ```
 #[allow(clippy::panic, clippy::expect_used)]
 pub fn self_elevate(strategy: ElevationStrategy) -> ! {
@@ -498,6 +517,19 @@ pub fn print_dix_diff(
     true,
   );
 
+  println!(
+    "{arrows} {old}",
+    arrows = Paint::new("<<<").bold(),
+    old = old_generation.display(),
+  );
+  println!(
+    "{arrows} {new}",
+    arrows = Paint::new(">>>").bold(),
+    new = std::fs::canonicalize(new_generation)
+      .unwrap_or_else(|_| new_generation.to_path_buf())
+      .display(),
+  );
+
   let wrote =
     dix::write_package_diff(&mut out, old_generation, new_generation, true)
       .unwrap_or_default();
@@ -520,6 +552,7 @@ pub fn print_dix_diff(
 }
 
 #[cfg(test)]
+#[expect(clippy::expect_used, clippy::unwrap_used, reason = "Fine in tests")]
 mod tests {
   use super::*;
   use crate::installable::Installable;

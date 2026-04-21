@@ -17,7 +17,7 @@ mkShell {
     lldb
     yaml-language-server
     cargo-nextest
-
+    just
     nix-output-monitor
   ];
 

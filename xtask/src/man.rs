@@ -7,7 +7,7 @@ pub fn generate(out_dir: &str) -> Result<(), String> {
   let gen_dir = Path::new(out_dir);
   if !gen_dir.exists() {
     std::fs::create_dir_all(gen_dir).map_err(|e| {
-      format!("Failed to create output directory '{}': {}", out_dir, e)
+      format!("Failed to create output directory '{out_dir}': {e}")
     })?;
   }
 
@@ -19,16 +19,16 @@ pub fn generate(out_dir: &str) -> Result<(), String> {
   man = man.manual("nh manual".to_string());
   man
     .render_title(&mut buffer)
-    .map_err(|e| format!("Failed to render title: {}", e))?;
+    .map_err(|e| format!("Failed to render title: {e}"))?;
   man
     .render_name_section(&mut buffer)
-    .map_err(|e| format!("Failed to render name section: {}", e))?;
+    .map_err(|e| format!("Failed to render name section: {e}"))?;
   man
     .render_synopsis_section(&mut buffer)
-    .map_err(|e| format!("Failed to render synopsis section: {}", e))?;
+    .map_err(|e| format!("Failed to render synopsis section: {e}"))?;
   man
     .render_description_section(&mut buffer)
-    .map_err(|e| format!("Failed to render description section: {}", e))?;
+    .map_err(|e| format!("Failed to render description section: {e}"))?;
   render_command_recursive(&mut cmd, 1, &mut buffer)?;
 
   // EXIT STATUS section
@@ -44,7 +44,7 @@ pub fn generate(out_dir: &str) -> Result<(), String> {
   }
   sect
     .to_writer(&mut buffer)
-    .map_err(|e| format!("Failed to write exit status section: {}", e))?;
+    .map_err(|e| format!("Failed to write exit status section: {e}"))?;
 
   // ENVIRONMENT section
   let env_vars = [
@@ -135,7 +135,7 @@ pub fn generate(out_dir: &str) -> Result<(), String> {
   }
   sect
     .to_writer(&mut buffer)
-    .map_err(|e| format!("Failed to write environment section: {}", e))?;
+    .map_err(|e| format!("Failed to write environment section: {e}"))?;
 
   // FILES section
   let files = [
@@ -160,7 +160,7 @@ pub fn generate(out_dir: &str) -> Result<(), String> {
   }
   sect
     .to_writer(&mut buffer)
-    .map_err(|e| format!("Failed to write files section: {}", e))?;
+    .map_err(|e| format!("Failed to write files section: {e}"))?;
 
   // EXAMPLES section
   let examples = [
@@ -201,18 +201,18 @@ pub fn generate(out_dir: &str) -> Result<(), String> {
     sect
       .control("TP", [])
       .text([roman(desc)])
-      .text([bold(format!("$ {}", command))])
+      .text([bold(format!("$ {command}"))])
       .control("br", []);
   }
   sect
     .to_writer(&mut buffer)
-    .map_err(|e| format!("Failed to write examples section: {}", e))?;
+    .map_err(|e| format!("Failed to write examples section: {e}"))?;
 
   std::fs::write(&man_path, buffer).map_err(|e| {
     format!("Failed to write manpage to '{}': {}", man_path.display(), e)
   })?;
 
-  println!("Generated manpage to {}", out_dir);
+  println!("Generated manpage to {out_dir}");
   Ok(())
 }
 
@@ -258,7 +258,7 @@ fn render_command_recursive(
     if !opt.is_empty() {
       sect.text([bold(opt)]);
     }
-    if let Some(help) = arg.get_help().or(arg.get_long_help()) {
+    if let Some(help) = arg.get_long_help().or(arg.get_help()) {
       sect.text([roman(help.to_string())]);
     }
     if let Some(env) = arg.get_env() {
@@ -275,7 +275,7 @@ fn render_command_recursive(
 
   sect
     .to_writer(buffer)
-    .map_err(|e| format!("Failed to render command section: {}", e))?;
+    .map_err(|e| format!("Failed to render command section: {e}"))?;
 
   // Subcommands
   for sub in cmd.get_subcommands_mut() {

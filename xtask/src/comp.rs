@@ -44,23 +44,20 @@ pub fn generate(
   let gen_dir = Path::new(out_dir);
   if !gen_dir.exists() {
     std::fs::create_dir_all(gen_dir).map_err(|e| {
-      format!("Failed to create output directory '{}': {}", out_dir, e)
+      format!("Failed to create output directory '{out_dir}': {e}")
     })?;
   }
 
   let mut cmd = nh::interface::Main::command();
 
-  match shell {
-    Some(shell) => {
+  if let Some(shell) = shell {
+    generate_single(shell, &mut cmd, gen_dir)?;
+    println!("Generated {shell} completion to {out_dir}");
+  } else {
+    for shell in ALL_SHELLS {
       generate_single(shell, &mut cmd, gen_dir)?;
-      println!("Generated {} completion to {}", shell, out_dir);
-    },
-    None => {
-      for shell in ALL_SHELLS {
-        generate_single(shell, &mut cmd, gen_dir)?;
-      }
-      println!("Generated all completions to {}", out_dir);
-    },
+    }
+    println!("Generated all completions to {out_dir}");
   }
 
   Ok(())
@@ -74,27 +71,33 @@ fn generate_single(
   match shell {
     CompletionShell::Bash => {
       generate_to(clap_complete::Shell::Bash, cmd, BINARY_NAME, out_dir)
-        .map_err(|e| format!("Failed to generate Bash completion: {}", e))
+        .map_err(|e| format!("Failed to generate Bash completion: {e}"))
     },
     CompletionShell::Elvish => {
       generate_to(clap_complete::Shell::Elvish, cmd, BINARY_NAME, out_dir)
-        .map_err(|e| format!("Failed to generate Elvish completion: {}", e))
+        .map_err(|e| format!("Failed to generate Elvish completion: {e}"))
     },
     CompletionShell::Fish => {
       generate_to(clap_complete::Shell::Fish, cmd, BINARY_NAME, out_dir)
-        .map_err(|e| format!("Failed to generate Fish completion: {}", e))
+        .map_err(|e| format!("Failed to generate Fish completion: {e}"))
     },
     CompletionShell::PowerShell => {
       generate_to(clap_complete::Shell::PowerShell, cmd, BINARY_NAME, out_dir)
-        .map_err(|e| format!("Failed to generate PowerShell completion: {}", e))
+        .map_err(|e| format!("Failed to generate PowerShell completion: {e}"))
     },
     CompletionShell::Zsh => {
       generate_to(clap_complete::Shell::Zsh, cmd, BINARY_NAME, out_dir)
-        .map_err(|e| format!("Failed to generate Zsh completion: {}", e))
+        .map_err(|e| format!("Failed to generate Zsh completion: {e}"))
+        .and_then(|path| {
+          let new_path = path.with_file_name(format!("{BINARY_NAME}.zsh"));
+          std::fs::rename(&path, &new_path)
+            .map_err(|e| format!("Failed to rename Zsh completion: {e}"))?;
+          Ok(new_path)
+        })
     },
     CompletionShell::Nushell => {
       generate_to(clap_complete_nushell::Nushell, cmd, BINARY_NAME, out_dir)
-        .map_err(|e| format!("Failed to generate Nushell completion: {}", e))
+        .map_err(|e| format!("Failed to generate Nushell completion: {e}"))
     },
   }
 }

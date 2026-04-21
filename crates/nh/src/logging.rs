@@ -45,10 +45,10 @@ where
 
     ctx.field_format().format_fields(writer.by_ref(), event)?;
 
-    if *level != Level::INFO {
-      if let (Some(file), Some(line)) = (metadata.file(), metadata.line()) {
-        write!(writer, " (nh/{file}:{line})")?;
-      }
+    if *level != Level::INFO
+      && let (Some(file), Some(line)) = (metadata.file(), metadata.line())
+    {
+      write!(writer, " (nh/{file}:{line})")?;
     }
 
     writeln!(writer)?;

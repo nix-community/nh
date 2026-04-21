@@ -1,24 +1,21 @@
-use std::{convert::Into, env, path::PathBuf};
+pub mod args;
 
-use color_eyre::eyre::{Context, bail, eyre};
-use tracing::{debug, info, warn};
+use std::{convert::Into, path::PathBuf};
 
-use crate::{
+use args::{DarwinArgs, DarwinRebuildArgs, DarwinReplArgs, DarwinSubcommand};
+use color_eyre::{
   Result,
-  commands,
-  commands::{Command, ElevationStrategy},
-  installable::Installable,
-  interface::{
-    DarwinArgs,
-    DarwinRebuildArgs,
-    DarwinReplArgs,
-    DarwinSubcommand,
-    DiffType,
-  },
-  remote::{self, RemoteBuildConfig, RemoteHost},
+  eyre::{Context, bail},
+};
+use nh_core::{
+  args::DiffType,
+  command::{Command, ElevationStrategy},
+  installable::{CommandContext, Installable},
   update::update,
   util::{get_hostname, print_dix_diff},
 };
+use nh_remote::{self, RemoteBuildConfig};
+use tracing::{debug, info, warn};
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
 const CURRENT_PROFILE: &str = "/run/current-system";
@@ -77,14 +74,6 @@ impl DarwinRebuildArgs {
       );
     }
 
-    if self.update_args.update_all || self.update_args.update_input.is_some() {
-      update(
-        &self.common.installable,
-        self.update_args.update_input,
-        self.common.passthrough.commit_lock_file,
-      )?;
-    }
-
     let hostname = get_hostname(self.hostname)?;
 
     let (out_path, _tempdir_guard): (PathBuf, Option<tempfile::TempDir>) =
@@ -97,41 +86,30 @@ impl DarwinRebuildArgs {
 
     debug!("Output path: {out_path:?}");
 
-    // Use NH_DARWIN_FLAKE if available, otherwise use the provided installable
-    let installable = if let Ok(darwin_flake) = env::var("NH_DARWIN_FLAKE") {
-      debug!("Using NH_DARWIN_FLAKE: {}", darwin_flake);
-
-      let mut elems = darwin_flake.splitn(2, '#');
-      let reference = match elems.next() {
-        Some(r) => r.to_owned(),
-        None => return Err(eyre!("NH_DARWIN_FLAKE missing reference part")),
-      };
-      let attribute = elems
-        .next()
-        .map(crate::installable::parse_attribute)
-        .unwrap_or_default();
-
-      Installable::Flake {
-        reference,
-        attribute,
-      }
-    } else {
-      self.common.installable.clone()
-    };
+    let installable = self
+      .common
+      .installable
+      .clone()
+      .resolve(CommandContext::Darwin)?;
 
     let installable = match installable {
       Installable::Unspecified => Installable::try_find_default_for_darwin()?,
       other => other,
     };
 
+    if self.update_args.update_all || self.update_args.update_input.is_some() {
+      update(
+        &installable,
+        self.update_args.update_input,
+        self.common.passthrough.commit_lock_file,
+      )?;
+    }
+
     let toplevel = toplevel_for(hostname, installable, "toplevel")?;
 
     // If a build host is specified, use remote build semantics
-    if let Some(ref build_host_str) = self.build_host {
+    if let Some(build_host) = self.build_host.clone() {
       info!("Building Darwin configuration");
-
-      let build_host = RemoteHost::parse(build_host_str)
-        .wrap_err("Invalid build host specification")?;
 
       let config = RemoteBuildConfig {
         build_host,
@@ -154,12 +132,12 @@ impl DarwinRebuildArgs {
       };
 
       // Initialize SSH control - guard will cleanup connections on drop
-      let _ssh_guard = remote::init_ssh_control();
+      let _ssh_guard = nh_remote::init_ssh_control();
 
-      remote::build_remote(&toplevel, &config, Some(&out_path))
+      nh_remote::build_remote(&toplevel, &config, Some(&out_path))
         .wrap_err("Failed to build Darwin configuration")?;
     } else {
-      commands::Build::new(toplevel)
+      nh_core::command::Build::new(toplevel)
         .extra_arg("--out-link")
         .extra_arg(&out_path)
         .extra_args(&self.extra_args)
@@ -241,28 +219,8 @@ impl DarwinRebuildArgs {
 
 impl DarwinReplArgs {
   fn run(self) -> Result<()> {
-    // Use NH_DARWIN_FLAKE if available, otherwise use the provided installable
     let target_installable =
-      if let Ok(darwin_flake) = env::var("NH_DARWIN_FLAKE") {
-        debug!("Using NH_DARWIN_FLAKE: {}", darwin_flake);
-
-        let mut elems = darwin_flake.splitn(2, '#');
-        let reference = match elems.next() {
-          Some(r) => r.to_owned(),
-          None => return Err(eyre!("NH_DARWIN_FLAKE missing reference part")),
-        };
-        let attribute = elems
-          .next()
-          .map(crate::installable::parse_attribute)
-          .unwrap_or_default();
-
-        Installable::Flake {
-          reference,
-          attribute,
-        }
-      } else {
-        self.installable
-      };
+      self.installable.resolve(CommandContext::Darwin)?;
 
     let mut target_installable = match target_installable {
       Installable::Unspecified => Installable::try_find_default_for_darwin()?,
@@ -278,11 +236,10 @@ impl DarwinReplArgs {
     if let Installable::Flake {
       ref mut attribute, ..
     } = target_installable
+      && attribute.is_empty()
     {
-      if attribute.is_empty() {
-        attribute.push(String::from("darwinConfigurations"));
-        attribute.push(hostname);
-      }
+      attribute.push(String::from("darwinConfigurations"));
+      attribute.push(hostname);
     }
 
     Command::new("nix")

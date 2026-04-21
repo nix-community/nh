@@ -1,6 +1,11 @@
+pub mod args;
+
 use std::{process::Stdio, sync::OnceLock, time::Instant};
 
-use color_eyre::eyre::{Context, bail};
+use color_eyre::{
+  Result,
+  eyre::{Context, bail},
+};
 use elasticsearch_dsl::{
   Operator,
   Query,
@@ -8,18 +13,17 @@ use elasticsearch_dsl::{
   SearchResponse,
   TextQueryType,
 };
-use interface::SearchArgs;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace, warn};
 use yansi::{Color, Paint};
 
-use crate::{Result, interface};
+const NH_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // List of deprecated NixOS versions
 // Add new versions as they become deprecated.
 const DEPRECATED_VERSIONS: &[&str] =
-  &["nixos-23.11", "nixos-24.05", "nixos-24.11"];
+  &["nixos-23.11", "nixos-24.05", "nixos-24.11", "nixos-25.05"];
 
 // Support for current version pattern
 static SUPPORTED_BRANCH_REGEX: OnceLock<Regex> = OnceLock::new();
@@ -74,7 +78,7 @@ struct JSONOutput {
   results:    Vec<SearchResult>,
 }
 
-impl SearchArgs {
+impl args::SearchArgs {
   #[allow(clippy::missing_errors_doc)]
   pub fn run(&self) -> Result<()> {
     trace!("args: {self:?}");
@@ -104,10 +108,9 @@ impl SearchArgs {
         .stderr(Stdio::null())
         .args(["eval", "-f", "<nixpkgs>", "path"])
         .output()
+        && output.status.success()
       {
-        if output.status.success() {
-          return Ok(output);
-        }
+        return Ok(output);
       }
 
       std::process::Command::new("nix")
@@ -170,7 +173,7 @@ impl SearchArgs {
                 "https://search.nixos.org/backend/latest-44-{channel}/_search"
             ))
             .json(&query)
-            .header("User-Agent", format!("nh/{}", crate::NH_VERSION))
+            .header("User-Agent", format!("nh/{NH_VERSION}"))
             // Hardcoded upstream
             // https://github.com/NixOS/nixos-search/blob/744ec58e082a3fcdd741b2c9b0654a0f7fda4603/frontend/src/index.js
             .basic_auth("aWVSALXpZv", Some("X8gPHnzL52wFEekuxsfQ9cSh"))
@@ -335,10 +338,11 @@ fn supported_branch<S: AsRef<str>>(branch: S) -> bool {
 #[test]
 fn test_supported_branch() {
   assert!(supported_branch("nixos-unstable"));
-  assert!(supported_branch("nixos-25.05"));
+  assert!(supported_branch("nixos-25.11"));
   assert!(!supported_branch("nixos-unstable-small"));
   assert!(!supported_branch("nixos-24.05"));
   assert!(!supported_branch("nixos-24.11"));
+  assert!(!supported_branch("nixos-25.05"));
   assert!(!supported_branch("24.05"));
   assert!(!supported_branch("nixpkgs-darwin"));
   assert!(!supported_branch("nixpks-21.11-darwin"));

@@ -246,12 +246,11 @@ impl FeatureRequirements for OsReplFeatures {
         // Lix-specific repl-flake feature for older versions
         if let Ok(version) = util::get_nix_version() {
           let normalized_version = normalize_version_string(&version);
-          if let Ok(current) = Version::parse(&normalized_version) {
-            if let Ok(threshold) = Version::parse("2.93.0") {
-              if current < threshold {
-                features.push("repl-flake");
-              }
-            }
+          if let Ok(current) = Version::parse(&normalized_version)
+            && let Ok(threshold) = Version::parse("2.93.0")
+            && current < threshold
+          {
+            features.push("repl-flake");
           }
         }
       },
@@ -328,6 +327,7 @@ impl FeatureRequirements for NoFeatures {
 }
 
 #[cfg(test)]
+#[expect(clippy::expect_used, reason = "Fine in tests")]
 mod tests {
   use std::env;
 
@@ -348,7 +348,7 @@ mod tests {
       unsafe {
         env::set_var(key, value);
       }
-      EnvGuard {
+      Self {
         key: key.to_string(),
         original,
       }
@@ -375,15 +375,15 @@ mod tests {
       ) {
           // Test basic semver format
           let basic = format!("{major}.{minor}.{patch}");
-          prop_assert_eq!(normalize_version_string(&basic), basic.clone());
+          prop_assert_eq!(&normalize_version_string(&basic), &basic);
 
           // Test with pre-release suffix
           let pre_release = format!("{major}.{minor}.{patch}-pre");
-          prop_assert_eq!(normalize_version_string(&pre_release), basic.clone());
+          prop_assert_eq!(&normalize_version_string(&pre_release), &basic);
 
           // Test with distro suffix
           let distro = format!("{major}.{minor}.{patch}-1");
-          prop_assert_eq!(normalize_version_string(&distro), basic.clone());
+          prop_assert_eq!(&normalize_version_string(&distro), &basic);
 
           // Test Nix-style version without patch (should add .0)
           let no_patch = format!("{major}.{minor}");

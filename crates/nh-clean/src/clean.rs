@@ -1,3 +1,5 @@
+pub mod args;
+
 use std::{
   collections::{BTreeMap, HashMap},
   fmt,
@@ -6,8 +8,12 @@ use std::{
   time::SystemTime,
 };
 
-use color_eyre::eyre::{Context, ContextCompat, bail, eyre};
+use color_eyre::{
+  Result,
+  eyre::{Context, ContextCompat, bail, eyre},
+};
 use inquire::Confirm;
+use nh_core::command::{Command, ElevationStrategy};
 use nix::{
   errno::Errno,
   fcntl::AtFlags,
@@ -17,18 +23,13 @@ use regex::Regex;
 use tracing::{Level, debug, info, instrument, span, warn};
 use yansi::{Color, Paint};
 
-use crate::{
-  Result,
-  commands::{Command, ElevationStrategy},
-  interface,
-};
-
 // Nix impl:
 // https://github.com/NixOS/nix/blob/master/src/nix-collect-garbage/nix-collect-garbage.cc
 
 static DIRENV_REGEX: LazyLock<Regex> = LazyLock::new(|| {
   #[allow(clippy::expect_used)]
-  Regex::new(r".*/.direnv/.*").expect("Failed to compile direnv regex")
+  Regex::new(r".*/(?:\.direnv|direnv/layouts)/.*")
+    .expect("Failed to compile direnv regex")
 });
 
 static RESULT_REGEX: LazyLock<Regex> = LazyLock::new(|| {
@@ -69,7 +70,7 @@ where
   })
 }
 
-impl interface::CleanMode {
+impl args::CleanMode {
   /// Run the clean operation for the selected mode.
   ///
   /// # Errors
@@ -96,7 +97,7 @@ impl interface::CleanMode {
       },
       Self::All(args) => {
         if !uid.is_root() {
-          crate::util::self_elevate(elevate);
+          nh_core::util::self_elevate(elevate);
         }
 
         let paths_to_check = [
@@ -458,10 +459,10 @@ fn cleanable_generations(
 
     if let Some(caps) = captures {
       // Check if this generation belongs to the current profile
-      if let Some(profile_name) = caps.get(1) {
-        if profile_name.as_str() != name {
-          continue;
-        }
+      if let Some(profile_name) = caps.get(1)
+        && profile_name.as_str() != name
+      {
+        continue;
       }
       if let Some(number) = caps.get(2) {
         let last_modified = path
