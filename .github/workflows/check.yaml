@@ -1,10 +1,11 @@
-name: "Check formating & lints"
+name: "Check formatting & lints"
 
 on:
   workflow_dispatch:
   pull_request:
     branches: ["master"]
     paths:
+      - "Justfile"
       - "Cargo.toml"
       - "Cargo.lock"
       - "xtask/Cargo.toml"
@@ -16,6 +17,7 @@ on:
     branches-ignore:
       - "update-*"
     paths:
+      - "Justfile"
       - "Cargo.toml"
       - "Cargo.lock"
       - "xtask/Cargo.toml"
@@ -36,30 +38,7 @@ jobs:
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Check if the source code is formatted as per the tooling configurations
-      # in the repository root. Unlike the Clippy lints below, formatting lints
-      # **must** pass.
-      - name: Prepare Dev Environment
+      - name: Checking Code (format, lints, etc.)
         run: |
           eval "$(nix print-dev-env)"
-          set -x
-
-          # Verify that Rust source code is formatted
-          cargo fmt --check || exit 1
-
-          # Verify that TOML files are formatted
-          taplo fmt --check || exit 1
-
-      # We run clippy with lints that help avoid overall low-quality code or what is called "code smell."
-      # Stylistic lints (e.g., clippy::style and clippy::complexity) are avoided but it is a good idea to
-      # follow those while working on the codebase.
-      - name: Clippy Lints
-        run: |
-          eval "$(nix print-dev-env)"
-          set -x
-
-          # Lint Changes
-          cargo clippy -- \
-            -W clippy::pedantic \
-            -W clippy::correctness \
-            -W clippy::suspicious
+          just check || exit 1
