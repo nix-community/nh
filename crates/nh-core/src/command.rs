@@ -84,8 +84,8 @@ pub fn exec_with_streaming(
     }
   });
 
-  let stderr_thread = if let Some(stderr_pipe) = job.stderr.take() {
-    Some(std::thread::spawn(move || {
+  let stderr_thread = job.stderr.take().map(|stderr_pipe| {
+    std::thread::spawn(move || {
       let mut stderr_reader = std::io::BufReader::new(stderr_pipe);
       let mut stderr_bytes = Vec::new();
       let mut stderr_buf = [0u8; 4096];
@@ -112,10 +112,8 @@ pub fn exec_with_streaming(
       } else {
         String::new()
       }
-    }))
-  } else {
-    None
-  };
+    })
+  });
 
   let exit_status = job
     .wait()
