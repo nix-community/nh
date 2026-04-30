@@ -426,10 +426,8 @@ generate manpages and possibly more in the future.
 
 ### Submitting Changes
 
-Once your changes are complete, please remember to run the fixup script in
-[fix.sh](./fix.sh) to apply general formatter and linter rules that will be
-expected by the CI. This is optional, but some CI steps (such as formatting) is
-required for a merge.
+Once your changes are complete, please remember to run `just fix` to apply
+general formatter and linter rules that will be expected by the CI.
 
 You will also want to update the [changelog](/CHANGELOG.md) with sufficient
 amount of information to detail the new behaviour before you create your
