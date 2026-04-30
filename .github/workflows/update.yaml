@@ -22,7 +22,7 @@ jobs:
         nix flake update
         eval "$(nix print-dev-env)"
         cargo update
-        ./fix.sh
+        just fix
 
     - name: Create Pull Request
       uses: peter-evans/create-pull-request@v8
