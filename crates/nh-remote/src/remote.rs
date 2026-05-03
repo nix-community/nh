@@ -806,40 +806,6 @@ fn run_remote_command(
   }
 }
 
-/// Copy a Nix closure to a remote host.
-fn copy_closure_to(
-  host: &RemoteHost,
-  path: &str,
-  use_substitutes: bool,
-) -> Result<()> {
-  info!("Copying closure to build host '{}'", host);
-
-  let mut cmd = Exec::cmd("nix-copy-closure")
-    .arg("--to")
-    .arg(host.ssh_host());
-
-  if use_substitutes {
-    cmd = cmd.arg("--use-substitutes");
-  }
-
-  cmd = cmd.arg(path).env("NIX_SSHOPTS", get_nix_sshopts_env());
-
-  debug!(?cmd, "nix-copy-closure --to");
-
-  let (exit_status, _stdout, _stderr) = exec_with_streaming(cmd, false)
-    .wrap_err("Failed to copy closure to remote host")?;
-
-  if !exit_status.success() {
-    bail!(
-      "nix-copy-closure --to '{}' failed (exit status: {:?})",
-      host,
-      exit_status
-    );
-  }
-
-  Ok(())
-}
-
 /// Validates that essential files exist in a closure on a remote host.
 ///
 /// Performs batched SSH checks using connection multiplexing. This is useful
@@ -1558,7 +1524,7 @@ pub fn build_remote(
   let drv_path = eval_drv_path(installable)?;
 
   // Step 2: Copy derivation to build host
-  copy_closure_to(build_host, &drv_path, use_substitutes)?;
+  copy_to_remote(build_host, &drv_path, use_substitutes)?;
 
   // Step 3: Build on remote
   info!("Building on remote host '{}'", build_host);
