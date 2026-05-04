@@ -25,7 +25,7 @@ on:
 
 jobs:
   test-linux:
-    name: "Test NH on Linux"
+    name: "Test NH on Linux (x86_64-linux)"
     runs-on: ubuntu-latest
     steps:
       - uses: cachix/install-nix-action@master
@@ -46,8 +46,12 @@ jobs:
         run: |
           nix run .#nh -- os switch --diff never --dry --no-nom --verbose --file ./test/nixos.nix
 
+      - name: Test NH features in NixOS VM
+        run: |
+          nix build .#checks.x86_64-linux.nh-remote-test
+
   build-darwin:
-    name: "Test NH on Darwin"
+    name: "Test NH on Darwin (aarch64-darwin)"
     runs-on: macos-latest
 
     steps:
