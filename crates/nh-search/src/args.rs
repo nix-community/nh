@@ -1,7 +1,8 @@
 use clap::{Args, ValueEnum};
 
 #[derive(Args, Debug)]
-/// Searches packages by querying search.nixos.org
+/// Searches packages or NixOS/home-manager options by querying
+/// search.nixos.org
 pub struct SearchArgs {
   #[arg(long, short, default_value = "30")]
   /// Number of search results to display
@@ -24,9 +25,31 @@ pub struct SearchArgs {
   /// Output results as JSON
   pub json: bool,
 
-  /// Name of the package to search
+  #[arg(
+    long,
+    num_args = 0..=1,
+    default_missing_value = "all",
+    require_equals = true,
+    value_name = "SCOPE"
+  )]
+  /// Search NixOS and home-manager module options instead of packages
+  /// SCOPE: nixpkgs, home-manager, or all (default)
+  pub options: Option<OptionScope>,
+
+  /// Name of the package or option to search
   #[arg(required = true)]
   pub query: Vec<String>,
+}
+
+#[derive(Debug, Clone, ValueEnum)]
+pub enum OptionScope {
+  /// Search NixOS options and modular services
+  Nixpkgs,
+  /// Search home-manager options
+  #[value(name = "home-manager")]
+  HomeManager,
+  /// Search all options (NixOS, services, and home-manager)
+  All,
 }
 
 #[derive(Debug, Clone, ValueEnum)]
