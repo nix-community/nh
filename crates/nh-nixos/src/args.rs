@@ -333,6 +333,10 @@ pub struct OsDeleteArgs {
   #[arg(long = "no-gc", alias = "nogc")]
   pub no_gc: bool,
 
+  /// Don't update the bootloader menu
+  #[arg(long = "no-boot", alias = "noboot")]
+  pub no_boot: bool,
+
   /// Don't panic if calling nh as root
   #[arg(short = 'R', long, env = "NH_BYPASS_ROOT_CHECK")]
   pub bypass_root_check: bool,

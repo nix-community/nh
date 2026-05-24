@@ -1544,7 +1544,7 @@ impl OsDeleteArgs {
     // Run bootloader activation hook if it exists
     let switch_to_configuration =
       Path::new("/run/current-system/bin/switch-to-configuration");
-    if switch_to_configuration.exists() {
+    if !self.no_boot && switch_to_configuration.exists() {
       Command::new(switch_to_configuration)
         .arg("boot")
         .elevate(elevate.then_some(elevation))
