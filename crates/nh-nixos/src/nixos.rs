@@ -26,6 +26,7 @@ use crate::{
     self,
     OsBuildImageArgs,
     OsBuildVmArgs,
+    OsDeleteArgs,
     OsGenerationsArgs,
     OsRebuildActivateArgs,
     OsRebuildArgs,
@@ -93,6 +94,7 @@ impl args::OsArgs {
       OsSubcommand::Repl(args) => args.run(),
       OsSubcommand::Info(args) => args.info(),
       OsSubcommand::Rollback(args) => args.rollback(elevation),
+      OsSubcommand::Delete(args) => args.delete(elevation),
       OsSubcommand::BuildImage(args) => args.build_image(&elevation),
     }
   }
@@ -1431,6 +1433,128 @@ impl OsGenerationsArgs {
 
     generations::print_info(descriptions, self.fields.as_deref())?;
 
+    Ok(())
+  }
+}
+
+impl OsDeleteArgs {
+  fn delete(&self, elevation: ElevationStrategy) -> Result<()> {
+    let elevate = has_elevation_status(self.bypass_root_check, &elevation)?;
+
+    let profile = match self.profile {
+      Some(ref p) => PathBuf::from(p),
+      None => bail!("Profile path is required"),
+    };
+
+    if !profile.is_symlink() {
+      return Err(eyre!(
+        "No profile `{:?}` found",
+        profile.file_name().unwrap_or_default()
+      ));
+    }
+
+    // Determine the current generation of the profile
+    let current_generation_link = fs::read_link(&profile).wrap_err(
+      "Failed to read profile symlink to determine current generation",
+    )?;
+
+    let current_gen_num = generations::from_dir(&current_generation_link)
+      .ok_or_else(|| eyre!("Failed to parse current generation number"))?;
+
+    // Find the profile directory and the base name of the profile (e.g.
+    // "system")
+    let profile_dir = profile.parent().unwrap_or_else(|| Path::new("."));
+    let profile_name = profile
+      .file_name()
+      .and_then(|n| n.to_str())
+      .ok_or_else(|| eyre!("Invalid profile name"))?;
+
+    // Gather existing generations
+    let mut existing_gens = std::collections::HashMap::new();
+    for entry in fs::read_dir(profile_dir)? {
+      let entry = entry?;
+      let path = entry.path();
+      if let Some(name) = path.file_name().and_then(|s| s.to_str())
+        && name.starts_with(&format!("{profile_name}-"))
+        && name.ends_with("-link")
+        && let Some(num) = generations::from_dir(&path)
+      {
+        existing_gens.insert(num, path);
+      }
+    }
+
+    // Deduplicate and validate targets
+    let mut targets = self.generations.clone();
+    targets.sort_unstable();
+    targets.dedup();
+
+    let mut paths_to_delete = Vec::new();
+    for generation_num in &targets {
+      if *generation_num == current_gen_num {
+        bail!("Cannot delete the current generation ({})", generation_num);
+      }
+      if let Some(path) = existing_gens.get(generation_num) {
+        paths_to_delete.push((*generation_num, path.clone()));
+      } else {
+        bail!(
+          "Generation {} does not exist for profile {:?}",
+          generation_num,
+          profile_name
+        );
+      }
+    }
+
+    // Confirmation / Dry-run
+    if self.dry {
+      info!("Dry run: would delete the following generation(s):");
+      for (generation_num, _) in &paths_to_delete {
+        info!("  - Generation {}", generation_num);
+      }
+      return Ok(());
+    }
+
+    if self.ask {
+      let confirmation =
+        inquire::Confirm::new(&format!("Delete generation(s) {targets:?}?"))
+          .with_default(false)
+          .prompt()?;
+
+      if !confirmation {
+        bail!("User rejected the deletion");
+      }
+    }
+
+    info!("Deleting generation(s)...");
+    for (generation_num, path) in &paths_to_delete {
+      Command::new("rm")
+        .arg(path)
+        .elevate(elevate.then_some(elevation.clone()))
+        .message(format!(
+          "Removing generation link {} (generation {})",
+          path.display(),
+          generation_num
+        ))
+        .with_required_env()
+        .run()
+        .wrap_err_with(|| {
+          format!("Failed to remove generation link {}", path.display())
+        })?;
+    }
+
+    // Run bootloader activation hook if it exists
+    let switch_to_configuration =
+      Path::new("/run/current-system/bin/switch-to-configuration");
+    if switch_to_configuration.exists() {
+      Command::new(switch_to_configuration)
+        .arg("boot")
+        .elevate(elevate.then_some(elevation))
+        .message("Updating bootloader entries")
+        .with_required_env()
+        .run()
+        .wrap_err("Failed to update bootloader after deleting generations")?;
+    }
+
+    info!("Generation(s) deleted successfully.");
     Ok(())
   }
 }
