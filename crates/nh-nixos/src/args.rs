@@ -329,6 +329,10 @@ pub struct OsDeleteArgs {
   #[arg(long, short)]
   pub ask: bool,
 
+  /// Don't run nix store --gc
+  #[arg(long = "no-gc", alias = "nogc")]
+  pub no_gc: bool,
+
   /// Don't panic if calling nh as root
   #[arg(short = 'R', long, env = "NH_BYPASS_ROOT_CHECK")]
   pub bypass_root_check: bool,

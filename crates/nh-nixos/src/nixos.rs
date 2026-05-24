@@ -1554,6 +1554,16 @@ impl OsDeleteArgs {
         .wrap_err("Failed to update bootloader after deleting generations")?;
     }
 
+    if !self.no_gc {
+      Command::new("nix")
+        .args(["store", "gc"])
+        .dry(self.dry)
+        .message("Performing garbage collection on the nix store")
+        .show_output(true)
+        .with_required_env()
+        .run()?;
+    }
+
     info!("Generation(s) deleted successfully.");
     Ok(())
   }
