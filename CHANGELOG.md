@@ -24,6 +24,8 @@ functionality, under the "Removed" section.
 - `nh clean --cross-filesystems` / `-x` allows the gcroot scan to cross
   filesystem boundaries. By default the walk stays on the same filesystem as
   `/nix/var/nix/gcroots`.
+- `--no-direnv` passed to `nh clean all` will now preserve `.direnv/` paths as
+  well.
 
 ### Changed
 

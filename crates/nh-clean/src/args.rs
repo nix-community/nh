@@ -48,6 +48,10 @@ pub struct CleanArgs {
   #[arg(long = "no-gcroots", alias = "nogcroots")]
   pub no_gcroots: bool,
 
+  /// Don't clean direnv gcroots
+  #[arg(long = "no-direnv", alias = "nodirenv")]
+  pub no_direnv: bool,
+
   /// Run nix-store --optimise after gc
   #[arg(long)]
   pub optimise: bool,

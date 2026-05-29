@@ -38,6 +38,8 @@ static GENERATION_REGEX: LazyLock<Regex> = LazyLock::new(|| {
   Regex::new(r"^(.*)-(\d+)-link$").expect("Failed to compile generation regex")
 });
 
+const AUTO_GCROOTS_DIR: &str = "/nix/var/nix/gcroots/auto";
+
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 struct Generation {
   number:        u32,
@@ -49,6 +51,13 @@ type ToBeRemoved = bool;
 // BTreeMap to automatically sort generations by id
 type GenerationsTagged = BTreeMap<Generation, ToBeRemoved>;
 type ProfilesTagged = HashMap<PathBuf, GenerationsTagged>;
+
+#[derive(Debug)]
+struct GcRootTagged {
+  src: PathBuf,
+  dst: PathBuf,
+  tbr: ToBeRemoved,
+}
 
 /// Filter paths to only include existing directories, logging warnings for
 /// missing ones
@@ -79,7 +88,7 @@ impl args::CleanMode {
   /// example, if  `User::from_uid(uid)` returns `None`.
   pub fn run(&self, elevate: ElevationStrategy) -> Result<()> {
     let mut profiles = Vec::new();
-    let mut gcroots_tagged: HashMap<PathBuf, ToBeRemoved> = HashMap::new();
+    let mut gcroots_tagged = Vec::new();
     let now = SystemTime::now();
     let mut is_profile_clean = false;
 
@@ -190,7 +199,7 @@ impl args::CleanMode {
     }
 
     // Query gcroots
-    let regexes = [&*DIRENV_REGEX];
+    let regexes = &[&*DIRENV_REGEX][..(!args.no_direnv as usize)];
     let mut orphan_gcroots: Vec<PathBuf> = Vec::new();
 
     if !is_profile_clean && !args.no_gcroots {
@@ -227,17 +236,7 @@ impl args::CleanMode {
           continue;
         }
 
-        let resolved_dst = if dst.is_symlink() {
-          dst.read_link().unwrap_or_else(|_| dst.clone())
-        } else {
-          dst.clone()
-        };
-
-        if !regexes
-          .iter()
-          .any(|next| next.is_match(&dst.to_string_lossy()))
-          && !is_nix_store_direct_child(&resolved_dst)
-        {
+        if !gcroot_matches_filter(&src, &dst, regexes) {
           debug!("dst doesn't match any gcroot filter, skipping");
           continue;
         }
@@ -251,11 +250,19 @@ impl args::CleanMode {
           Ok(()) => {
             if dst.metadata().is_err() {
               debug!(?dst, "gcroot target already GC'd, tagging for removal");
-              gcroots_tagged.insert(dst, true);
+              gcroots_tagged.push(GcRootTagged {
+                src,
+                dst,
+                tbr: true,
+              });
             } else if args.keep_one
               && DIRENV_REGEX.is_match(&dst.to_string_lossy())
             {
-              gcroots_tagged.insert(dst, false);
+              gcroots_tagged.push(GcRootTagged {
+                src,
+                dst,
+                tbr: false,
+              });
             } else {
               let dur = now.duration_since(
                 dst
@@ -269,10 +276,18 @@ impl args::CleanMode {
                   warn!(?err, ?now, "Failed to compare time!");
                 },
                 Ok(val) if val <= args.keep_since.into() => {
-                  gcroots_tagged.insert(dst, false);
+                  gcroots_tagged.push(GcRootTagged {
+                    src,
+                    dst,
+                    tbr: false,
+                  });
                 },
                 Ok(_) => {
-                  gcroots_tagged.insert(dst, true);
+                  gcroots_tagged.push(GcRootTagged {
+                    src,
+                    dst,
+                    tbr: true,
+                  });
                 },
               }
             }
@@ -311,6 +326,9 @@ impl args::CleanMode {
     if args.keep_one {
       println!("Keeping all active direnv gcroots");
     }
+    if args.no_direnv {
+      println!("Skipping all direnv gcroots");
+    }
     println!();
     println!("legend:");
     println!(
@@ -340,18 +358,18 @@ impl args::CleanMode {
         "- {}  /nix/store direct children",
         Paint::new("RE").fg(Color::Magenta)
       );
-      for (path, tbr) in &gcroots_tagged {
-        if *tbr {
+      for gcroot in &gcroots_tagged {
+        if gcroot.tbr {
           println!(
             "- {} {}",
             Paint::new("DEL").fg(Color::Red),
-            path.to_string_lossy()
+            gcroot.dst.to_string_lossy()
           );
         } else {
           println!(
             "- {} {}",
             Paint::new("OK ").fg(Color::Green),
-            path.to_string_lossy()
+            gcroot.dst.to_string_lossy()
           );
         }
       }
@@ -390,9 +408,9 @@ impl args::CleanMode {
     }
 
     if !args.dry {
-      for (path, tbr) in &gcroots_tagged {
-        if *tbr {
-          remove_path_nofail(path);
+      for gcroot in &gcroots_tagged {
+        if gcroot.tbr {
+          remove_path_nofail(gcroot_path_to_remove(gcroot));
         }
       }
 
@@ -562,6 +580,27 @@ fn is_nix_store_direct_child(path: &Path) -> bool {
     .unwrap_or(false)
 }
 
+fn gcroot_matches_filter(src: &Path, dst: &Path, regexes: &[&Regex]) -> bool {
+  let resolved_dst = if dst.is_symlink() {
+    dst.read_link().unwrap_or_else(|_| dst.to_path_buf())
+  } else {
+    dst.to_path_buf()
+  };
+
+  regexes
+    .iter()
+    .any(|next| next.is_match(&dst.to_string_lossy()))
+    || (is_auto_gcroot_entry(src) && is_nix_store_direct_child(&resolved_dst))
+}
+
+fn is_auto_gcroot_entry(path: &Path) -> bool {
+  path.starts_with(AUTO_GCROOTS_DIR)
+}
+
+fn gcroot_path_to_remove(gcroot: &GcRootTagged) -> &Path {
+  &gcroot.src
+}
+
 fn remove_path_nofail(path: &Path) {
   info!("Removing {}", path.to_string_lossy());
   if let Err(err) = std::fs::remove_file(path) {
@@ -622,35 +661,92 @@ mod tests {
 
   #[test]
   fn gcroot_filter_passes_direnv_path() {
-    let path = Path::new("/home/user/project/.direnv/something");
+    let src = Path::new("/nix/var/nix/gcroots/project-direnv");
+    let dst = Path::new("/home/user/project/.direnv/something");
     let regexes = [&*DIRENV_REGEX];
-    let passes = regexes
-      .iter()
-      .any(|re| re.is_match(&path.to_string_lossy()))
-      || is_nix_store_direct_child(path);
-    assert!(passes);
+    assert!(gcroot_matches_filter(src, dst, &regexes));
   }
 
   #[test]
-  fn gcroot_filter_passes_store_direct_child() {
-    let path = Path::new("/nix/store/abc123zzz-foo-1.0");
+  fn gcroot_filter_passes_auto_store_direct_child() {
+    let src = Path::new("/nix/var/nix/gcroots/auto/example");
+    let dst = Path::new("/nix/store/abc123zzz-foo-1.0");
     let regexes = [&*DIRENV_REGEX];
-    let passes = regexes
-      .iter()
-      .any(|re| re.is_match(&path.to_string_lossy()))
-      || is_nix_store_direct_child(path);
-    assert!(passes);
+    assert!(gcroot_matches_filter(src, dst, &regexes));
+  }
+
+  #[test]
+  fn gcroot_filter_rejects_non_auto_store_direct_child() {
+    let src = Path::new("/nix/var/nix/gcroots/current-system");
+    let dst = Path::new("/nix/store/abc123zzz-foo-1.0");
+    let regexes = [&*DIRENV_REGEX];
+    assert!(!gcroot_matches_filter(src, dst, &regexes));
+  }
+
+  #[test]
+  fn gcroot_filter_passes_auto_symlink_to_store_direct_child() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let link = dir.path().join("result");
+    std::os::unix::fs::symlink("/nix/store/abc123zzz-foo-1.0", &link)
+      .expect("symlink");
+
+    let src = Path::new("/nix/var/nix/gcroots/auto/example");
+    let regexes = [&*DIRENV_REGEX];
+    assert!(gcroot_matches_filter(src, &link, &regexes));
+  }
+
+  #[test]
+  fn direct_store_filter_is_limited_to_auto_gcroots() {
+    assert!(is_auto_gcroot_entry(Path::new(
+      "/nix/var/nix/gcroots/auto/example"
+    )));
+    assert!(!is_auto_gcroot_entry(Path::new(
+      "/nix/var/nix/gcroots/current-system"
+    )));
+    assert!(!is_auto_gcroot_entry(Path::new(
+      "/nix/var/nix/gcroots/booted-system"
+    )));
+    assert!(!is_auto_gcroot_entry(Path::new(
+      "/nix/var/nix/gcroots/profiles/system"
+    )));
+  }
+
+  #[test]
+  fn gcroot_cleanup_removes_source_not_system_destination() {
+    let gcroot = GcRootTagged {
+      src: PathBuf::from("/nix/var/nix/gcroots/auto/example"),
+      dst: PathBuf::from("/run/current-system"),
+      tbr: true,
+    };
+
+    assert_eq!(
+      gcroot_path_to_remove(&gcroot),
+      Path::new("/nix/var/nix/gcroots/auto/example")
+    );
+    assert_ne!(gcroot_path_to_remove(&gcroot), gcroot.dst.as_path());
+  }
+
+  #[test]
+  fn gcroot_cleanup_removes_source_not_profile_destination() {
+    let gcroot = GcRootTagged {
+      src: PathBuf::from("/nix/var/nix/gcroots/auto/example"),
+      dst: PathBuf::from("/nix/var/nix/profiles/system-2-link"),
+      tbr: true,
+    };
+
+    assert_eq!(
+      gcroot_path_to_remove(&gcroot),
+      Path::new("/nix/var/nix/gcroots/auto/example")
+    );
+    assert_ne!(gcroot_path_to_remove(&gcroot), gcroot.dst.as_path());
   }
 
   #[test]
   fn gcroot_filter_rejects_arbitrary_path() {
-    let path = Path::new("/home/user/some-random-link");
+    let src = Path::new("/nix/var/nix/gcroots/auto/example");
+    let dst = Path::new("/home/user/some-random-link");
     let regexes = [&*DIRENV_REGEX];
-    let passes = regexes
-      .iter()
-      .any(|re| re.is_match(&path.to_string_lossy()))
-      || is_nix_store_direct_child(path);
-    assert!(!passes);
+    assert!(!gcroot_matches_filter(src, dst, &regexes));
   }
 
   #[test]
