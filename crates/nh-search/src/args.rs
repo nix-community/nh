@@ -102,6 +102,7 @@ pub struct OfflineArgs {
     short = 'D',
     value_name = "PATH",
     env = "NH_OFFLINE_DB",
+    value_delimiter = ':',
     required = true
   )]
   pub databases: Vec<PathBuf>,
