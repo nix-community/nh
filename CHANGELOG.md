@@ -18,6 +18,11 @@ functionality, under the "Removed" section.
 
 ### Added
 
+- `nh search offline <query>` subcommand for offline search using
+  [spam-db](https://github.com/feel-co/spam) databases. Requires `-D <path>` (or
+  `NH_OFFLINE_DB`) pointing to the database directory.
+- `nh search --default-search` global option to set default search mode
+  (`packages` or `options`) when no subcommand is specified.
 - `nh clean --keep-one` preserves all active direnv gcroots regardless of
   `--keep-since`, preventing projects from being collected when they haven't
   been activated recently. Orphaned and broken gcroots are still removed.
@@ -29,6 +34,13 @@ functionality, under the "Removed" section.
 
 ### Changed
 
+- **Breaking Change**: `nh search` CLI has been restructured to use subcommands.
+  - `--options <query>` is now `nh search options <query>`
+  - `--options` flag has been removed
+  - `--channel`, `--limit`, `--platforms`, and `--json` flags are now global and
+    apply to all subcommands
+  - When no subcommand is specified, the default search mode is used
+    (configurable via `--default-search`)
 - `nh search` now uses search backend version 48 (previously 46) to track the
   current Elasticsearch endpoint.
 - gcroot scanning now walks all of `/nix/var/nix/gcroots` recursively instead of
