@@ -1,13 +1,14 @@
 pub mod args;
 
 use std::{
+  path::PathBuf,
   sync::OnceLock,
   time::{Duration, Instant},
 };
 
 use color_eyre::{
   Result,
-  eyre::{Context, bail, eyre},
+  eyre::{Context, bail},
 };
 use elasticsearch_dsl::{
   Operator,
@@ -18,6 +19,7 @@ use elasticsearch_dsl::{
 };
 use regex::Regex;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use spam_db::{FileRecord, OptionRecord, SpamDb};
 use subprocess::{Exec, Redirection};
 use tracing::{debug, trace, warn};
 use yansi::{Color, Paint};
@@ -106,6 +108,29 @@ struct JSONOutputOptions {
   results:    Vec<OptionSearchResult>,
 }
 
+#[derive(Debug, Serialize)]
+struct JSONOutputOffline {
+  query:      String,
+  db_paths:   Vec<String>,
+  elapsed_ms: u128,
+  options:    Vec<OfflineOptionResult>,
+  packages:   Vec<OfflinePackageResult>,
+}
+
+#[derive(Debug, Serialize)]
+struct OfflineOptionResult {
+  db_path: String,
+  name:    String,
+  summary: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct OfflinePackageResult {
+  db_path:  String,
+  path:     String,
+  packages: Vec<String>,
+}
+
 /// Strips HTML tags from a rendered-html description string
 fn strip_html(html: &str) -> String {
   static HTML_TAG: OnceLock<Regex> = OnceLock::new();
@@ -119,14 +144,23 @@ fn strip_html(html: &str) -> String {
   re.replace_all(html, "").trim().to_string()
 }
 
-/// Returns the ES document type strings for a given option scope
+const TYPE_OPTION: &str = "option";
+const TYPE_SERVICE: &str = "service";
+const TYPE_HOME_MANAGER_OPTION: &str = "home-manager-option";
+
+const NIXPKGS_SCOPE_TYPES: &[&str] = &[TYPE_OPTION, TYPE_SERVICE];
+const HOME_MANAGER_SCOPE_TYPES: &[&str] = &[TYPE_HOME_MANAGER_OPTION];
+const ALL_SCOPE_TYPES: &[&str] =
+  &[TYPE_OPTION, TYPE_SERVICE, TYPE_HOME_MANAGER_OPTION];
+
+/// Returns the ES document type strings for a given option scope.
 const fn option_scope_types(
   scope: &args::OptionScope,
 ) -> &'static [&'static str] {
   match scope {
-    args::OptionScope::Nixpkgs => &["option", "service"],
-    args::OptionScope::HomeManager => &["home-manager-option"],
-    args::OptionScope::All => &["option", "service", "home-manager-option"],
+    args::OptionScope::Nixpkgs => NIXPKGS_SCOPE_TYPES,
+    args::OptionScope::HomeManager => HOME_MANAGER_SCOPE_TYPES,
+    args::OptionScope::All => ALL_SCOPE_TYPES,
   }
 }
 
@@ -179,10 +213,10 @@ where
        request was malformed.",
       response.status(),
     );
-    return Err(eyre!(
+    bail!(
       "search.nixos.org returned HTTP {} for channel '{channel}'",
       response.status(),
-    ));
+    );
   }
 
   let parsed_response: SearchResponse = response
@@ -194,68 +228,105 @@ where
   Ok((documents, elapsed))
 }
 
+fn capture_nix_path(args: &[&str]) -> Option<String> {
+  let capture = Exec::cmd("nix")
+    .args(args)
+    .stderr(Redirection::None)
+    .stdout(Redirection::Pipe)
+    .capture()
+    .ok()?;
+
+  capture
+    .exit_status
+    .success()
+    .then(|| capture.stdout_str().trim().to_string())
+    .filter(|path| !path.is_empty())
+}
+
+fn resolve_nixpkgs_path(channel: &str) -> String {
+  let flake_ref = if channel == "nixos-unstable" {
+    "github:NixOS/nixpkgs/nixos-unstable".to_string()
+  } else if channel.starts_with("nixos-") {
+    format!("github:NixOS/nixpkgs/{channel}")
+  } else {
+    "nixpkgs".to_string()
+  };
+
+  if let Some(path) = capture_nix_path(&["eval", "-f", "<nixpkgs>", "path"]) {
+    return path;
+  }
+
+  let flake_path = format!("{flake_ref}#path");
+  capture_nix_path(&["eval", "--raw", &flake_path]).unwrap_or_default()
+}
+
+/// Validates the channel, applying fallback for deprecated versions.
+///
+/// # Returns
+///
+/// The effective channel string, after substituting any deprecated alias with
+/// `nixos-unstable`.
+///
+/// # Errors
+///
+/// Returns an error if `channel` (post-substitution) is not a recognized
+/// branch according to [`supported_branch`].
+fn validate_channel(channel: &str) -> Result<String> {
+  let mut channel = channel.to_string();
+  if DEPRECATED_VERSIONS.contains(&channel.as_str()) {
+    warn!(
+      "Channel '{channel}' is deprecated or unavailable, falling back to \
+       'nixos-unstable'"
+    );
+    channel = "nixos-unstable".to_string();
+  }
+  if !supported_branch(&channel) {
+    bail!("Channel {channel} is not supported!");
+  }
+  Ok(channel)
+}
+
 impl args::SearchArgs {
-  #[allow(clippy::missing_errors_doc)]
+  /// Execute the search subcommand.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if no query is provided when using the shorthand form,
+  /// if the channel is unsupported, or if the underlying search request fails.
   pub fn run(&self) -> Result<()> {
     trace!("args: {self:?}");
-
-    let mut channel = self.channel.clone();
-    if DEPRECATED_VERSIONS.contains(&channel.as_str()) {
-      warn!(
-        "Channel '{channel}' is deprecated or unavailable, falling back to \
-         'nixos-unstable'"
-      );
-      channel = "nixos-unstable".to_string();
-    }
-    if !supported_branch(&channel) {
-      bail!("Channel {channel} is not supported!");
-    }
-
-    match &self.options {
-      Some(scope) => self.run_options(&channel, scope),
-      None => self.run_packages(&channel),
+    match &self.mode {
+      Some(args::SearchMode::Packages(args)) => self.run_packages(&args.query),
+      Some(args::SearchMode::Options(args)) => {
+        let scope = args.scope.as_ref().unwrap_or(&args::OptionScope::All);
+        self.run_options(scope, &args.query)
+      },
+      Some(args::SearchMode::Offline(args)) => {
+        self.run_offline(&args.databases, &args.query)
+      },
+      None => {
+        if self.query.is_empty() {
+          bail!(
+            "no query provided; try `nh search packages <query>`, `nh search \
+             options <query>`, or `nh search --help`"
+          );
+        }
+        match self.default_search {
+          args::SearchDefault::Packages => self.run_packages(&self.query),
+          args::SearchDefault::Options => {
+            self.run_options(&args::OptionScope::All, &self.query)
+          },
+        }
+      },
     }
   }
 
-  fn capture_nix_path(args: &[&str]) -> Option<String> {
-    let capture = Exec::cmd("nix")
-      .args(args)
-      .stderr(Redirection::None)
-      .stdout(Redirection::Pipe)
-      .capture()
-      .ok()?;
-
-    capture
-      .exit_status
-      .success()
-      .then(|| capture.stdout_str().trim().to_string())
-      .filter(|path| !path.is_empty())
-  }
-
-  fn resolve_nixpkgs_path(channel: &str) -> String {
-    let flake_ref = if channel == "nixos-unstable" {
-      "github:NixOS/nixpkgs/nixos-unstable".to_string()
-    } else if channel.starts_with("nixos-") {
-      format!("github:NixOS/nixpkgs/{channel}")
-    } else {
-      "nixpkgs".to_string()
-    };
-
-    if let Some(path) =
-      Self::capture_nix_path(&["eval", "-f", "<nixpkgs>", "path"])
-    {
-      return path;
-    }
-
-    let flake_path = format!("{flake_ref}#path");
-    Self::capture_nix_path(&["eval", "--raw", &flake_path]).unwrap_or_default()
-  }
-
-  fn run_packages(&self, channel: &str) -> Result<()> {
-    let query_s = self.query.join(" ");
+  fn run_packages(&self, query: &[String]) -> Result<()> {
+    let channel = validate_channel(&self.channel)?;
+    let query_s = query.join(" ");
     debug!(?query_s);
 
-    let query = Search::new().from(0).size(self.limit).query(
+    let search = Search::new().from(0).size(self.limit).query(
       Query::bool().filter(Query::term("type", "package")).must(
         Query::dis_max()
           .tie_breaker(0.7)
@@ -293,8 +364,8 @@ impl args::SearchArgs {
       println!("Querying search.nixos.org, with channel {channel}...");
     }
     let (documents, elapsed) = search_documents::<SearchResult>(
-      &query,
-      channel,
+      &search,
+      &channel,
       "building search query",
       "querying the elasticsearch API",
       "parsing search document",
@@ -307,20 +378,18 @@ impl args::SearchArgs {
     }
 
     if self.json {
-      // Output as JSON
       let json_output = JSONOutput {
-        query:      query_s,
-        channel:    channel.to_string(),
+        query: query_s,
+        channel,
         elapsed_ms: elapsed.as_millis(),
-        results:    documents,
+        results: documents,
       };
 
       println!("{}", serde_json::to_string_pretty(&json_output)?);
       return Ok(());
     }
 
-    let nixpkgs_path = Self::resolve_nixpkgs_path(channel);
-
+    let nixpkgs_path = resolve_nixpkgs_path(&channel);
     debug!("nixpkgs_path: {:?}", nixpkgs_path);
 
     for elem in documents.iter().rev() {
@@ -354,8 +423,6 @@ impl args::SearchArgs {
       if let Some(package_position) = &elem.package_position {
         match package_position.split(':').next() {
           Some(position) => {
-            // Position from search.nixos.org is already a relative path
-            // like "pkgs/by-name/..."
             if !nixpkgs_path.is_empty() {
               print!("  Defined at: ");
               print_hyperlink(
@@ -386,15 +453,16 @@ impl args::SearchArgs {
 
   fn run_options(
     &self,
-    channel: &str,
     scope: &args::OptionScope,
+    query: &[String],
   ) -> Result<()> {
-    let query_s = self.query.join(" ");
+    let channel = validate_channel(&self.channel)?;
+    let query_s = query.join(" ");
     debug!(?query_s, ?scope);
 
     let option_types = option_scope_types(scope);
 
-    let query = Search::new().from(0).size(self.limit).query(
+    let search = Search::new().from(0).size(self.limit).query(
       Query::bool()
         .filter(Query::terms("type", option_types))
         .must(
@@ -436,8 +504,8 @@ impl args::SearchArgs {
       );
     }
     let (documents, elapsed) = search_documents::<OptionSearchResult>(
-      &query,
-      channel,
+      &search,
+      &channel,
       "building option search query",
       "querying the elasticsearch API for options",
       "parsing option search document",
@@ -451,18 +519,18 @@ impl args::SearchArgs {
 
     if self.json {
       let json_output = JSONOutputOptions {
-        query:      query_s,
-        channel:    channel.to_string(),
-        scope:      option_scope_label(scope).to_string(),
+        query: query_s,
+        channel,
+        scope: option_scope_label(scope).to_string(),
         elapsed_ms: elapsed.as_millis(),
-        results:    documents,
+        results: documents,
       };
 
       println!("{}", serde_json::to_string_pretty(&json_output)?);
       return Ok(());
     }
 
-    let nixpkgs_path = Self::resolve_nixpkgs_path(channel);
+    let nixpkgs_path = resolve_nixpkgs_path(&channel);
     debug!("nixpkgs_path: {:?}", nixpkgs_path);
 
     for elem in documents.iter().rev() {
@@ -529,6 +597,147 @@ impl args::SearchArgs {
             "https://github.com/NixOS/nixpkgs/blob/{channel}/{filepath}"
           );
           print_hyperlink(&url, &url);
+        }
+      }
+    }
+
+    Ok(())
+  }
+
+  #[allow(clippy::cast_possible_truncation)]
+  fn run_offline(&self, databases: &[PathBuf], query: &[String]) -> Result<()> {
+    let query_s = query.join(" ");
+    debug!(?query_s);
+
+    let db_paths: Vec<String> =
+      databases.iter().map(|p| p.display().to_string()).collect();
+
+    let then = Instant::now();
+
+    let mut option_results: Vec<(String, OptionRecord)> = Vec::new();
+    let mut package_results: Vec<(String, FileRecord)> = Vec::new();
+
+    for db_path in databases {
+      let db = SpamDb::open(db_path).with_context(|| {
+        format!("opening SPAM database: {}", db_path.display())
+      })?;
+
+      let db_label = db_path.display().to_string();
+
+      match db {
+        SpamDb::Options(opts_db) => {
+          let records = opts_db.query(&query_s).with_context(|| {
+            format!("querying options database: {}", db_path.display())
+          })?;
+          for rec in records {
+            option_results.push((db_label.clone(), rec));
+          }
+        },
+        SpamDb::Packages(pkgs_db) => {
+          let records = pkgs_db.query(&query_s).with_context(|| {
+            format!("querying packages database: {}", db_path.display())
+          })?;
+          for rec in records {
+            package_results.push((db_label.clone(), rec));
+          }
+        },
+      }
+    }
+
+    let elapsed = then.elapsed();
+
+    if self.json {
+      let limit = self.limit as usize;
+      let opt_len = option_results.len().min(limit);
+      let pkg_remaining = limit.saturating_sub(opt_len);
+      let pkg_len = package_results.len().min(pkg_remaining);
+
+      option_results.truncate(opt_len);
+      package_results.truncate(pkg_len);
+
+      let offline_opts: Vec<OfflineOptionResult> = option_results
+        .into_iter()
+        .map(|(db_path, rec)| {
+          OfflineOptionResult {
+            db_path,
+            name: rec.name,
+            summary: rec.summary,
+          }
+        })
+        .collect();
+
+      let offline_pkgs: Vec<OfflinePackageResult> = package_results
+        .into_iter()
+        .map(|(db_path, rec)| {
+          OfflinePackageResult {
+            db_path,
+            path: rec.path,
+            packages: rec.packages,
+          }
+        })
+        .collect();
+
+      let json_output = JSONOutputOffline {
+        query: query_s,
+        db_paths,
+        elapsed_ms: elapsed.as_millis(),
+        options: offline_opts,
+        packages: offline_pkgs,
+      };
+
+      println!("{}", serde_json::to_string_pretty(&json_output)?);
+      return Ok(());
+    }
+
+    println!("Searching {} offline database(s)...", databases.len());
+    println!("Took {}ms", elapsed.as_millis());
+    println!();
+
+    let total_results = option_results.len() + package_results.len();
+    if total_results == 0 {
+      println!("No results found.");
+      return Ok(());
+    }
+
+    let limit = self.limit as usize;
+    let mut shown = 0usize;
+
+    for (db_path, rec) in &option_results {
+      if shown >= limit {
+        break;
+      }
+      shown += 1;
+
+      println!();
+      print!("{}", Paint::new(&rec.name).fg(Color::Blue));
+      println!();
+      println!("  Source: {db_path}");
+
+      if let Some(ref summary) = rec.summary {
+        let summary = summary.replace('\n', " ");
+        for line in
+          textwrap::wrap(&summary, textwrap::Options::with_termwidth())
+        {
+          println!("  {line}");
+        }
+      }
+    }
+
+    for (db_path, rec) in &package_results {
+      if shown >= limit {
+        break;
+      }
+      shown += 1;
+
+      println!();
+      print!("{}", Paint::new(&rec.path).fg(Color::Blue));
+      println!();
+      println!("  Source: {db_path}");
+
+      if !rec.packages.is_empty() {
+        let pkgs = rec.packages.join(", ");
+        for line in textwrap::wrap(&pkgs, textwrap::Options::with_termwidth()) {
+          println!("  Packages: {line}");
         }
       }
     }

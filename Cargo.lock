@@ -1326,7 +1326,7 @@ dependencies = [
 
 [[package]]
 name = "nh"
-version = "4.3.2"
+version = "4.4.0-beta1"
 dependencies = [
  "anstyle",
  "clap",
@@ -1460,6 +1460,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "spam-db",
  "subprocess",
  "supports-hyperlinks",
  "textwrap",
@@ -2314,6 +2315,15 @@ checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
 dependencies = [
  "libc",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "spam-db"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04a99b517d23c869614882fb8298c050a45b923f91a2ccf036adddd9c6b3d964"
+dependencies = [
+ "zstd",
 ]
 
 [[package]]
@@ -3262,7 +3272,7 @@ checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
 
 [[package]]
 name = "xtask"
-version = "4.3.2"
+version = "4.4.0-beta1"
 dependencies = [
  "clap",
  "clap_complete",
@@ -3389,3 +3399,31 @@ name = "zmij"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
+
+[[package]]
+name = "zstd"
+version = "0.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e91ee311a569c327171651566e07972200e76fcfe2242a4fa446149a3881c08a"
+dependencies = [
+ "zstd-safe",
+]
+
+[[package]]
+name = "zstd-safe"
+version = "7.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f49c4d5f0abb602a93fb8736af2a4f4dd9512e36f7f570d66e65ff867ed3b9d"
+dependencies = [
+ "zstd-sys",
+]
+
+[[package]]
+name = "zstd-sys"
+version = "2.0.16+zstd.1.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91e19ebc2adc8f83e43039e79776e3fda8ca919132d68a1fed6a5faca2683748"
+dependencies = [
+ "cc",
+ "pkg-config",
+]
