@@ -648,12 +648,17 @@ impl args::SearchArgs {
 
     if self.json {
       let limit = self.limit as usize;
-      let opt_len = option_results.len().min(limit);
-      let pkg_remaining = limit.saturating_sub(opt_len);
-      let pkg_len = package_results.len().min(pkg_remaining);
+      // Split the budget evenly; if one category has fewer results than its
+      // half, the surplus flows to the other.
+      let half = limit / 2;
+      let opt_take = option_results.len().min(half);
+      let pkg_take = package_results.len().min(limit - opt_take);
+      // Redistribute any budget packages didn't consume back to options.
+      let opt_take = opt_take
+        + (limit - opt_take - pkg_take).min(option_results.len() - opt_take);
 
-      option_results.truncate(opt_len);
-      package_results.truncate(pkg_len);
+      option_results.truncate(opt_take);
+      package_results.truncate(pkg_take);
 
       let offline_opts: Vec<OfflineOptionResult> = option_results
         .into_iter()
@@ -700,6 +705,16 @@ impl args::SearchArgs {
     }
 
     let limit = self.limit as usize;
+    // Same fair split as the JSON path: each category gets at most half,
+    // with surplus from one flowing to the other.
+    let half = limit / 2;
+    let opt_take = option_results.len().min(half);
+    let pkg_take = package_results.len().min(limit - opt_take);
+    let opt_take = opt_take
+      + (limit - opt_take - pkg_take).min(option_results.len() - opt_take);
+    option_results.truncate(opt_take);
+    package_results.truncate(pkg_take);
+
     let mut shown = 0usize;
 
     for (db_path, rec) in &option_results {
