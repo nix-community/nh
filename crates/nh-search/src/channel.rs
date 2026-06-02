@@ -6,8 +6,13 @@ use tracing::warn;
 
 // List of deprecated NixOS versions.
 // Add new versions as they become deprecated.
-const DEPRECATED_VERSIONS: &[&str] =
-  &["nixos-23.11", "nixos-24.05", "nixos-24.11", "nixos-25.05"];
+const DEPRECATED_VERSIONS: &[&str] = &[
+  "nixos-23.11",
+  "nixos-24.05",
+  "nixos-24.11",
+  "nixos-25.05",
+  "nixos-25.11",
+];
 
 static SUPPORTED_BRANCH_REGEX: OnceLock<Regex> = OnceLock::new();
 
@@ -62,11 +67,12 @@ fn supported_branch<S: AsRef<str>>(branch: S) -> bool {
 #[test]
 fn test_supported_branch() {
   assert!(supported_branch("nixos-unstable"));
-  assert!(supported_branch("nixos-25.11"));
+  assert!(supported_branch("nixos-26.05"));
   assert!(!supported_branch("nixos-unstable-small"));
   assert!(!supported_branch("nixos-24.05"));
   assert!(!supported_branch("nixos-24.11"));
   assert!(!supported_branch("nixos-25.05"));
+  assert!(!supported_branch("nixos-25.11"));
   assert!(!supported_branch("24.05"));
   assert!(!supported_branch("nixpkgs-darwin"));
   assert!(!supported_branch("nixpks-21.11-darwin"));
