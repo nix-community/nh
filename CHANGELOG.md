@@ -85,6 +85,9 @@ functionality, under the "Removed" section.
 
 ### Removed
 
+- `nh` no longer supports `x86_64-darwin`, following Nixpkgs' decision 
+   to drop support for that platform.
+
 ## 4.3.2
 
 ### Fixed
