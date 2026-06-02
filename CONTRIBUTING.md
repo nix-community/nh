@@ -130,13 +130,9 @@ NH:
 
 - `x86_64-linux`
 - `aarch64-linux`
-- `x86_64-darwin`
 - `aarch64-darwin`
 
-Please try to test on _at least_ `x86_64-linux` and `aarch64-darwin`. The
-`x86_64-darwin` target is set to be phased out with the 26.05 release, as
-Nixpkgs aims to drop it. We may try to support it as long as we can if a Darwin
-maintainer joins the NH team.
+Please try to test on _at least_ `x86_64-linux` and `aarch64-darwin`.
 
 ## Submitting Changes
 
