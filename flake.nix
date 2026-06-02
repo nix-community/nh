@@ -12,7 +12,6 @@
         nixpkgs.lib.genAttrs [
           "x86_64-linux"
           "aarch64-linux"
-          "x86_64-darwin"
           "aarch64-darwin"
         ] (system: function nixpkgs.legacyPackages.${system});
 
@@ -26,7 +25,7 @@
         default = self.packages.${pkgs.stdenv.hostPlatform.system}.nh;
       });
 
-      checks = builtins.removeAttrs (self.packages // self.devShells) [ "x86_64-darwin" ];
+      checks = self.packages // self.devShells;
 
       devShells = forAllSystems (pkgs: {
         default = import ./shell.nix { inherit pkgs; };
