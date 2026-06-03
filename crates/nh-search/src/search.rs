@@ -1,5 +1,3 @@
-pub mod args;
-
 use std::{
   path::PathBuf,
   sync::OnceLock,
@@ -23,6 +21,8 @@ use spam_db::{FileRecord, OptionRecord, SpamDb};
 use subprocess::{Exec, Redirection};
 use tracing::{debug, trace, warn};
 use yansi::{Color, Paint};
+
+use crate::args;
 
 const NH_VERSION: &str = env!("CARGO_PKG_VERSION");
 
