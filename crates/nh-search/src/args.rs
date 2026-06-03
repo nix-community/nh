@@ -15,7 +15,8 @@ pub struct SearchArgs {
     long,
     short,
     env = "NH_SEARCH_CHANNEL",
-    default_value = "nixos-unstable"
+    default_value = "nixos-unstable",
+    global = true
   )]
   pub channel: String,
 
@@ -24,7 +25,8 @@ pub struct SearchArgs {
     long,
     short = 'P',
     env = "NH_SEARCH_PLATFORM",
-    value_parser = clap::builder::BoolishValueParser::new()
+    value_parser = clap::builder::BoolishValueParser::new(),
+    global = true
   )]
   pub platforms: bool,
 
