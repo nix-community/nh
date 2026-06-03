@@ -1,31 +1,7 @@
-use std::{path::PathBuf, time::Instant};
+use color_eyre::{Result, eyre::bail};
+use tracing::trace;
 
-use color_eyre::{
-  Result,
-  eyre::{Context, bail},
-};
-use spam_db::{FileRecord, OptionRecord, SpamDb};
-use tracing::{debug, trace};
-use yansi::{Color, Paint};
-
-use crate::{
-  args,
-  backend::{self, SearchContexts},
-  channel,
-  offline,
-  online,
-  query,
-  render,
-  types::{
-    OfflineJsonOutput,
-    OfflineOptionResult,
-    OfflinePackageResult,
-    OptionJsonOutput,
-    OptionSearchResult,
-    PackageJsonOutput,
-    PackageSearchResult,
-  },
-};
+use crate::{args, offline, online};
 
 impl args::SearchArgs {
   /// Execute the search subcommand.
