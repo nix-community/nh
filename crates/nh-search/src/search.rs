@@ -1,68 +1,30 @@
-use std::{
-  path::PathBuf,
-  sync::OnceLock,
-  time::{Duration, Instant},
-};
+use std::{path::PathBuf, sync::OnceLock, time::Instant};
 
 use color_eyre::{
   Result,
   eyre::{Context, bail},
 };
-use elasticsearch_dsl::{
-  Operator,
-  Query,
-  Search,
-  SearchResponse,
-  TextQueryType,
-};
+use elasticsearch_dsl::{Operator, Query, Search, TextQueryType};
 use regex::Regex;
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use spam_db::{FileRecord, OptionRecord, SpamDb};
 use subprocess::{Exec, Redirection};
 use tracing::{debug, trace, warn};
 use yansi::{Color, Paint};
 
-use crate::{args, channel};
-
-const NH_VERSION: &str = env!("CARGO_PKG_VERSION");
-
-#[derive(Debug, Deserialize, Serialize)]
-#[allow(non_snake_case, dead_code, clippy::struct_field_names)]
-struct SearchResult {
-  // r#type: String,
-  package_attr_name:       String,
-  package_attr_set:        String,
-  package_pname:           String,
-  package_pversion:        String,
-  package_platforms:       Vec<String>,
-  package_outputs:         Vec<String>,
-  package_default_output:  Option<String>,
-  package_programs:        Vec<String>,
-  // package_license: Vec<License>,
-  package_license_set:     Vec<String>,
-  // package_maintainers: Vec<HashMap<String, String>>,
-  package_description:     Option<String>,
-  package_longDescription: Option<String>,
-  package_hydra:           (),
-  package_system:          String,
-  package_homepage:        Vec<String>,
-  package_position:        Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-#[allow(non_snake_case, dead_code)]
-struct OptionSearchResult {
-  r#type:             String,
-  option_name:        String,
-  option_description: Option<String>,
-  option_type:        Option<String>,
-  option_default:     Option<String>,
-  option_example:     Option<String>,
-  option_source:      Option<String>,
-  option_flake:       Option<Vec<String>>,
-  flake_name:         Option<String>,
-  flake_description:  Option<String>,
-}
+use crate::{
+  args,
+  backend::{self, SearchContexts},
+  channel,
+  types::{
+    OfflineJsonOutput,
+    OfflineOptionResult,
+    OfflinePackageResult,
+    OptionJsonOutput,
+    OptionSearchResult,
+    PackageJsonOutput,
+    PackageSearchResult,
+  },
+};
 
 // Cache the hyperlink support check result
 static HYPERLINKS_SUPPORTED: OnceLock<bool> = OnceLock::new();
@@ -81,46 +43,6 @@ fn print_hyperlink(text: &str, link: &str) {
   } else {
     println!("{text}");
   }
-}
-
-#[derive(Debug, Serialize)]
-struct JSONOutput {
-  query:      String,
-  channel:    String,
-  elapsed_ms: u128,
-  results:    Vec<SearchResult>,
-}
-
-#[derive(Debug, Serialize)]
-struct JSONOutputOptions {
-  query:      String,
-  channel:    String,
-  scope:      String,
-  elapsed_ms: u128,
-  results:    Vec<OptionSearchResult>,
-}
-
-#[derive(Debug, Serialize)]
-struct JSONOutputOffline {
-  query:      String,
-  db_paths:   Vec<String>,
-  elapsed_ms: u128,
-  options:    Vec<OfflineOptionResult>,
-  packages:   Vec<OfflinePackageResult>,
-}
-
-#[derive(Debug, Serialize)]
-struct OfflineOptionResult {
-  db_path: String,
-  name:    String,
-  summary: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-struct OfflinePackageResult {
-  db_path:  String,
-  path:     String,
-  packages: Vec<String>,
 }
 
 /// Strips HTML tags from a rendered-html description string
@@ -162,62 +84,6 @@ const fn option_scope_label(scope: &args::OptionScope) -> &'static str {
     args::OptionScope::HomeManager => "home-manager",
     args::OptionScope::All => "all",
   }
-}
-
-fn search_documents<T>(
-  query: &Search,
-  channel: &str,
-  build_context: &'static str,
-  execute_context: &'static str,
-  parse_context: &'static str,
-) -> Result<(Vec<T>, Duration)>
-where
-  T: DeserializeOwned,
-{
-  let then = Instant::now();
-  let client = reqwest::blocking::Client::new();
-  let req = client
-    // NOTE: when the version of the backend API changes,
-    // this file and the corresponding workflow called
-    // nixos-search.yaml have to be updated accordingly.
-    .post(format!(
-      "https://search.nixos.org/backend/latest-48-{channel}/_search"
-    ))
-    .json(query)
-    .header("User-Agent", format!("nh/{NH_VERSION}"))
-    // Hardcoded upstream
-    // https://github.com/NixOS/nixos-search/blob/744ec58e082a3fcdd741b2c9b0654a0f7fda4603/frontend/src/index.js
-    .basic_auth("aWVSALXpZv", Some("X8gPHnzL52wFEekuxsfQ9cSh"))
-    .build()
-    .context(build_context)?;
-
-  debug!(?req);
-
-  let response = client.execute(req).context(execute_context)?;
-  let elapsed = then.elapsed();
-  debug!(?elapsed);
-  trace!(?response);
-
-  if !response.status().is_success() {
-    eprintln!(
-      "Error: search.nixos.org returned HTTP {} for channel '{channel}'. This \
-       usually means the channel does not exist, is not indexed, or the \
-       request was malformed.",
-      response.status(),
-    );
-    bail!(
-      "search.nixos.org returned HTTP {} for channel '{channel}'",
-      response.status(),
-    );
-  }
-
-  let parsed_response: SearchResponse = response
-    .json()
-    .context("parsing response into the elasticsearch format")?;
-  trace!(?parsed_response);
-
-  let documents = parsed_response.documents::<T>().context(parse_context)?;
-  Ok((documents, elapsed))
 }
 
 fn capture_nix_path(args: &[&str]) -> Option<String> {
@@ -329,12 +195,14 @@ impl args::SearchArgs {
     if !self.json {
       println!("Querying search.nixos.org, with channel {channel}...");
     }
-    let (documents, elapsed) = search_documents::<SearchResult>(
+    let (documents, elapsed) = backend::search_documents::<PackageSearchResult>(
       &search,
       &channel,
-      "building search query",
-      "querying the elasticsearch API",
-      "parsing search document",
+      SearchContexts {
+        build:   "building search query",
+        execute: "querying the elasticsearch API",
+        parse:   "parsing search document",
+      },
     )?;
 
     if !self.json {
@@ -344,7 +212,7 @@ impl args::SearchArgs {
     }
 
     if self.json {
-      let json_output = JSONOutput {
+      let json_output = PackageJsonOutput {
         query: query_s,
         channel,
         elapsed_ms: elapsed.as_millis(),
@@ -469,12 +337,14 @@ impl args::SearchArgs {
         "Querying options on search.nixos.org, with channel {channel}..."
       );
     }
-    let (documents, elapsed) = search_documents::<OptionSearchResult>(
+    let (documents, elapsed) = backend::search_documents::<OptionSearchResult>(
       &search,
       &channel,
-      "building option search query",
-      "querying the elasticsearch API for options",
-      "parsing option search document",
+      SearchContexts {
+        build:   "building option search query",
+        execute: "querying the elasticsearch API for options",
+        parse:   "parsing option search document",
+      },
     )?;
 
     if !self.json {
@@ -484,7 +354,7 @@ impl args::SearchArgs {
     }
 
     if self.json {
-      let json_output = JSONOutputOptions {
+      let json_output = OptionJsonOutput {
         query: query_s,
         channel,
         scope: option_scope_label(scope).to_string(),
@@ -648,7 +518,7 @@ impl args::SearchArgs {
         })
         .collect();
 
-      let json_output = JSONOutputOffline {
+      let json_output = OfflineJsonOutput {
         query: query_s,
         db_paths,
         elapsed_ms: elapsed.as_millis(),
