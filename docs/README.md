@@ -397,6 +397,11 @@ the common variables that you may encounter or choose to employ are as follows:
   - Sets the tracing/log filter for NH. This uses the same format as
     `tracing_subscriber` env filters (for example: `nh=trace`).
 
+- `NH_MONITOR`
+  - Name (or path) of the monitor that NH pipes build output
+    through. Defaults to `nom`. Set this to use an alternative monitor such
+    as rom or a wrapper. Has no effect when nom is disabled via `--no-nom`.
+
 - `NH_SEARCH_CHANNEL`
   - Default Nixpkgs channel used by `nh search packages` and `nh search options`
     (e.g. `nixos-unstable`, `nixos-24.11`). Overridden per-invocation by

@@ -551,6 +551,14 @@ pub fn print_dix_diff(
   Ok(())
 }
 
+/// The monitor binary to pipe build output through.
+///
+/// Check `NH_MONITOR` to allow for an alternative monitor such as rom; defaults to `nom`.
+#[must_use]
+pub fn monitor_binary() -> String {
+  std::env::var("NH_MONITOR").unwrap_or_else(|_| "nom".to_string())
+}
+
 #[cfg(test)]
 #[expect(clippy::expect_used, clippy::unwrap_used, reason = "Fine in tests")]
 mod tests {

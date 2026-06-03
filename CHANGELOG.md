@@ -18,6 +18,7 @@ functionality, under the "Removed" section.
 
 ### Added
 
+- Add support for alternative monitors to `nom` via the `NH_MONITOR` variable.
 - `nh search offline <query>` subcommand for offline search using
   [spam-db](https://github.com/feel-co/spam) databases. Requires `-D <path>` (or
   `NH_OFFLINE_DB`) pointing to the database directory.

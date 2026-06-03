@@ -18,7 +18,11 @@ use thiserror::Error;
 use tracing::{debug, info, warn};
 use which::which;
 
-use crate::{args::NixBuildPassthroughArgs, installable::Installable};
+use crate::{
+  args::NixBuildPassthroughArgs,
+  installable::Installable,
+  util::monitor_binary,
+};
 
 /// Execute a command, streaming output to stdout/stderr while optionally
 /// capturing it for error reporting.
@@ -978,7 +982,7 @@ impl Build {
           .args(["--log-format", "internal-json", "--verbose"])
           .stderr(Redirection::Merge)
           .stdout(Redirection::Pipe)
-          | Exec::cmd("nom").args(["--json"])
+          | Exec::cmd(monitor_binary()).args(["--json"])
       }
       .stdout(Redirection::None);
       debug!(?pipeline);

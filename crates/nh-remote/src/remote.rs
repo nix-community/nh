@@ -25,7 +25,7 @@ use nh_core::{
     get_cached_password,
   },
   installable::Installable,
-  util::NixVariant,
+  util::{NixVariant, monitor_binary},
 };
 use secrecy::{ExposeSecret, SecretString};
 use subprocess::{Exec, Redirection};
@@ -1739,9 +1739,12 @@ fn build_on_remote(
   let drv_with_outputs = format!("{}^*", drv_path.display());
 
   if config.use_nom {
-    // Check that nom is available before attempting to use it
-    which::which("nom")
-      .wrap_err("nom (nix-output-monitor) is required but not found in PATH")?;
+    // Check that the monitor is available before attempting to use it
+    let monitor = monitor_binary();
+
+    which::which(&monitor).wrap_err_with(|| {
+      format!("{monitor} (nix-output-monitor) is required but not found in PATH")
+    })?;
 
     // With nom: pipe through nix-output-monitor
     build_on_remote_with_nom(host, &drv_with_outputs, config)
@@ -1903,7 +1906,7 @@ fn build_on_remote_with_nom(
     .stderr(Redirection::Merge);
 
   // Pipe through nom
-  let nom_cmd = Exec::cmd("nom").arg("--json");
+  let nom_cmd = Exec::cmd(monitor_binary()).arg("--json");
   let pipeline = (ssh_cmd | nom_cmd).stdout(Redirection::None);
 
   debug!(?pipeline, "Running remote build with nom");
