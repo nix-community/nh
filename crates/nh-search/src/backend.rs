@@ -9,7 +9,7 @@ use serde::de::DeserializeOwned;
 use tracing::{debug, trace};
 
 const NH_VERSION: &str = env!("CARGO_PKG_VERSION");
-const BACKEND_VERSION: u64 = 48;
+const BACKEND_VERSION: &str = include_str!("../BACKEND_VERSION");
 
 #[derive(Clone, Copy)]
 pub struct SearchContexts {
@@ -26,14 +26,12 @@ pub fn search_documents<T>(
 where
   T: DeserializeOwned,
 {
+  let backend_version = BACKEND_VERSION.trim();
   let then = Instant::now();
   let client = reqwest::blocking::Client::new();
   let req = client
-    // NOTE: when the version of the backend API changes,
-    // this file and the corresponding workflow called
-    // nixos-search.yaml have to be updated accordingly.
     .post(format!(
-      "https://search.nixos.org/backend/latest-{BACKEND_VERSION}-{channel}/\
+      "https://search.nixos.org/backend/latest-{backend_version}-{channel}/\
        _search"
     ))
     .json(query)
