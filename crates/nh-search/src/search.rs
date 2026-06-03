@@ -12,6 +12,9 @@ use crate::{
   args,
   backend::{self, SearchContexts},
   channel,
+  online,
+  query,
+  render,
   types::{
     OfflineJsonOutput,
     OfflineOptionResult,
@@ -21,8 +24,6 @@ use crate::{
     PackageJsonOutput,
     PackageSearchResult,
   },
-  query,
-  render,
 };
 
 impl args::SearchArgs {
@@ -35,10 +36,24 @@ impl args::SearchArgs {
   pub fn run(&self) -> Result<()> {
     trace!("args: {self:?}");
     match &self.mode {
-      Some(args::SearchMode::Packages(args)) => self.run_packages(&args.query),
+      Some(args::SearchMode::Packages(args)) => {
+        online::run_packages(
+          &self.channel,
+          self.limit,
+          self.platforms,
+          self.json,
+          &args.query,
+        )
+      },
       Some(args::SearchMode::Options(args)) => {
         let scope = args.scope.as_ref().unwrap_or(&args::OptionScope::All);
-        self.run_options(scope, &args.query)
+        online::run_options(
+          &self.channel,
+          self.limit,
+          self.json,
+          scope,
+          &args.query,
+        )
       },
       Some(args::SearchMode::Offline(args)) => {
         self.run_offline(&args.databases, &args.query)
@@ -51,104 +66,27 @@ impl args::SearchArgs {
           );
         }
         match self.default_search {
-          args::SearchDefault::Packages => self.run_packages(&self.query),
+          args::SearchDefault::Packages => {
+            online::run_packages(
+              &self.channel,
+              self.limit,
+              self.platforms,
+              self.json,
+              &self.query,
+            )
+          },
           args::SearchDefault::Options => {
-            self.run_options(&args::OptionScope::All, &self.query)
+            online::run_options(
+              &self.channel,
+              self.limit,
+              self.json,
+              &args::OptionScope::All,
+              &self.query,
+            )
           },
         }
       },
     }
-  }
-
-  fn run_packages(&self, query: &[String]) -> Result<()> {
-    let channel = channel::validate(&self.channel)?;
-    let query_s = query.join(" ");
-    debug!(?query_s);
-
-    let search = query::packages(&query_s, self.limit);
-
-    if !self.json {
-      println!("Querying search.nixos.org, with channel {channel}...");
-    }
-    let (documents, elapsed) = backend::search_documents::<PackageSearchResult>(
-      &search,
-      &channel,
-      SearchContexts {
-        build:   "building search query",
-        execute: "querying the elasticsearch API",
-        parse:   "parsing search document",
-      },
-    )?;
-
-    if !self.json {
-      println!("Took {}ms", elapsed.as_millis());
-      println!("Most relevant results at the end");
-      println!();
-    }
-
-    if self.json {
-      let json_output = PackageJsonOutput {
-        query: query_s,
-        channel,
-        elapsed_ms: elapsed.as_millis(),
-        results: documents,
-      };
-
-      println!("{}", serde_json::to_string_pretty(&json_output)?);
-      return Ok(());
-    }
-
-    render::print_package_results(&channel, self.platforms, &documents);
-    Ok(())
-  }
-
-  fn run_options(
-    &self,
-    scope: &args::OptionScope,
-    query: &[String],
-  ) -> Result<()> {
-    let channel = channel::validate(&self.channel)?;
-    let query_s = query.join(" ");
-    debug!(?query_s, ?scope);
-
-    let search = query::options(scope, &query_s, self.limit);
-
-    if !self.json {
-      println!(
-        "Querying options on search.nixos.org, with channel {channel}..."
-      );
-    }
-    let (documents, elapsed) = backend::search_documents::<OptionSearchResult>(
-      &search,
-      &channel,
-      SearchContexts {
-        build:   "building option search query",
-        execute: "querying the elasticsearch API for options",
-        parse:   "parsing option search document",
-      },
-    )?;
-
-    if !self.json {
-      println!("Took {}ms", elapsed.as_millis());
-      println!("Most relevant results at the end");
-      println!();
-    }
-
-    if self.json {
-      let json_output = OptionJsonOutput {
-        query: query_s,
-        channel,
-        scope: query::option_scope_label(scope).to_string(),
-        elapsed_ms: elapsed.as_millis(),
-        results: documents,
-      };
-
-      println!("{}", serde_json::to_string_pretty(&json_output)?);
-      return Ok(());
-    }
-
-    render::print_option_results(&channel, &documents);
-    Ok(())
   }
 
   #[allow(clippy::cast_possible_truncation)]
