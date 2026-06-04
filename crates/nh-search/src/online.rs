@@ -138,7 +138,7 @@ impl OnlineMode for Packages {
   }
 
   fn print_results(&self, channel: &str, documents: &[Self::Document]) {
-    render::print_package_results(channel, self.platforms, documents);
+    render::packages::print(channel, self.platforms, documents);
   }
 }
 
@@ -190,6 +190,6 @@ impl OnlineMode for Options {
   }
 
   fn print_results(&self, channel: &str, documents: &[Self::Document]) {
-    render::print_option_results(channel, documents);
+    render::options::print(channel, documents);
   }
 }

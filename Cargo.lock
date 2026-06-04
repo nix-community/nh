@@ -1464,11 +1464,16 @@ dependencies = [
 name = "nh-search"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "clap",
  "color-eyre",
  "elasticsearch-dsl",
+ "indicatif",
+ "inquire",
+ "nh-config",
  "regex",
  "reqwest",
+ "secrecy",
  "serde",
  "serde_json",
  "spam-db",
