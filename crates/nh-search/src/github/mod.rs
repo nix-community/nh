@@ -1,5 +1,6 @@
 pub mod auth;
 
+mod issues;
 mod prs;
 mod reachability;
 mod transport;
@@ -7,11 +8,10 @@ mod types;
 
 use color_eyre::Result;
 use secrecy::SecretString;
-use serde::de::DeserializeOwned;
-use serde_json::Value;
 
 use self::transport::GraphqlClient;
 pub use self::{
+  issues::{Issue, IssueState},
   prs::{PullRequest, PullRequestState, parse_direct_pr_number},
   reachability::{
     BranchReachability,
@@ -56,11 +56,14 @@ impl GitHubClient {
     prs::pull_request(&self.graphql, number)
   }
 
-  pub fn query<T>(&self, query: &str, variables: &Value) -> Result<T>
-  where
-    T: DeserializeOwned,
-  {
-    self.graphql.query(query, variables)
+  /// Search recent Nixpkgs issues for a query.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error when GitHub search fails or the response shape is
+  /// invalid.
+  pub fn search_issues(&self, query: &str, days: u32) -> Result<Vec<Issue>> {
+    issues::search(&self.graphql, query, days)
   }
 
   pub fn probe_branch_reachability(
