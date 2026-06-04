@@ -227,7 +227,7 @@ experience, done so with two subcommands provided out of the box.
 
 We provide a super-fast search tool for Nix packages and NixOS/Home Manager
 options (powered by an Elasticsearch client against search.nixos.org), offline
-search against local [SPAM] databases, and Nixpkgs pull request search. All
+search against local [SPAM] databases, and Nixpkgs pull request and issue search. All
 available as `nh search`!
 
 The command exposes three explicit subcommands and a convenient shorthand:
@@ -243,15 +243,16 @@ The command exposes three explicit subcommands and a convenient shorthand:
 | `nh search options [--scope=<SCOPE>] <query>` | Search NixOS/Home Manager options (`--scope`: `nixpkgs`, `home-manager`, `all`)               |
 | `nh search offline --db <PATH> <query>`       | Search a local SPAM database without network access. Generated DBs can be [found here].       |
 | `nh search prs [--days <DAYS>] <query>`       | Search Nixpkgs pull requests and show branch reachability for merged PRs. Defaults to 15 days. |
+| `nh search issues [--days <DAYS>] <query>`    | Search Nixpkgs issues, excluding pull requests. Defaults to 15 days.                          |
 
 <!--markdownlint-enable MD013 -->
 
 `--json` is shared by all search modes. `--limit`, `--channel`, and
 `--platforms` are available on the modes that use them and on the shorthand
-form. `nh search prs` uses `GH_TOKEN` for GitHub authentication, or
-`auth.github_token` from `$XDG_CONFIG_HOME/nh/config.toml` (or the path set by
-`NH_CONFIG`). If no token is found in an interactive terminal, NH prompts for
-one and saves it to the configuration file.
+form. `nh search prs` and `nh search issues` use `GH_TOKEN` for GitHub
+authentication, or `auth.github_token` from `$XDG_CONFIG_HOME/nh/config.toml`
+(or the path set by `NH_CONFIG`). If no token is found in an interactive
+terminal, NH prompts for one and saves it to the configuration file.
 
 <p align="center">
     <img
@@ -409,9 +410,9 @@ the common variables that you may encounter or choose to employ are as follows:
     `~/.config/nh/config.toml`.
 
 - `GH_TOKEN`
-  - GitHub token used by `nh search prs`. If unset, NH reads
-    `auth.github_token` from the NH configuration file. Tokens entered through
-    the interactive prompt are saved to that file.
+  - GitHub token used by `nh search prs` and `nh search issues`. If unset, NH
+    reads `auth.github_token` from the NH configuration file. Tokens entered
+    through the interactive prompt are saved to that file.
 
 - `NH_SEARCH_CHANNEL`
   - Default Nixpkgs channel used by `nh search packages` and `nh search options`
