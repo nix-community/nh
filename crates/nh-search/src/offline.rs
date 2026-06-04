@@ -131,8 +131,12 @@ pub fn run(
 
     if !rec.packages.is_empty() {
       let pkgs = rec.packages.join(", ");
-      for line in textwrap::wrap(&pkgs, textwrap::Options::with_termwidth()) {
-        println!("  Packages: {line}");
+      let lines = textwrap::wrap(&pkgs, textwrap::Options::with_termwidth());
+      if let Some((first, rest)) = lines.split_first() {
+        println!("  Packages: {first}");
+        for line in rest {
+          println!("            {line}");
+        }
       }
     }
   }
