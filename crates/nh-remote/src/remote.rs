@@ -617,7 +617,7 @@ pub fn get_ssh_opts() -> Vec<String> {
     } else {
       let truncated = sshopts.chars().take(60).collect::<String>();
       let sshopts_display = if sshopts.len() > 60 {
-        format!("{truncated}...",)
+        format!("{truncated}...")
       } else {
         truncated
       };
