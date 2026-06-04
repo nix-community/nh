@@ -1,32 +1,23 @@
 use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
+use color_eyre::{Result, eyre::bail};
+
+const DEFAULT_LIMIT: u64 = 30;
+const DEFAULT_CHANNEL: &str = "nixos-unstable";
 
 #[derive(Args, Debug)]
 /// Searches packages or NixOS/home-manager options via search.nixos.org,
 /// or a local SPAM database
 pub struct SearchArgs {
-  /// Number of search results to display
-  #[arg(long, short, default_value = "30")]
-  pub limit: u64,
+  #[command(flatten)]
+  pub limit: LimitArg,
 
-  /// Name of the channel to query (e.g nixos-23.11, nixos-unstable, etc)
-  #[arg(
-    long,
-    short,
-    env = "NH_SEARCH_CHANNEL",
-    default_value = "nixos-unstable"
-  )]
-  pub channel: String,
+  #[command(flatten)]
+  pub channel: ChannelArg,
 
-  /// Show supported platforms for each package
-  #[arg(
-    long,
-    short = 'P',
-    env = "NH_SEARCH_PLATFORM",
-    value_parser = clap::builder::BoolishValueParser::new()
-  )]
-  pub platforms: bool,
+  #[command(flatten)]
+  pub platforms: PlatformsArg,
 
   /// Output results as JSON
   #[arg(
@@ -64,6 +55,8 @@ pub enum SearchMode {
   Options(OptionsArgs),
   /// Search local SPAM database(s) without network access
   Offline(OfflineArgs),
+  /// Search Nixpkgs pull requests and branch reachability
+  Prs(PrsArgs),
 }
 
 #[derive(Args, Debug)]
@@ -127,7 +120,67 @@ pub struct OfflineArgs {
   pub query: Vec<String>,
 }
 
-#[derive(Debug, Clone, ValueEnum)]
+#[derive(Args, Debug)]
+pub struct PrsArgs {
+  #[command(flatten)]
+  pub days: DaysArg,
+
+  /// Pull request search query
+  #[arg(required = true)]
+  pub query: Vec<String>,
+}
+
+#[derive(Args, Debug, Clone, Copy)]
+pub struct LimitArg {
+  /// Number of search results to display
+  #[arg(
+    id = "limit",
+    long = "limit",
+    short = 'l',
+    default_value_t = DEFAULT_LIMIT
+  )]
+  pub value: u64,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct ChannelArg {
+  /// Name of the channel to query (e.g nixos-23.11, nixos-unstable, etc)
+  #[arg(
+    id = "channel",
+    long = "channel",
+    short = 'c',
+    env = "NH_SEARCH_CHANNEL",
+    default_value = DEFAULT_CHANNEL
+  )]
+  pub value: String,
+}
+
+#[derive(Args, Debug, Clone, Copy)]
+pub struct PlatformsArg {
+  /// Show supported platforms for each package
+  #[arg(
+    id = "platforms",
+    long = "platforms",
+    short = 'P',
+    env = "NH_SEARCH_PLATFORM",
+    value_parser = clap::builder::BoolishValueParser::new()
+  )]
+  pub value: bool,
+}
+
+#[derive(Args, Debug, Clone, Copy)]
+pub struct DaysArg {
+  /// Search GitHub results from the last n days (default: 15).
+  #[arg(
+    id = "days",
+    short = 'd',
+    long = "days",
+    value_parser = clap::value_parser!(u32).range(1..)
+  )]
+  pub value: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum OptionScope {
   /// Search NixOS options and modular services
   Nixpkgs,
@@ -138,13 +191,104 @@ pub enum OptionScope {
   All,
 }
 
-#[derive(Debug, Clone, Default, ValueEnum)]
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
 pub enum SearchDefault {
   /// Search packages (default)
   #[default]
   Packages,
   /// Search NixOS/home-manager options (scope defaults to `all`)
   Options,
+}
+
+pub enum ResolvedSearchMode<'a> {
+  Packages {
+    channel:   &'a str,
+    limit:     u64,
+    platforms: bool,
+    query:     &'a [String],
+  },
+  Options {
+    channel: &'a str,
+    limit:   u64,
+    scope:   OptionScope,
+    query:   &'a [String],
+  },
+  Offline {
+    limit:     u64,
+    databases: &'a [PathBuf],
+    query:     &'a [String],
+  },
+  Prs(&'a PrsArgs),
+}
+
+impl SearchArgs {
+  /// Resolve explicit subcommands and shorthand query arguments into one mode.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error when shorthand search is used without a query, or when
+  /// shorthand option search receives package-only flags.
+  pub fn resolved_mode(&self) -> Result<ResolvedSearchMode<'_>> {
+    match &self.mode {
+      Some(SearchMode::Packages(args)) => {
+        Ok(ResolvedSearchMode::Packages {
+          channel:   &args.channel.value,
+          limit:     args.limit.value,
+          platforms: args.platforms.value,
+          query:     &args.query,
+        })
+      },
+      Some(SearchMode::Options(args)) => {
+        Ok(ResolvedSearchMode::Options {
+          channel: &args.channel.value,
+          limit:   args.limit.value,
+          scope:   args.scope.unwrap_or(OptionScope::All),
+          query:   &args.query,
+        })
+      },
+      Some(SearchMode::Offline(args)) => {
+        Ok(ResolvedSearchMode::Offline {
+          limit:     args.limit.value,
+          databases: &args.databases,
+          query:     &args.query,
+        })
+      },
+      Some(SearchMode::Prs(args)) => Ok(ResolvedSearchMode::Prs(args)),
+      None => self.resolved_shorthand_mode(),
+    }
+  }
+
+  fn resolved_shorthand_mode(&self) -> Result<ResolvedSearchMode<'_>> {
+    if self.query.is_empty() {
+      bail!(
+        "no query provided; try `nh search packages <query>`, `nh search \
+         options <query>`, or `nh search --help`"
+      );
+    }
+
+    match self.default_search {
+      SearchDefault::Packages => {
+        Ok(ResolvedSearchMode::Packages {
+          channel:   &self.channel.value,
+          limit:     self.limit.value,
+          platforms: self.platforms.value,
+          query:     &self.query,
+        })
+      },
+      SearchDefault::Options => {
+        if self.platforms.value {
+          bail!("--platforms only applies to package search");
+        }
+
+        Ok(ResolvedSearchMode::Options {
+          channel: &self.channel.value,
+          limit:   self.limit.value,
+          scope:   OptionScope::All,
+          query:   &self.query,
+        })
+      },
+    }
+  }
 }
 
 #[cfg(test)]
@@ -274,9 +418,9 @@ mod tests {
       "packages",
     ])?;
 
-    assert_eq!(args.limit, 5);
-    assert_eq!(args.channel, "nixos-unstable");
-    assert!(args.platforms);
+    assert_eq!(args.limit.value, 5);
+    assert_eq!(args.channel.value, "nixos-unstable");
+    assert!(args.platforms.value);
     assert!(matches!(args.default_search, SearchDefault::Packages));
     assert_eq!(args.query, ["hello"]);
     assert!(args.mode.is_none());
@@ -325,6 +469,61 @@ mod tests {
     };
 
     assert_eq!(err.kind(), ErrorKind::UnknownArgument);
+    Ok(())
+  }
+
+  #[test]
+  fn prs_accepts_variadic_query_and_days_after_query() -> clap::error::Result<()>
+  {
+    let args = parse_search(&["search", "prs", "foo", "bar", "--days", "30"])?;
+
+    match args.mode {
+      Some(SearchMode::Prs(prs)) => {
+        assert_eq!(prs.days.value, Some(30));
+        assert_eq!(prs.query, ["foo", "bar"]);
+      },
+      other => {
+        return Err(clap::Error::raw(
+          ErrorKind::InvalidValue,
+          format!("expected prs mode, got {other:?}"),
+        ));
+      },
+    }
+    Ok(())
+  }
+
+  #[test]
+  fn prs_accepts_json_after_query() -> clap::error::Result<()> {
+    let args = parse_search(&["search", "prs", "hello", "--json"])?;
+
+    assert!(args.json);
+    match args.mode {
+      Some(SearchMode::Prs(prs)) => {
+        assert_eq!(prs.query, ["hello"]);
+      },
+      other => {
+        return Err(clap::Error::raw(
+          ErrorKind::InvalidValue,
+          format!("expected prs mode, got {other:?}"),
+        ));
+      },
+    }
+    Ok(())
+  }
+
+  #[test]
+  fn prs_rejects_limit() -> clap::error::Result<()> {
+    let err = parse_search_error(&["search", "prs", "hello", "--limit", "5"])?;
+
+    assert_eq!(err.kind(), ErrorKind::UnknownArgument);
+    Ok(())
+  }
+
+  #[test]
+  fn prs_rejects_zero_days() -> clap::error::Result<()> {
+    let err = parse_search_error(&["search", "prs", "hello", "--days", "0"])?;
+
+    assert_eq!(err.kind(), ErrorKind::ValueValidation);
     Ok(())
   }
 }

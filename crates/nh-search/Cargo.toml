@@ -7,11 +7,16 @@ license.workspace      = true
 rust-version.workspace = true
 
 [dependencies]
+chrono.workspace              = true
 clap.workspace                = true
 color-eyre.workspace          = true
 elasticsearch-dsl.workspace   = true
+indicatif.workspace           = true
+inquire.workspace             = true
+nh-config.workspace           = true
 regex.workspace               = true
 reqwest.workspace             = true
+secrecy.workspace             = true
 serde.workspace               = true
 serde_json.workspace          = true
 spam-db.workspace             = true
