@@ -618,8 +618,7 @@ impl Command {
     // "1" to force, unset defaults to force
     let preserve_env = std::env::var("NH_PRESERVE_ENV")
       .as_deref()
-      .map(|x| !matches!(x, "0"))
-      .unwrap_or(true);
+      .map_or(true, |x| !matches!(x, "0"));
 
     // Insert 'env' command to explicitly pass environment variables to the
     // elevated command
@@ -665,8 +664,7 @@ impl Command {
 
     let preserve_env = std::env::var("NH_PRESERVE_ENV")
       .as_deref()
-      .map(|x| !matches!(x, "0"))
-      .unwrap_or(true);
+      .map_or(true, |x| !matches!(x, "0"));
 
     parts.push("env".to_string());
     for env_arg in self.env_vars.iter().filter_map(|(key, action)| {

@@ -576,8 +576,7 @@ fn cleanable_generations(
 fn is_nix_store_direct_child(path: &Path) -> bool {
   path
     .strip_prefix("/nix/store")
-    .map(|suffix| suffix.components().count() == 1)
-    .unwrap_or(false)
+    .is_ok_and(|suffix| suffix.components().count() == 1)
 }
 
 fn gcroot_matches_filter(src: &Path, dst: &Path, regexes: &[&Regex]) -> bool {

@@ -559,7 +559,7 @@ impl OsRebuildArgs {
     toplevel_for(
       target_hostname,
       installable,
-      final_attrs.map_or_else(|| &["toplevel"][..], |v| v),
+      final_attrs.unwrap_or_else(|| &["toplevel"][..]),
     )
   }
 
