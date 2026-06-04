@@ -27,7 +27,7 @@ clap_complete         = "4.5.61"
 clap_complete_nushell = "4.5.10"
 clap_mangen           = { features = [ "env" ], version = "0.3.0" }
 color-eyre            = { default-features = false, features = [ "track-caller" ], version = "0.6.5" }
-dix                   = "1.4.2"
+dix                   = "2.0.0"
 elasticsearch-dsl     = "0.4.24"
 humantime             = "2.3.0"
 indicatif             = "0.18.4"
