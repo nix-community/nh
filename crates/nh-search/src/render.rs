@@ -113,14 +113,14 @@ pub fn print_package_results(
               position,
               &format!("file://{nixpkgs_path}/{position}"),
             );
-
-            let github_nixpkgs_url =
-              format!("https://github.com/NixOS/nixpkgs/blob/{channel}");
-
-            print!("  GitHub link: ");
-            let url = format!("{github_nixpkgs_url}/{position}");
-            print_hyperlink(&url, &url);
           }
+
+          let github_nixpkgs_url =
+            format!("https://github.com/NixOS/nixpkgs/blob/{channel}");
+
+          print!("  GitHub link: ");
+          let url = format!("{github_nixpkgs_url}/{position}");
+          print_hyperlink(&url, &url);
         },
         None => {
           warn!(
