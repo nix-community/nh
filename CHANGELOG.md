@@ -21,6 +21,12 @@ functionality, under the "Removed" section.
 - `nh search offline <query>` subcommand for offline search using
   [spam-db](https://github.com/feel-co/spam) databases. Requires `-D <path>` (or
   `NH_OFFLINE_DB`) pointing to the database directory.
+- `nh search prs <query>` subcommand for searching recent Nixpkgs pull requests
+  and showing which Nixpkgs branches merged PRs have reached. Numeric queries
+  and `#<number>` fetch that pull request directly.
+- `NH_CONFIG` can override the NH configuration file path. `nh search prs` reads
+  GitHub authentication from `GH_TOKEN` first, then `auth.github_token` in the
+  NH configuration file.
 - `nh search --default-search` global option to set default search mode
   (`packages` or `options`) when no subcommand is specified.
 - `nh clean --keep-one` preserves all active direnv gcroots regardless of
@@ -37,8 +43,8 @@ functionality, under the "Removed" section.
 - **Breaking Change**: `nh search` CLI has been restructured to use subcommands.
   - `--options <query>` is now `nh search options <query>`
   - `--options` flag has been removed
-  - `--channel`, `--limit`, `--platforms`, and `--json` flags are now global and
-    can be placed before or after explicit subcommands
+  - `--json` is shared by all search modes, while `--channel`, `--limit`, and
+    `--platforms` now appear only on search modes that use them
   - When no subcommand is specified, the default search mode is used
     (configurable via `--default-search`)
 - `nh search` now uses search backend version 48 (previously 46) to track the

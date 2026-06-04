@@ -226,8 +226,9 @@ experience, done so with two subcommands provided out of the box.
 [SPAM]: https://github.com/nix-community/SPAM
 
 We provide a super-fast search tool for Nix packages and NixOS/Home Manager
-options (powered by an Elasticsearch client against search.nixos.org), as well
-as offline search against local [SPAM] databases. All available as `nh search`!
+options (powered by an Elasticsearch client against search.nixos.org), offline
+search against local [SPAM] databases, and Nixpkgs pull request search. All
+available as `nh search`!
 
 The command exposes three explicit subcommands and a convenient shorthand:
 
@@ -235,18 +236,22 @@ The command exposes three explicit subcommands and a convenient shorthand:
 
 [found here]: https://github.com/feel-co/spam/actions/workflows/auto-index.yml
 
-| Invocation                                    | What it does                                                                            |
-| --------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `nh search <query>`                           | Shorthand; searches packages by default (see `NH_DEFAULT_SEARCH`)                       |
-| `nh search packages <query>`                  | Search Nixpkgs packages via search.nixos.org                                            |
-| `nh search options [--scope=<SCOPE>] <query>` | Search NixOS/Home Manager options (`--scope`: `nixpkgs`, `home-manager`, `all`)         |
-| `nh search offline --db <PATH> <query>`       | Search a local SPAM database without network access. Generated DBs can be [found here]. |
+| Invocation                                    | What it does                                                                                  |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `nh search <query>`                           | Shorthand; searches packages by default (see `NH_DEFAULT_SEARCH`)                             |
+| `nh search packages <query>`                  | Search Nixpkgs packages via search.nixos.org                                                  |
+| `nh search options [--scope=<SCOPE>] <query>` | Search NixOS/Home Manager options (`--scope`: `nixpkgs`, `home-manager`, `all`)               |
+| `nh search offline --db <PATH> <query>`       | Search a local SPAM database without network access. Generated DBs can be [found here].       |
+| `nh search prs [--days <DAYS>] <query>`       | Search Nixpkgs pull requests and show branch reachability for merged PRs. Defaults to 15 days. |
 
 <!--markdownlint-enable MD013 -->
 
-Common flags (`--limit`, `--channel`, `--json`, `--platforms`) can be placed
-before or after the subcommand name. `--channel` selects the online search
-channel, and `--platforms` only affects package output.
+`--json` is shared by all search modes. `--limit`, `--channel`, and
+`--platforms` are available on the modes that use them and on the shorthand
+form. `nh search prs` uses `GH_TOKEN` for GitHub authentication, or
+`auth.github_token` from `$XDG_CONFIG_HOME/nh/config.toml` (or the path set by
+`NH_CONFIG`). If no token is found in an interactive terminal, NH prompts for
+one and saves it to the configuration file.
 
 <p align="center">
     <img
@@ -397,6 +402,16 @@ the common variables that you may encounter or choose to employ are as follows:
 - `NH_LOG`
   - Sets the tracing/log filter for NH. This uses the same format as
     `tracing_subscriber` env filters (for example: `nh=trace`).
+
+- `NH_CONFIG`
+  - Overrides the path to the NH configuration file. If unset, NH uses
+    `$XDG_CONFIG_HOME/nh/config.toml`, falling back to
+    `~/.config/nh/config.toml`.
+
+- `GH_TOKEN`
+  - GitHub token used by `nh search prs`. If unset, NH reads
+    `auth.github_token` from the NH configuration file. Tokens entered through
+    the interactive prompt are saved to that file.
 
 - `NH_SEARCH_CHANNEL`
   - Default Nixpkgs channel used by `nh search packages` and `nh search options`
