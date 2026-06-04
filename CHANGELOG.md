@@ -24,9 +24,11 @@ functionality, under the "Removed" section.
 - `nh search prs <query>` subcommand for searching recent Nixpkgs pull requests
   and showing which Nixpkgs branches merged PRs have reached. Numeric queries
   and `#<number>` fetch that pull request directly.
+- `nh search issues <query>` subcommand for searching recent Nixpkgs issues
+  while excluding pull requests.
 - `NH_CONFIG` can override the NH configuration file path. `nh search prs` reads
-  GitHub authentication from `GH_TOKEN` first, then `auth.github_token` in the
-  NH configuration file.
+  GitHub authentication from `GH_TOKEN` first, then `auth.github_token` in the NH
+  configuration file.
 - `nh search --default-search` global option to set default search mode
   (`packages` or `options`) when no subcommand is specified.
 - `nh clean --keep-one` preserves all active direnv gcroots regardless of
