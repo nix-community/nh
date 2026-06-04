@@ -6,9 +6,6 @@ edition.workspace      = true
 license.workspace      = true
 rust-version.workspace = true
 
-[lib]
-path = "src/search.rs"
-
 [dependencies]
 clap.workspace                = true
 color-eyre.workspace          = true

@@ -244,8 +244,9 @@ The command exposes three explicit subcommands and a convenient shorthand:
 
 <!--markdownlint-enable MD013 -->
 
-Common flags (`--limit`, `--channel`, `--json`, `--platforms`) apply to all
-subcommands and can be placed before or after the subcommand name.
+Common flags (`--limit`, `--channel`, `--json`, `--platforms`) can be placed
+before or after the subcommand name. `--channel` selects the online search
+channel, and `--platforms` only affects package output.
 
 <p align="center">
     <img

@@ -39,7 +39,7 @@ functionality, under the "Removed" section.
   - `--options <query>` is now `nh search options <query>`
   - `--options` flag has been removed
   - `--channel`, `--limit`, `--platforms`, and `--json` flags are now global and
-    apply to all subcommands
+    can be placed before or after explicit subcommands
   - When no subcommand is specified, the default search mode is used
     (configurable via `--default-search`)
 - `nh search` now uses search backend version 48 (previously 46) to track the

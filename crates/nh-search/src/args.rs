@@ -15,7 +15,8 @@ pub struct SearchArgs {
     long,
     short,
     env = "NH_SEARCH_CHANNEL",
-    default_value = "nixos-unstable"
+    default_value = "nixos-unstable",
+    global = true
   )]
   pub channel: String,
 
@@ -24,7 +25,8 @@ pub struct SearchArgs {
     long,
     short = 'P',
     env = "NH_SEARCH_PLATFORM",
-    value_parser = clap::builder::BoolishValueParser::new()
+    value_parser = clap::builder::BoolishValueParser::new(),
+    global = true
   )]
   pub platforms: bool,
 
@@ -129,8 +131,89 @@ pub enum SearchDefault {
   Options,
 }
 
-#[derive(Debug, Clone, ValueEnum)]
-pub enum SearchNixpkgsFrom {
-  Flake,
-  Path,
+#[cfg(test)]
+mod tests {
+  use clap::{Parser, Subcommand};
+
+  use super::{SearchArgs, SearchMode};
+
+  #[derive(Debug, Parser)]
+  struct TestCli {
+    #[command(subcommand)]
+    command: TestCommand,
+  }
+
+  #[derive(Debug, Subcommand)]
+  enum TestCommand {
+    Search(SearchArgs),
+  }
+
+  fn parse_search(args: &[&str]) -> clap::error::Result<SearchArgs> {
+    let cli = TestCli::try_parse_from(
+      std::iter::once("nh").chain(args.iter().copied()),
+    )?;
+    match cli.command {
+      TestCommand::Search(search) => Ok(search),
+    }
+  }
+
+  #[test]
+  fn online_root_flags_parse_before_subcommand() {
+    let args = parse_search(&[
+      "search",
+      "--channel",
+      "nixos-unstable",
+      "--platforms",
+      "packages",
+      "hello",
+    ])
+    .unwrap();
+
+    assert_eq!(args.channel, "nixos-unstable");
+    assert!(args.platforms);
+    match args.mode {
+      Some(SearchMode::Packages(packages)) => {
+        assert_eq!(packages.query, ["hello"]);
+      },
+      other => panic!("expected packages mode, got {other:?}"),
+    }
+  }
+
+  #[test]
+  fn online_root_flags_parse_after_subcommand() {
+    let args = parse_search(&[
+      "search",
+      "packages",
+      "--channel",
+      "nixos-unstable",
+      "--platforms",
+      "hello",
+    ])
+    .unwrap();
+
+    assert_eq!(args.channel, "nixos-unstable");
+    assert!(args.platforms);
+    match args.mode {
+      Some(SearchMode::Packages(packages)) => {
+        assert_eq!(packages.query, ["hello"]);
+      },
+      other => panic!("expected packages mode, got {other:?}"),
+    }
+  }
+
+  #[test]
+  fn global_limit_and_json_parse_after_subcommand() {
+    let args =
+      parse_search(&["search", "packages", "--limit", "5", "--json", "hello"])
+        .unwrap();
+
+    assert_eq!(args.limit, 5);
+    assert!(args.json);
+    match args.mode {
+      Some(SearchMode::Packages(packages)) => {
+        assert_eq!(packages.query, ["hello"]);
+      },
+      other => panic!("expected packages mode, got {other:?}"),
+    }
+  }
 }
