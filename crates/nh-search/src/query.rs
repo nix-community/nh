@@ -47,7 +47,7 @@ pub fn packages(query: &str, limit: u64) -> Search {
   )
 }
 
-pub fn options(scope: &args::OptionScope, query: &str, limit: u64) -> Search {
+pub fn options(scope: args::OptionScope, query: &str, limit: u64) -> Search {
   Search::new().from(0).size(limit).query(
     Query::bool()
       .filter(Query::terms("type", option_scope_types(scope)))
@@ -85,7 +85,7 @@ pub fn options(scope: &args::OptionScope, query: &str, limit: u64) -> Search {
   )
 }
 
-pub const fn option_scope_label(scope: &args::OptionScope) -> &'static str {
+pub const fn option_scope_label(scope: args::OptionScope) -> &'static str {
   match scope {
     args::OptionScope::Nixpkgs => "nixpkgs",
     args::OptionScope::HomeManager => "home-manager",
@@ -95,7 +95,7 @@ pub const fn option_scope_label(scope: &args::OptionScope) -> &'static str {
 
 /// Returns the ES document type strings for a given option scope.
 const fn option_scope_types(
-  scope: &args::OptionScope,
+  scope: args::OptionScope,
 ) -> &'static [&'static str] {
   match scope {
     args::OptionScope::Nixpkgs => NIXPKGS_SCOPE_TYPES,

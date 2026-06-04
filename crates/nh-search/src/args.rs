@@ -7,7 +7,7 @@ use clap::{Args, Subcommand, ValueEnum};
 /// or a local SPAM database
 pub struct SearchArgs {
   /// Number of search results to display
-  #[arg(long, short, default_value = "30", global = true)]
+  #[arg(long, short, default_value = "30")]
   pub limit: u64,
 
   /// Name of the channel to query (e.g nixos-23.11, nixos-unstable, etc)
@@ -15,8 +15,7 @@ pub struct SearchArgs {
     long,
     short,
     env = "NH_SEARCH_CHANNEL",
-    default_value = "nixos-unstable",
-    global = true
+    default_value = "nixos-unstable"
   )]
   pub channel: String,
 
@@ -25,8 +24,7 @@ pub struct SearchArgs {
     long,
     short = 'P',
     env = "NH_SEARCH_PLATFORM",
-    value_parser = clap::builder::BoolishValueParser::new(),
-    global = true
+    value_parser = clap::builder::BoolishValueParser::new()
   )]
   pub platforms: bool,
 
@@ -70,6 +68,15 @@ pub enum SearchMode {
 
 #[derive(Args, Debug)]
 pub struct PackagesArgs {
+  #[command(flatten)]
+  pub limit: LimitArg,
+
+  #[command(flatten)]
+  pub channel: ChannelArg,
+
+  #[command(flatten)]
+  pub platforms: PlatformsArg,
+
   /// Name of the package to search
   #[arg(required = true)]
   pub query: Vec<String>,
@@ -77,6 +84,12 @@ pub struct PackagesArgs {
 
 #[derive(Args, Debug)]
 pub struct OptionsArgs {
+  #[command(flatten)]
+  pub limit: LimitArg,
+
+  #[command(flatten)]
+  pub channel: ChannelArg,
+
   /// Options scope: nixpkgs, home-manager, or all (default)
   #[arg(
     long,
@@ -94,6 +107,9 @@ pub struct OptionsArgs {
 
 #[derive(Args, Debug)]
 pub struct OfflineArgs {
+  #[command(flatten)]
+  pub limit: LimitArg,
+
   /// Path to a SPAM database file. Specify multiple times to search across
   /// several databases
   #[arg(
@@ -133,9 +149,9 @@ pub enum SearchDefault {
 
 #[cfg(test)]
 mod tests {
-  use clap::{Parser, Subcommand};
+  use clap::{Parser, Subcommand, error::ErrorKind};
 
-  use super::{SearchArgs, SearchMode};
+  use super::{SearchArgs, SearchDefault, SearchMode};
 
   #[derive(Debug, Parser)]
   struct TestCli {
@@ -157,63 +173,158 @@ mod tests {
     }
   }
 
-  #[test]
-  fn online_root_flags_parse_before_subcommand() {
-    let args = parse_search(&[
-      "search",
-      "--channel",
-      "nixos-unstable",
-      "--platforms",
-      "packages",
-      "hello",
-    ])
-    .unwrap();
-
-    assert_eq!(args.channel, "nixos-unstable");
-    assert!(args.platforms);
-    match args.mode {
-      Some(SearchMode::Packages(packages)) => {
-        assert_eq!(packages.query, ["hello"]);
+  fn parse_search_error(args: &[&str]) -> clap::error::Result<clap::Error> {
+    match parse_search(args) {
+      Ok(args) => {
+        Err(clap::Error::raw(
+          ErrorKind::InvalidValue,
+          format!("expected parse error, got {args:?}"),
+        ))
       },
-      other => panic!("expected packages mode, got {other:?}"),
+      Err(err) => Ok(err),
     }
   }
 
   #[test]
-  fn online_root_flags_parse_after_subcommand() {
+  fn online_root_flags_parse_before_subcommand() -> clap::error::Result<()> {
     let args = parse_search(&[
       "search",
       "packages",
       "--channel",
       "nixos-unstable",
-      "--platforms",
       "hello",
-    ])
-    .unwrap();
+      "--platforms",
+    ])?;
 
-    assert_eq!(args.channel, "nixos-unstable");
-    assert!(args.platforms);
     match args.mode {
       Some(SearchMode::Packages(packages)) => {
+        assert_eq!(packages.channel.value, "nixos-unstable");
+        assert!(packages.platforms.value);
         assert_eq!(packages.query, ["hello"]);
       },
-      other => panic!("expected packages mode, got {other:?}"),
+      other => {
+        return Err(clap::Error::raw(
+          ErrorKind::InvalidValue,
+          format!("expected packages mode, got {other:?}"),
+        ));
+      },
     }
+    Ok(())
   }
 
   #[test]
-  fn global_limit_and_json_parse_after_subcommand() {
+  fn online_root_flags_parse_after_subcommand() -> clap::error::Result<()> {
+    let args = parse_search(&[
+      "search",
+      "packages",
+      "--channel",
+      "nixos-unstable",
+      "--platforms",
+      "hello",
+    ])?;
+
+    match args.mode {
+      Some(SearchMode::Packages(packages)) => {
+        assert_eq!(packages.channel.value, "nixos-unstable");
+        assert!(packages.platforms.value);
+        assert_eq!(packages.query, ["hello"]);
+      },
+      other => {
+        return Err(clap::Error::raw(
+          ErrorKind::InvalidValue,
+          format!("expected packages mode, got {other:?}"),
+        ));
+      },
+    }
+    Ok(())
+  }
+
+  #[test]
+  fn global_limit_and_json_parse_after_subcommand() -> clap::error::Result<()> {
     let args =
-      parse_search(&["search", "packages", "--limit", "5", "--json", "hello"])
-        .unwrap();
+      parse_search(&["search", "packages", "--limit", "5", "--json", "hello"])?;
 
-    assert_eq!(args.limit, 5);
     assert!(args.json);
     match args.mode {
       Some(SearchMode::Packages(packages)) => {
+        assert_eq!(packages.limit.value, 5);
         assert_eq!(packages.query, ["hello"]);
       },
-      other => panic!("expected packages mode, got {other:?}"),
+      other => {
+        return Err(clap::Error::raw(
+          ErrorKind::InvalidValue,
+          format!("expected packages mode, got {other:?}"),
+        ));
+      },
     }
+    Ok(())
+  }
+
+  #[test]
+  fn shorthand_flags_parse_after_query() -> clap::error::Result<()> {
+    let args = parse_search(&[
+      "search",
+      "hello",
+      "--limit",
+      "5",
+      "--channel",
+      "nixos-unstable",
+      "--platforms",
+      "--default-search",
+      "packages",
+    ])?;
+
+    assert_eq!(args.limit, 5);
+    assert_eq!(args.channel, "nixos-unstable");
+    assert!(args.platforms);
+    assert!(matches!(args.default_search, SearchDefault::Packages));
+    assert_eq!(args.query, ["hello"]);
+    assert!(args.mode.is_none());
+    Ok(())
+  }
+
+  #[test]
+  fn default_search_parses_after_shorthand_query() -> clap::error::Result<()> {
+    let args =
+      parse_search(&["search", "hello", "--default-search", "options"])?;
+
+    assert!(matches!(args.default_search, SearchDefault::Options));
+    assert_eq!(args.query, ["hello"]);
+    assert!(args.mode.is_none());
+    Ok(())
+  }
+
+  #[test]
+  fn options_reject_platforms() -> clap::error::Result<()> {
+    let err =
+      parse_search_error(&["search", "options", "hello", "--platforms"])?;
+
+    assert_eq!(err.kind(), ErrorKind::UnknownArgument);
+    Ok(())
+  }
+
+  #[test]
+  fn offline_rejects_channel() -> clap::error::Result<()> {
+    let err = parse_search(&[
+      "search",
+      "offline",
+      "--db",
+      "db.sqlite",
+      "hello",
+      "--channel",
+      "nixos-unstable",
+    ]);
+    let err = match err {
+      Ok(args) => {
+        return Err(clap::Error::raw(
+          ErrorKind::InvalidValue,
+          format!("expected parse error, got {args:?}"),
+        ));
+      },
+      Err(err) => err,
+    };
+
+    assert_eq!(err.kind(), ErrorKind::UnknownArgument);
+    Ok(())
   }
 }
