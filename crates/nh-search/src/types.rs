@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
-#[allow(non_snake_case, dead_code, clippy::struct_field_names)]
+#[expect(non_snake_case, clippy::struct_field_names)]
 pub struct PackageSearchResult {
   // r#type: String,
   pub package_attr_name:       String,
@@ -24,7 +24,6 @@ pub struct PackageSearchResult {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-#[allow(non_snake_case, dead_code)]
 pub struct OptionSearchResult {
   pub r#type:             String,
   pub option_name:        String,
