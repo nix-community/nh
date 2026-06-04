@@ -11,6 +11,7 @@ version      = "4.4.0-beta1"
 [workspace.dependencies]
 nh        = { path = "crates/nh" }
 nh-clean  = { path = "crates/nh-clean" }
+nh-config = { path = "crates/nh-config" }
 nh-core   = { path = "crates/nh-core" }
 nh-darwin = { path = "crates/nh-darwin" }
 nh-home   = { path = "crates/nh-home" }
@@ -55,6 +56,7 @@ system-configuration = "0.7.0"
 tempfile = "3.23.0"
 textwrap = { features = [ "terminal_size" ], version = "0.16.2" }
 thiserror = "2.0.17"
+toml_edit = "0.25.12"
 tracing = "0.1.41"
 tracing-subscriber = { features = [ "env-filter", "registry", "std" ], version = "0.3.20" }
 urlencoding = "2.1.3"
