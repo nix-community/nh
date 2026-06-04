@@ -62,12 +62,10 @@ fn resolve_nixpkgs_path(channel: &str) -> String {
     "nixpkgs".to_string()
   };
 
-  if let Some(path) = capture_nix_path(&["eval", "-f", "<nixpkgs>", "path"]) {
-    return path;
-  }
-
   let flake_path = format!("{flake_ref}#path");
-  capture_nix_path(&["eval", "--raw", &flake_path]).unwrap_or_default()
+  capture_nix_path(&["eval", "--raw", &flake_path])
+    .or_else(|| capture_nix_path(&["eval", "-f", "<nixpkgs>", "path"]))
+    .unwrap_or_default()
 }
 
 pub fn print_package_results(
