@@ -15,9 +15,9 @@ impl args::SearchArgs {
     match &self.mode {
       Some(args::SearchMode::Packages(args)) => {
         online::run_packages(
-          &self.channel,
-          self.limit,
-          self.platforms,
+          &args.channel,
+          args.limit,
+          args.platforms,
           self.json,
           &args.query,
         )
@@ -25,15 +25,15 @@ impl args::SearchArgs {
       Some(args::SearchMode::Options(args)) => {
         let scope = args.scope.as_ref().unwrap_or(&args::OptionScope::All);
         online::run_options(
-          &self.channel,
-          self.limit,
+          &args.channel,
+          args.limit,
           self.json,
           scope,
           &args.query,
         )
       },
       Some(args::SearchMode::Offline(args)) => {
-        offline::run(self.limit, self.json, &args.databases, &args.query)
+        offline::run(args.limit, self.json, &args.databases, &args.query)
       },
       None => {
         if self.query.is_empty() {
@@ -53,6 +53,9 @@ impl args::SearchArgs {
             )
           },
           args::SearchDefault::Options => {
+            if self.platforms {
+              bail!("--platforms only applies to package search");
+            }
             online::run_options(
               &self.channel,
               self.limit,
