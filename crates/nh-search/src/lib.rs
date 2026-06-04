@@ -4,6 +4,7 @@ mod backend;
 mod branches;
 mod channel;
 mod github;
+mod issues;
 mod offline;
 mod online;
 mod prs;

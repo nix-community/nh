@@ -57,6 +57,8 @@ pub enum SearchMode {
   Offline(OfflineArgs),
   /// Search Nixpkgs pull requests and branch reachability
   Prs(PrsArgs),
+  /// Search Nixpkgs issues, excluding pull requests
+  Issues(IssuesArgs),
 }
 
 #[derive(Args, Debug)]
@@ -126,6 +128,16 @@ pub struct PrsArgs {
   pub days: DaysArg,
 
   /// Pull request search query
+  #[arg(required = true)]
+  pub query: Vec<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct IssuesArgs {
+  #[command(flatten)]
+  pub days: DaysArg,
+
+  /// Issue search query
   #[arg(required = true)]
   pub query: Vec<String>,
 }
@@ -219,6 +231,7 @@ pub enum ResolvedSearchMode<'a> {
     query:     &'a [String],
   },
   Prs(&'a PrsArgs),
+  Issues(&'a IssuesArgs),
 }
 
 impl SearchArgs {
@@ -254,6 +267,7 @@ impl SearchArgs {
         })
       },
       Some(SearchMode::Prs(args)) => Ok(ResolvedSearchMode::Prs(args)),
+      Some(SearchMode::Issues(args)) => Ok(ResolvedSearchMode::Issues(args)),
       None => self.resolved_shorthand_mode(),
     }
   }
@@ -524,6 +538,36 @@ mod tests {
     let err = parse_search_error(&["search", "prs", "hello", "--days", "0"])?;
 
     assert_eq!(err.kind(), ErrorKind::ValueValidation);
+    Ok(())
+  }
+
+  #[test]
+  fn issues_accepts_variadic_query_and_days_after_query()
+  -> clap::error::Result<()> {
+    let args =
+      parse_search(&["search", "issues", "foo", "bar", "--days", "30"])?;
+
+    match args.mode {
+      Some(SearchMode::Issues(issues)) => {
+        assert_eq!(issues.days.value, Some(30));
+        assert_eq!(issues.query, ["foo", "bar"]);
+      },
+      other => {
+        return Err(clap::Error::raw(
+          ErrorKind::InvalidValue,
+          format!("expected issues mode, got {other:?}"),
+        ));
+      },
+    }
+    Ok(())
+  }
+
+  #[test]
+  fn issues_rejects_limit() -> clap::error::Result<()> {
+    let err =
+      parse_search_error(&["search", "issues", "hello", "--limit", "5"])?;
+
+    assert_eq!(err.kind(), ErrorKind::UnknownArgument);
     Ok(())
   }
 }

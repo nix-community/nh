@@ -1,7 +1,7 @@
 use color_eyre::Result;
 use tracing::trace;
 
-use crate::{args, offline, online, prs};
+use crate::{args, issues, offline, online, prs};
 
 impl args::SearchArgs {
   /// Execute the search subcommand.
@@ -31,6 +31,7 @@ impl args::SearchArgs {
         query,
       } => offline::run(limit, self.json, databases, query),
       args::ResolvedSearchMode::Prs(args) => prs::run(self.json, args),
+      args::ResolvedSearchMode::Issues(args) => issues::run(self.json, args),
     }
   }
 }
