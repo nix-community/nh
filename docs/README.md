@@ -507,7 +507,7 @@ contributions are always welcome.
 [nvd]: https://sr.ht/~khumba/nvd/
 [dix]: https://github.com/faukah/dix
 [nix-output-monitor]: https://github.com/maralorn/nix-output-monitor
-[crates]: ./Cargo.toml
+[crates]: /Cargo.toml
 
 NH has had a long history, and it has grown a lot over the years. I, NotAShelf,
 would first like to extend my thanks to [ViperML] for his immense efforts as the
