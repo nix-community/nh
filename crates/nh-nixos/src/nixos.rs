@@ -175,6 +175,7 @@ impl OsRebuildActivateArgs {
         &toplevel,
         self.rebuild.update_args.update_input.clone(),
         self.rebuild.common.passthrough.commit_lock_file,
+        self.rebuild.common.passthrough.no_write_lock_file,
       )?;
     }
 
@@ -726,6 +727,7 @@ impl OsRebuildArgs {
         &toplevel,
         self.update_args.update_input.clone(),
         self.common.passthrough.commit_lock_file,
+        self.common.passthrough.no_write_lock_file,
       )?;
     }
 

@@ -102,6 +102,7 @@ impl DarwinRebuildArgs {
         &installable,
         self.update_args.update_input,
         self.common.passthrough.commit_lock_file,
+        self.common.passthrough.no_write_lock_file,
       )?;
     }
 

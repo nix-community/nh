@@ -65,6 +65,8 @@ functionality, under the "Removed" section.
 
 ### Fixed
 
+- `--no-write-lock-file` is now also passed to `nix flake update` when using
+  `--update` or `--update-input`.
 - `nh os switch --target-host root@host` no longer wraps the activation in
   `sudo --prompt= --stdin` when the SSH user is already uid 0. The elevation
   decision now probes `id -u` over the established ControlMaster instead of

@@ -19,6 +19,7 @@ pub fn update(
   installable: &Installable,
   inputs: Option<Vec<String>>,
   commit_lock_file: bool,
+  no_write_lock_file: bool,
 ) -> Result<()> {
   let Installable::Flake { reference, .. } = installable else {
     warn!(
@@ -32,6 +33,9 @@ pub fn update(
 
   if commit_lock_file {
     cmd = cmd.arg("--commit-lock-file");
+  }
+  if no_write_lock_file {
+    cmd = cmd.arg("--no-write-lock-file");
   }
 
   if let Some(inputs) = inputs {
