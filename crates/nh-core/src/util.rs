@@ -612,9 +612,14 @@ mod tests {
     let test_dir = tempfile::Builder::new()
       .prefix("nh-test")
       .tempdir()
-      .expect("Failed to create temp file");
+      .expect("Failed to create temp dir");
 
-    let test_file = test_dir.path().join("flake.nix");
+    // Canonicalize to resolve symlinks
+    let canonical = test_dir
+      .path()
+      .canonicalize()
+      .expect("Failed to canonicalize temp dir");
+    let test_file = canonical.join("flake.nix");
     let test_content = r"
 {
   outputs = _: {
@@ -629,7 +634,7 @@ mod tests {
     fs::write(&test_file, test_content).expect("Failed to write test file");
 
     let installable = Installable::Flake {
-      reference: format!("path:{}", test_dir.path().display()),
+      reference: format!("path:{}", canonical.display()),
       attribute: vec![
         "nixosConfigurations".to_owned(),
         "test".to_string(),
