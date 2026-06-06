@@ -46,7 +46,7 @@ pub enum DiffType {
   Never,
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, Default, Args)]
 pub struct NixBuildPassthroughArgs {
   /// Number of concurrent jobs Nix should run
   #[arg(long, short = 'j')]
@@ -224,12 +224,27 @@ impl NixBuildPassthroughArgs {
       args.push("--no-use-registries".into());
     }
     if self.no_build_output {
-      args.push("--no-build-output".into());
+      args.push("--quiet".into());
     }
     if self.json {
       args.push("--json".into());
     }
 
     args
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::NixBuildPassthroughArgs;
+
+  #[test]
+  fn no_build_output_maps_to_nix_quiet_flag() {
+    let args = NixBuildPassthroughArgs {
+      no_build_output: true,
+      ..Default::default()
+    };
+
+    assert_eq!(args.generate_passthrough_args(), ["--quiet"]);
   }
 }

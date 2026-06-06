@@ -67,6 +67,8 @@ functionality, under the "Removed" section.
 
 - Local `run0` elevation now uses `--pty-late`, avoiding terminal ownership
   changes can break subsequent commands.
+- `--no-build-output` / `-Q` now forwards `--quiet` to `nix build` instead of
+  the unsupported `--no-build-output` flag.
 - `nh os switch --target-host root@host` no longer wraps the activation in
   `sudo --prompt= --stdin` when the SSH user is already uid 0. The elevation
   decision now probes `id -u` over the established ControlMaster instead of
