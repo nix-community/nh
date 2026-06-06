@@ -142,8 +142,8 @@ fn compare_alias(index: usize) -> String {
 
 fn compare_status_to_reachability(status: &str) -> BranchReachabilityStatus {
   match status {
-    "AHEAD" | "IDENTICAL" => BranchReachabilityStatus::Contains,
-    "BEHIND" | "DIVERGED" => BranchReachabilityStatus::Missing,
+    "BEHIND" | "IDENTICAL" => BranchReachabilityStatus::Contains,
+    "AHEAD" | "DIVERGED" => BranchReachabilityStatus::Missing,
     other => {
       BranchReachabilityStatus::Unknown(format!(
         "unknown comparison status {other}"
@@ -173,10 +173,10 @@ mod tests {
   };
 
   #[test]
-  fn graphql_compare_mapping_uses_branch_as_base() {
+  fn graphql_compare_mapping_tracks_when_branch_contains_commit() {
     assert_eq!(
       BranchReachabilityStatus::Contains,
-      compare_status_to_reachability("AHEAD")
+      compare_status_to_reachability("BEHIND")
     );
     assert_eq!(
       BranchReachabilityStatus::Contains,
@@ -184,7 +184,7 @@ mod tests {
     );
     assert_eq!(
       BranchReachabilityStatus::Missing,
-      compare_status_to_reachability("BEHIND")
+      compare_status_to_reachability("AHEAD")
     );
     assert_eq!(
       BranchReachabilityStatus::Missing,
