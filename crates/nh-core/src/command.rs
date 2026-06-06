@@ -613,6 +613,13 @@ impl Command {
     {
       cmd = cmd.env("SUDO_ASKPASS", askpass).arg("-A");
     }
+    // Request allocation of a pseudo TTY for the run0 session. Without this,
+    // running `run0` changes the user of `/dev/pts/<current-terminal>
+    // to `root`, which we want to avoid since it can cause issues with
+    // subsequent commands.
+    if program_name == "run0" {
+      cmd = cmd.arg("--pty-late");
+    }
 
     // NH_PRESERVE_ENV: set to "0" to disable preserving environment variables,
     // "1" to force, unset defaults to force
@@ -660,6 +667,13 @@ impl Command {
       && let Ok(_askpass) = std::env::var("NH_SUDO_ASKPASS")
     {
       parts.push("-A".to_string());
+    }
+    // Request allocation of a pseudo TTY for the run0 session. Without this,
+    // running `run0` changes the user of `/dev/pts/<current-terminal>
+    // to `root`, which we want to avoid since it can cause issues with
+    // subsequent commands.
+    if program_name == "run0" {
+      parts.push("--pty-late".to_string());
     }
 
     let preserve_env = std::env::var("NH_PRESERVE_ENV")
