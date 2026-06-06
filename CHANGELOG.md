@@ -65,6 +65,8 @@ functionality, under the "Removed" section.
 
 ### Fixed
 
+- Local `run0` elevation now uses `--pty-late`, avoiding terminal ownership
+  changes can break subsequent commands.
 - `nh os switch --target-host root@host` no longer wraps the activation in
   `sudo --prompt= --stdin` when the SSH user is already uid 0. The elevation
   decision now probes `id -u` over the established ControlMaster instead of
