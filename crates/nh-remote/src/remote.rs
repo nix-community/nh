@@ -1,7 +1,7 @@
 use std::{
   env,
   ffi::OsString,
-  io::{BufRead, Read},
+  io::Read,
   path::{Path, PathBuf},
   sync::{
     Arc,
@@ -16,20 +16,19 @@ use color_eyre::{
   Result,
   eyre::{Context, bail, eyre},
 };
-use indicatif::{ProgressBar, ProgressStyle};
 use nh_core::{
-  command::{
-    ElevationStrategy,
-    cache_password,
-    exec_with_streaming,
-    get_cached_password,
-  },
+  command::{ElevationStrategy, cache_password, get_cached_password},
   installable::Installable,
   util::NixVariant,
 };
 use secrecy::{ExposeSecret, SecretString};
 use subprocess::{Exec, Redirection};
 use tracing::{debug, error, info, warn};
+
+mod copy;
+
+pub use copy::copy_to_remote;
+use copy::{copy_closure_between_remotes, copy_closure_from};
 
 /// Global flag indicating whether a SIGINT (Ctrl+C) was received.
 static INTERRUPTED: OnceLock<Arc<AtomicBool>> = OnceLock::new();
@@ -262,7 +261,7 @@ pub fn init_ssh_control() -> SshControlGuard {
 /// multiplexed master connection in the control socket directory.
 ///
 /// Subsequent SSH invocations that delegate to Nix internals (e.g. `nix copy
-/// --to ssh://...`) will reuse this already-authenticated socket via
+/// --to ssh-ng://...`) will reuse this already-authenticated socket via
 /// `ControlMaster=auto`, even if those internals would otherwise pass SSH flags
 /// in the wrong order.
 ///
@@ -416,7 +415,6 @@ fn get_ssh_control_dir() -> &'static PathBuf {
 ///
 /// - `hostname`
 /// - `user@hostname`
-/// - `ssh://[user@]hostname` (scheme stripped)
 /// - `ssh-ng://[user@]hostname` (scheme stripped)
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub struct RemoteHost {
@@ -450,21 +448,25 @@ impl RemoteHost {
   /// Accepts:
   /// - `hostname`
   /// - `user@hostname`
-  /// - `ssh://[user@]hostname`
   /// - `ssh-ng://[user@]hostname`
   ///
-  /// URI schemes are stripped since `--build-host` uses direct SSH.
+  /// The `ssh-ng://` URI scheme is stripped for raw SSH calls, then restored
+  /// when constructing Nix store URIs.
   ///
   /// # Errors
   ///
   /// Returns an error if the host specification is invalid (empty hostname,
   /// empty username, contains invalid characters like `:` or `/`).
   pub fn parse(input: &str) -> Result<Self> {
-    // Strip URI schemes - we use direct SSH regardless
-    let host = input
-      .strip_prefix("ssh-ng://")
-      .or_else(|| input.strip_prefix("ssh://"))
-      .unwrap_or(input);
+    if input.starts_with("ssh://") {
+      bail!(
+        "Unsupported host URI scheme 'ssh://'. Use 'ssh-ng://{host}' or a \
+         bare host name instead.",
+        host = input.trim_start_matches("ssh://")
+      );
+    }
+
+    let host = input.strip_prefix("ssh-ng://").unwrap_or(input);
 
     if host.is_empty() {
       bail!("Empty hostname in host specification");
@@ -562,6 +564,12 @@ impl RemoteHost {
     // Not IPv6 or not bracketed, return as-is
     self.host.clone()
   }
+
+  /// Get the SSH store URI used by Nix store commands.
+  #[must_use]
+  pub fn nix_store_uri(&self) -> String {
+    format!("ssh-ng://{}", self.host)
+  }
 }
 
 impl std::str::FromStr for RemoteHost {
@@ -635,10 +643,10 @@ pub fn get_ssh_opts() -> Vec<String> {
 }
 
 /// Get `NIX_SSHOPTS` environment value with our defaults appended.
-/// Used for `nix-copy-closure` which reads `NIX_SSHOPTS`.
+/// Used for Nix SSH store commands which read `NIX_SSHOPTS`.
 ///
-/// Note: `nix-copy-closure` splits `NIX_SSHOPTS` by whitespace without shell
-/// parsing, so values containing spaces cannot be properly passed through
+/// Note: Nix SSH store commands do not provide a structured argv channel for
+/// these options, so values containing spaces cannot be reliably passed through
 /// this mechanism. Users needing complex SSH options should use
 /// `~/.ssh/config` instead.
 fn get_nix_sshopts_env() -> String {
@@ -649,8 +657,8 @@ fn get_nix_sshopts_env() -> String {
     default_opts.join(" ")
   } else {
     // Append our defaults to user options
-    // NOTE: We preserve user options as-is since nix-copy-closure
-    // does simple whitespace splitting
+    // NOTE: Preserve user options as-is to avoid changing how Nix parses
+    // NIX_SSHOPTS.
     format!("{} {}", user_opts, default_opts.join(" "))
   }
 }
@@ -950,249 +958,15 @@ pub fn validate_closure_remote(
        incomplete or corrupted\n3. The Nix store path was not fully copied to \
        the target host\n\nTo fix this:\n1. Verify your configuration enables \
        all required components\n2. Ensure the complete closure was copied: \
-       nix copy --to ssh://{} {}\n3. Rebuild your configuration if the \
-       problem persists\n4. Use --no-validate to bypass this check if you're \
-       certain the system is correctly configured",
+       nix copy --to {} {}\n3. Rebuild your configuration if the problem \
+       persists\n4. Use --no-validate to bypass this check if you're certain \
+       the system is correctly configured",
       host_context,
       closure_path.display(),
       missing_list,
-      host,
+      host.nix_store_uri(),
       closure_path.display()
     ));
-  }
-
-  Ok(())
-}
-
-/// Copy a Nix closure from a remote host to localhost.
-fn copy_closure_from(
-  host: &RemoteHost,
-  path: &str,
-  use_substitutes: bool,
-) -> Result<()> {
-  info!("Copying result from build host '{host}'");
-
-  let mut cmd = Exec::cmd("nix-copy-closure")
-    .arg("--from")
-    .arg(host.ssh_host());
-
-  if use_substitutes {
-    cmd = cmd.arg("--use-substitutes");
-  }
-
-  cmd = cmd.arg(path).env("NIX_SSHOPTS", get_nix_sshopts_env());
-
-  debug!(?cmd, "nix-copy-closure --from");
-
-  let (exit_status, _stdout, _stderr) = exec_with_streaming(cmd, false)
-    .wrap_err("Failed to copy closure from remote host")?;
-
-  if !exit_status.success() {
-    bail!(
-      "nix-copy-closure --from '{}' failed (exit status: {:?})",
-      host,
-      exit_status
-    );
-  }
-
-  Ok(())
-}
-
-fn spawn_spinner_stream_thread<R>(
-  pipe: R,
-  spinner: ProgressBar,
-  stream_name: &'static str,
-) -> std::thread::JoinHandle<Result<()>>
-where
-  R: Read + Send + 'static,
-{
-  std::thread::spawn(move || {
-    let mut reader = std::io::BufReader::new(pipe);
-    let mut line = Vec::new();
-
-    loop {
-      line.clear();
-      let bytes_read = reader
-        .read_until(b'\n', &mut line)
-        .wrap_err_with(|| format!("Failed to read {stream_name}"))?;
-
-      if bytes_read == 0 {
-        break;
-      }
-
-      let message = String::from_utf8_lossy(&line)
-        .trim_end_matches(['\r', '\n'])
-        .to_string();
-      spinner.println(message);
-    }
-
-    Ok(())
-  })
-}
-
-fn exec_with_spinner_streaming(
-  cmd: Exec,
-  spinner: &ProgressBar,
-) -> Result<subprocess::ExitStatus> {
-  let mut job = cmd
-    .stdout(Redirection::Pipe)
-    .stderr(Redirection::Pipe)
-    .start()
-    .wrap_err("Failed to start command")?;
-
-  let stdout_pipe = job
-    .stdout
-    .take()
-    .ok_or_else(|| eyre!("Failed to capture stdout"))?;
-  let stderr_pipe = job
-    .stderr
-    .take()
-    .ok_or_else(|| eyre!("Failed to capture stderr"))?;
-
-  let stdout_thread =
-    spawn_spinner_stream_thread(stdout_pipe, spinner.clone(), "stdout");
-  let stderr_thread =
-    spawn_spinner_stream_thread(stderr_pipe, spinner.clone(), "stderr");
-
-  let exit_status = job
-    .wait()
-    .wrap_err("Failed to wait for command completion")?;
-
-  stdout_thread
-    .join()
-    .map_err(|_| eyre!("Stdout thread panicked"))??;
-  stderr_thread
-    .join()
-    .map_err(|_| eyre!("Stderr thread panicked"))??;
-
-  Ok(exit_status)
-}
-
-/// Copy a Nix closure from localhost to a remote host.
-///
-/// Uses `nix copy --to ssh://host` to transfer a store path and its
-/// dependencies from the local Nix store to a remote machine via SSH.
-///
-/// When `use_substitutes` is enabled, the remote host will attempt to fetch
-/// missing paths from configured binary caches instead of transferring them
-/// over SSH, which can significantly improve performance and reduce bandwidth
-/// usage.
-///
-/// # Arguments
-///
-/// * `host` - The remote host to copy the closure to. SSH connection
-///   multiplexing and options from `NIX_SSHOPTS` are automatically applied.
-/// * `path` - The store path to copy (e.g., `/nix/store/xxx-nixos-system`). All
-///   dependencies (the complete closure) are copied automatically.
-/// * `use_substitutes` - When `true`, adds `--substitute-on-destination` to
-///   allow the remote host to fetch missing paths from binary caches instead of
-///   transferring them over SSH.
-///
-/// # Returns
-///
-/// Returns `Ok(())` on success, or an error if the copy operation fails.
-///
-/// # Errors
-///
-/// Returns an error if:
-///
-/// - The SSH connection to the remote host fails
-/// - The `nix copy` command fails (e.g., insufficient disk space on remote,
-///   network issues, authentication failures)
-/// - The path does not exist in the local store
-///
-/// # Panics
-///
-/// Panics if the spinner template is invalid. This cannot happen in practice
-/// as the template is a hardcoded literal.
-pub fn copy_to_remote(
-  host: &RemoteHost,
-  path: &Path,
-  use_substitutes: bool,
-) -> Result<()> {
-  let flake_flags = get_flake_flags();
-  let mut cmd = Exec::cmd("nix")
-    .args(&flake_flags)
-    .args(["copy", "--to"])
-    .arg(format!("ssh://{}", host.ssh_host()));
-
-  if use_substitutes {
-    cmd = cmd.arg("--substitute-on-destination");
-  }
-
-  cmd = cmd.arg(path).env("NIX_SSHOPTS", get_nix_sshopts_env());
-
-  debug!(?cmd, "nix copy --to");
-
-  // Haha spinner go brr
-  let spinner = ProgressBar::new_spinner();
-  #[expect(clippy::expect_used)]
-  spinner.set_style(
-    ProgressStyle::default_spinner()
-      .template("{spinner:.green} {msg}")
-      .expect("hardcoded template is valid"),
-  );
-  spinner.set_message(format!("Copying closure to remote host '{host}'..."));
-  spinner.enable_steady_tick(Duration::from_millis(80));
-
-  let copy_result = exec_with_spinner_streaming(cmd, &spinner);
-
-  // We finish and *clear*, because the log line needs to come next. If we try
-  // to make the spinner change the text, we cannot reliably match the `info!`
-  // or `error!` style.
-  spinner.finish_and_clear();
-  let exit_status =
-    copy_result.wrap_err("Failed to copy closure to remote host")?;
-
-  if !exit_status.success() {
-    error!("Failed to copy closure to remote host '{host}'");
-    bail!(
-      "nix copy --to '{}' failed (exit status: {:?})",
-      host,
-      exit_status
-    );
-  }
-  info!("Copied closure to remote host '{host}'");
-
-  Ok(())
-}
-
-/// Copy a Nix closure from one remote host to another.
-/// Uses `nix copy --from ssh://source --to ssh://dest`.
-fn copy_closure_between_remotes(
-  from_host: &RemoteHost,
-  to_host: &RemoteHost,
-  path: &str,
-  use_substitutes: bool,
-) -> Result<()> {
-  info!("Copying closure from '{}' to '{}'", from_host, to_host);
-
-  let flake_flags = get_flake_flags();
-  let mut cmd = Exec::cmd("nix")
-    .args(&flake_flags)
-    .args(["copy", "--from"])
-    .arg(format!("ssh://{}", from_host.ssh_host()))
-    .arg("--to")
-    .arg(format!("ssh://{}", to_host.ssh_host()));
-
-  if use_substitutes {
-    cmd = cmd.arg("--substitute-on-destination");
-  }
-
-  cmd = cmd.arg(path).env("NIX_SSHOPTS", get_nix_sshopts_env());
-
-  debug!(?cmd, "nix copy between remotes");
-
-  let (exit_status, _stdout, _stderr) = exec_with_streaming(cmd, false)
-    .wrap_err("Failed to copy closure between remote hosts")?;
-
-  if !exit_status.success() {
-    bail!(
-      "nix copy from '{}' to '{}' failed (exit status: {:?})",
-      from_host,
-      to_host,
-      exit_status
-    );
   }
 
   Ok(())
@@ -1591,9 +1365,10 @@ fn eval_drv_path(installable: &Installable) -> Result<PathBuf> {
 /// - Direct: Host2 -> Host3
 /// - Fallback: Host2 -> Host1 (localhost) → Host3
 ///
-/// If `out_link` is requested in `build_remote()`, the result is always
-/// copied to localhost regardless of whether a direct copy succeeded,
-/// because the symlink must point to a local store path.
+/// If `out_link` is requested and the result is copied to localhost, the
+/// symlink points at the local store path. When the build host is also the
+/// target host, the result stays remote-only and local out-link creation is
+/// skipped.
 #[derive(Debug, Clone)]
 pub struct RemoteBuildConfig {
   /// The host to build on
@@ -1617,7 +1392,7 @@ pub struct RemoteBuildConfig {
 ///
 /// This implements the `build_remote_flake` workflow from nixos-rebuild-ng:
 /// 1. Evaluate drvPath locally via `nix eval --raw`
-/// 2. Copy the derivation to the build host via `nix-copy-closure`
+/// 2. Copy the derivation to the build host via `nix copy`
 /// 3. Build on remote host via `nix build <drv>^* --print-out-paths`
 /// 4. Copy the result back (to localhost or `target_host`)
 ///
@@ -1650,8 +1425,8 @@ pub fn build_remote(
   // Optimizes copy paths based on hostname comparison:
   // - When build_host != target_host: copy build -> target, then build -> local
   //   if needed
-  // - When build_host == target_host: skip redundant copies, only copy to local
-  //   if out-link is needed
+  // - When build_host == target_host: skip redundant copies and leave the
+  //   result remote-only
   // - When target_host is None: always copy build -> local
   let target_is_build_host = config
     .target_host
@@ -1704,7 +1479,7 @@ pub fn build_remote(
   };
 
   if need_local_copy {
-    copy_closure_from(build_host, &out_path, use_substitutes)?;
+    copy_closure_from(build_host, &out_path)?;
   }
 
   // Create local out-link if requested and the result is in local store
@@ -2067,9 +1842,9 @@ mod tests {
   }
 
   #[test]
-  fn test_parse_ssh_uri_stripped() {
-    let host = RemoteHost::parse("ssh://buildserver").expect("should parse");
-    assert_eq!(host.to_string(), "buildserver");
+  fn test_parse_ssh_uri_rejected() {
+    let err = RemoteHost::parse("ssh://buildserver").unwrap_err();
+    assert!(err.to_string().contains("ssh-ng://buildserver"));
   }
 
   #[test]
@@ -2079,10 +1854,9 @@ mod tests {
   }
 
   #[test]
-  fn test_parse_ssh_uri_with_user() {
-    let host =
-      RemoteHost::parse("ssh://root@buildserver").expect("should parse");
-    assert_eq!(host.to_string(), "root@buildserver");
+  fn test_parse_ssh_uri_with_user_rejected() {
+    let err = RemoteHost::parse("ssh://root@buildserver").unwrap_err();
+    assert!(err.to_string().contains("ssh-ng://root@buildserver"));
   }
 
   #[test]
@@ -2138,16 +1912,16 @@ mod tests {
   }
 
   #[test]
-  fn test_parse_ipv6_ssh_uri() {
-    let host = RemoteHost::parse("ssh://[2001:db8::1]")
-      .expect("should parse IPv6 SSH URI");
+  fn test_parse_ipv6_ssh_ng_uri() {
+    let host = RemoteHost::parse("ssh-ng://[2001:db8::1]")
+      .expect("should parse IPv6 SSH-NG URI");
     assert_eq!(host.to_string(), "[2001:db8::1]");
   }
 
   #[test]
-  fn test_parse_ipv6_ssh_uri_with_user() {
-    let host = RemoteHost::parse("ssh://root@[2001:db8::1]")
-      .expect("should parse IPv6 SSH URI with user");
+  fn test_parse_ipv6_ssh_ng_uri_with_user() {
+    let host = RemoteHost::parse("ssh-ng://root@[2001:db8::1]")
+      .expect("should parse IPv6 SSH-NG URI with user");
     assert_eq!(host.to_string(), "root@[2001:db8::1]");
   }
 
@@ -2252,16 +2026,41 @@ mod tests {
   }
 
   #[test]
-  fn test_ssh_host_ssh_uri_ipv6() {
-    let host = RemoteHost::parse("ssh://[2001:db8::1]").expect("should parse");
+  fn test_ssh_host_ssh_ng_uri_ipv6() {
+    let host =
+      RemoteHost::parse("ssh-ng://[2001:db8::1]").expect("should parse");
     assert_eq!(host.ssh_host(), "2001:db8::1");
   }
 
   #[test]
-  fn test_ssh_host_ssh_uri_ipv6_with_user() {
+  fn test_ssh_host_ssh_ng_uri_ipv6_with_user() {
     let host =
-      RemoteHost::parse("ssh://root@[2001:db8::1]").expect("should parse");
+      RemoteHost::parse("ssh-ng://root@[2001:db8::1]").expect("should parse");
     assert_eq!(host.ssh_host(), "root@2001:db8::1");
+  }
+
+  #[test]
+  fn test_nix_store_uri_for_host() {
+    let host = RemoteHost::parse("build.example").expect("should parse");
+    assert_eq!(host.nix_store_uri(), "ssh-ng://build.example");
+  }
+
+  #[test]
+  fn test_nix_store_uri_for_user_host() {
+    let host = RemoteHost::parse("user@build.example").expect("should parse");
+    assert_eq!(host.nix_store_uri(), "ssh-ng://user@build.example");
+  }
+
+  #[test]
+  fn test_nix_store_uri_preserves_ipv6_brackets() {
+    let host = RemoteHost::parse("[2001:db8::1]").expect("should parse");
+    assert_eq!(host.nix_store_uri(), "ssh-ng://[2001:db8::1]");
+  }
+
+  #[test]
+  fn test_nix_store_uri_preserves_user_ipv6_brackets() {
+    let host = RemoteHost::parse("user@[2001:db8::1]").expect("should parse");
+    assert_eq!(host.nix_store_uri(), "ssh-ng://user@[2001:db8::1]");
   }
 
   #[test]
@@ -2448,7 +2247,7 @@ mod tests {
   #[test]
   #[serial]
   fn test_get_nix_sshopts_env_preserves_user_opts() {
-    // User options are preserved as-is (nix-copy-closure does whitespace split)
+    // User options are preserved as-is.
     unsafe {
       std::env::set_var("NIX_SSHOPTS", "-i /path/to/key -p 22");
     }
@@ -2465,7 +2264,7 @@ mod tests {
   #[test]
   #[serial]
   fn test_get_nix_sshopts_env_no_extra_quoting() {
-    // Verify we don't add shell quotes (nix-copy-closure doesn't parse them)
+    // Verify we don't add shell quotes around NIX_SSHOPTS.
     unsafe {
       std::env::remove_var("NIX_SSHOPTS");
     }
@@ -2595,65 +2394,5 @@ mod tests {
     // This should complete without error even when cleanup is disabled
     attempt_remote_cleanup(&host, remote_cmd);
     // If we reach here, the function handled the disabled case gracefully
-  }
-
-  /// A reader that always returns an I/O error, used to test error
-  /// propagation through `spawn_spinner_stream_thread`.
-  struct FaultyReader;
-
-  impl Read for FaultyReader {
-    fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
-      Err(std::io::Error::new(
-        std::io::ErrorKind::BrokenPipe,
-        "simulated pipe failure",
-      ))
-    }
-  }
-
-  #[test]
-  fn test_exec_with_spinner_streaming_mixed_output_no_deadlock() {
-    let spinner = ProgressBar::hidden();
-    // Interleaved stdout and stderr: alternating lines with explicit flush.
-    let cmd = Exec::cmd("bash").arg("-c").arg(
-      r#"
-for i in $(seq 1 10); do
-  echo "stdout $i"
-  echo "stderr $i" >&2
-done
-"#,
-    );
-    let result = exec_with_spinner_streaming(cmd, &spinner);
-    assert!(
-      result.is_ok(),
-      "exec_with_spinner_streaming must not deadlock on mixed stdout/stderr"
-    );
-  }
-
-  #[test]
-  fn test_spawn_spinner_stream_thread_error_propagation() {
-    let spinner = ProgressBar::hidden();
-    let handle =
-      spawn_spinner_stream_thread(FaultyReader, spinner, "faulty-stream");
-    let result = handle
-      .join()
-      .expect("spawn_spinner_stream_thread should not panic");
-    assert!(
-      result.is_err(),
-      "spawn_spinner_stream_thread must propagate read errors"
-    );
-  }
-
-  #[test]
-  fn test_exec_with_spinner_streaming_command_start_error_propagation() {
-    let spinner = ProgressBar::hidden();
-    // A nonexistent command triggers `cmd.start()` failure.
-    // This should verify that errors propagate out of
-    // `exec_with_spinner_streaming` rather than panicking.
-    let cmd = Exec::cmd("nonexistent_command_xyz_123");
-    let result = exec_with_spinner_streaming(cmd, &spinner);
-    assert!(
-      result.is_err(),
-      "exec_with_spinner_streaming must propagate command start errors"
-    );
   }
 }
