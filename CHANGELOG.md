@@ -141,7 +141,7 @@ functionality, under the "Removed" section.
     compatibility (falls back to `NH_ELEVATION_STRATEGY` if set)
 - Platform commands (`nh os`, `nh home`, `nh darwin`) now support SSH-based
   remote builds via `--build-host`. The flag now uses proper remote build
-  semantics: derivations are copied to the remote host via `nix-copy-closure`,
+  semantics: derivations are copied to the remote host via `nix copy`,
   built remotely, and results are transferred back. This matches `nixos-rebuild`
   behavior, and is significantly more robust than the previous implementation
   where `--build-host` would use Nix's `--builders` flag inefficiently.
