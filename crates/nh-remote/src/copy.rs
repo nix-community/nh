@@ -184,7 +184,7 @@ fn exec_with_spinner_streaming(
 
 /// Copy a Nix closure from localhost to a remote host.
 ///
-/// Uses `nix copy --to ssh-ng://host` to transfer a store path and its
+/// Uses `nix copy --to <host-store-uri>` to transfer a store path and its
 /// dependencies from the local Nix store to a remote machine via SSH.
 ///
 /// When `use_substitutes` is enabled, the remote host will attempt to fetch
@@ -267,7 +267,7 @@ pub fn copy_to_remote(
 }
 
 /// Copy a Nix closure from one remote host to another.
-/// Uses `nix copy --from ssh-ng://source --to ssh-ng://dest`.
+/// Uses `nix copy --from <source-store-uri> --to <dest-store-uri>`.
 pub fn copy_closure_between_remotes(
   from_host: &RemoteHost,
   to_host: &RemoteHost,
@@ -327,6 +327,25 @@ mod tests {
         "copy",
         "--to",
         "ssh-ng://build.example",
+        "--substitute-on-destination",
+      ]
+    );
+  }
+
+  #[test]
+  fn test_copy_direction_preserves_ssh_store_scheme() {
+    let host = RemoteHost::parse("ssh://build.example").unwrap();
+
+    assert_eq!(
+      CopyDirection::ToRemote {
+        host:            &host,
+        use_substitutes: true,
+      }
+      .args(),
+      vec![
+        "copy",
+        "--to",
+        "ssh://build.example",
         "--substitute-on-destination",
       ]
     );
