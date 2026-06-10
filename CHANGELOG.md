@@ -67,6 +67,8 @@ functionality, under the "Removed" section.
 
 - Local `run0` elevation now uses `--pty-late`, avoiding terminal ownership
   changes can break subsequent commands.
+- `--no-build-output` / `-Q` now forwards `--quiet` to `nix build` instead of
+  the unsupported `--no-build-output` flag.
 - Generated Nushell completions now mark the `installable` argument as a path
   while keeping nh's own parser compatible with flake references.
 - `nh os switch --target-host root@host` no longer wraps the activation in
