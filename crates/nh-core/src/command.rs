@@ -12,13 +12,14 @@ use color_eyre::{
   Result,
   eyre::{self, Context, bail},
 };
+use nh_installable::Installable;
 use secrecy::{ExposeSecret, SecretString};
 use subprocess::{Exec, ExitStatus, Redirection};
 use thiserror::Error;
 use tracing::{debug, info, warn};
 use which::which;
 
-use crate::{args::NixBuildPassthroughArgs, installable::Installable};
+use crate::args::NixBuildPassthroughArgs;
 
 /// Execute a command, streaming output to stdout/stderr while optionally
 /// capturing it for error reporting.

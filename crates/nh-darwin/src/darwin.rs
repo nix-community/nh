@@ -10,10 +10,10 @@ use color_eyre::{
 use nh_core::{
   args::DiffType,
   command::{Command, ElevationStrategy},
-  installable::{CommandContext, Installable},
   update::update,
   util::{get_hostname, print_dix_diff},
 };
+use nh_installable::{CommandContext, Installable};
 use nh_remote::{self, RemoteBuildConfig};
 use tracing::{debug, info, warn};
 

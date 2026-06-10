@@ -1,0 +1,19 @@
+[package]
+name                   = "nh-installable"
+version                = "0.1.0"
+publish                = false
+edition.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+
+[dependencies]
+clap.workspace       = true
+color-eyre.workspace = true
+tracing.workspace    = true
+yansi.workspace      = true
+
+[dev-dependencies]
+serial_test.workspace = true
+
+[lints]
+workspace = true

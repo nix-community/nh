@@ -18,9 +18,9 @@ use color_eyre::{
 };
 use nh_core::{
   command::{ElevationStrategy, cache_password, get_cached_password},
-  installable::Installable,
   util::NixVariant,
 };
+use nh_installable::Installable;
 use secrecy::{ExposeSecret, SecretString};
 use subprocess::{Exec, Redirection};
 use tracing::{debug, error, info, warn};
