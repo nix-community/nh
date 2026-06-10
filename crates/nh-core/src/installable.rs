@@ -1,6 +1,6 @@
 use std::{env, fs, path::PathBuf};
 
-use clap::{Arg, ArgAction, Args, FromArgMatches, error::ErrorKind};
+use clap::{Arg, ArgAction, Args, FromArgMatches, ValueHint, error::ErrorKind};
 use tracing::debug;
 use yansi::{Color, Paint};
 
@@ -128,6 +128,7 @@ impl Args for Installable {
       .arg(
         Arg::new("installable")
           .action(ArgAction::Set)
+          .value_hint(ValueHint::AnyPath)
           .value_name("INSTALLABLE")
           .help("Which installable to use")
           .long_help(format!(
@@ -395,6 +396,17 @@ where
 fn test_join_attribute() {
   assert_eq!(join_attribute(vec!["foo", "bar"]), "foo.bar");
   assert_eq!(join_attribute(vec!["foo", "bar.baz"]), r#"foo."bar.baz""#);
+}
+
+#[test]
+fn installable_arg_is_path_hinted_for_completions() {
+  let cmd = Installable::augment_args(clap::Command::new("nh"));
+  let installable_arg = cmd
+    .get_arguments()
+    .find(|arg| arg.get_id().as_str() == "installable")
+    .expect("installable arg should exist");
+
+  assert_eq!(installable_arg.get_value_hint(), ValueHint::AnyPath);
 }
 
 enum FallbackError {

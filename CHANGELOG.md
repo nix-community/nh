@@ -69,6 +69,8 @@ functionality, under the "Removed" section.
   changes can break subsequent commands.
 - `--no-build-output` / `-Q` now forwards `--quiet` to `nix build` instead of
   the unsupported `--no-build-output` flag.
+- Generated Nushell completions now mark the `installable` argument as a path
+  while keeping nh's own parser compatible with flake references.
 - `nh os switch --target-host root@host` no longer wraps the activation in
   `sudo --prompt= --stdin` when the SSH user is already uid 0. The elevation
   decision now probes `id -u` over the established ControlMaster instead of
