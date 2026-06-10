@@ -1,9 +1,8 @@
 use std::path::PathBuf;
 
 use clap::{Args, ValueEnum};
+use nh_installable::Installable;
 use tracing::warn;
-
-use crate::installable::Installable;
 
 #[derive(Debug, Args)]
 pub struct CommonRebuildArgs {

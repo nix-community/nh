@@ -1,7 +1,6 @@
 pub mod args;
 pub mod checks;
 pub mod command;
-pub mod installable;
 pub mod update;
 pub mod util;
 

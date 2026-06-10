@@ -8,7 +8,6 @@ use color_eyre::eyre::{Context, Result, bail, eyre};
 use nh_core::{
   args::DiffType,
   command::{self, Command, ElevationStrategy},
-  installable::{CommandContext, Installable},
   update::update,
   util::{
     ensure_ssh_key_login,
@@ -18,6 +17,7 @@ use nh_core::{
     print_dix_diff,
   },
 };
+use nh_installable::{CommandContext, Installable};
 use nh_remote::{self, RemoteBuildConfig, RemoteHost};
 use tracing::{debug, info, warn};
 

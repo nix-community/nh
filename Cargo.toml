@@ -9,15 +9,16 @@ rust-version = "1.95.0"
 version      = "4.4.0-beta1"
 
 [workspace.dependencies]
-nh        = { path = "crates/nh" }
-nh-clean  = { path = "crates/nh-clean" }
-nh-config = { path = "crates/nh-config" }
-nh-core   = { path = "crates/nh-core" }
-nh-darwin = { path = "crates/nh-darwin" }
-nh-home   = { path = "crates/nh-home" }
-nh-nixos  = { path = "crates/nh-nixos" }
-nh-remote = { path = "crates/nh-remote" }
-nh-search = { path = "crates/nh-search" }
+nh             = { path = "crates/nh" }
+nh-clean       = { path = "crates/nh-clean" }
+nh-config      = { path = "crates/nh-config" }
+nh-core        = { path = "crates/nh-core" }
+nh-darwin      = { path = "crates/nh-darwin" }
+nh-home        = { path = "crates/nh-home" }
+nh-installable = { path = "crates/nh-installable" }
+nh-nixos       = { path = "crates/nh-nixos" }
+nh-remote      = { path = "crates/nh-remote" }
+nh-search      = { path = "crates/nh-search" }
 
 anstyle               = "1.0.13"
 chrono                = "0.4.42"
