@@ -549,12 +549,7 @@ impl OsRebuildArgs {
       .common
       .installable
       .clone()
-      .resolve(CommandContext::Os)?;
-
-    let installable = match installable {
-      Installable::Unspecified => Installable::try_find_default_for_os()?,
-      other => other,
-    };
+      .resolve_or_default(CommandContext::Os)?;
 
     toplevel_for(
       target_hostname,
@@ -931,12 +926,7 @@ impl OsBuildImageArgs {
       .common
       .installable
       .clone()
-      .resolve(CommandContext::Os)?;
-
-    let installable = match installable {
-      Installable::Unspecified => Installable::try_find_default_for_os()?,
-      other => other,
-    };
+      .resolve_or_default(CommandContext::Os)?;
 
     // Get the available image variants for validation
     let valid_variants = match &installable {
@@ -1351,12 +1341,8 @@ pub fn toplevel_for<S: AsRef<str>>(
 
 impl OsReplArgs {
   fn run(self) -> Result<()> {
-    let target_installable = self.installable.resolve(CommandContext::Os)?;
-
-    let mut target_installable = match target_installable {
-      Installable::Unspecified => Installable::try_find_default_for_os()?,
-      other => other,
-    };
+    let mut target_installable =
+      self.installable.resolve_or_default(CommandContext::Os)?;
 
     if matches!(target_installable, Installable::Store { .. }) {
       bail!("Nix doesn't support nix store installables.");

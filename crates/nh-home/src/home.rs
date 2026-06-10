@@ -74,12 +74,7 @@ impl HomeRebuildArgs {
       .common
       .installable
       .clone()
-      .resolve(CommandContext::Home)?;
-
-    let installable = match installable {
-      Installable::Unspecified => Installable::try_find_default_for_home()?,
-      other => other,
-    };
+      .resolve_or_default(CommandContext::Home)?;
 
     if self.update_args.update_all || self.update_args.update_input.is_some() {
       update(
@@ -445,12 +440,8 @@ where
 
 impl HomeReplArgs {
   fn run(self) -> Result<()> {
-    let installable = self.installable.resolve(CommandContext::Home)?;
-
-    let installable = match installable {
-      Installable::Unspecified => Installable::try_find_default_for_home()?,
-      other => other,
-    };
+    let installable =
+      self.installable.resolve_or_default(CommandContext::Home)?;
 
     let toplevel = toplevel_for(
       installable,

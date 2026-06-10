@@ -82,6 +82,43 @@ fn test_resolve_non_unspecified_returns_unchanged() {
 }
 
 #[test]
+fn test_resolve_or_default_non_unspecified_returns_unchanged() {
+  let flake = Installable::Flake {
+    reference: String::from("/path/to/flake"),
+    attribute: vec![String::from("host")],
+  };
+
+  let resolved = flake
+    .clone()
+    .resolve_or_default(CommandContext::Os)
+    .unwrap();
+
+  assert_eq!(flake.to_args(), resolved.to_args());
+}
+
+#[test]
+#[serial]
+fn test_resolve_or_default_uses_env_before_default() {
+  let env_guard = EnvGuard::clear();
+  env_guard.set("NH_OS_FLAKE", "/etc/nixos#myhost");
+
+  let resolved = Installable::Unspecified
+    .resolve_or_default(CommandContext::Os)
+    .unwrap();
+
+  match resolved {
+    Installable::Flake {
+      reference,
+      attribute,
+    } => {
+      assert_eq!(reference, "/etc/nixos");
+      assert_eq!(attribute, vec!["myhost"]);
+    },
+    _ => panic!("Expected Flake, got {resolved:?}"),
+  }
+}
+
+#[test]
 #[serial]
 fn test_resolve_os_context_uses_nh_os_flake() {
   let env_guard = EnvGuard::clear();

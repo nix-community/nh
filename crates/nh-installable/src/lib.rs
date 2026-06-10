@@ -350,6 +350,29 @@ impl Installable {
       other => Ok(other),
     }
   }
+
+  /// Resolve an installable and fall back to the command-specific default when
+  /// the installable is unspecified.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error when environment resolution fails or when no default
+  /// installable can be found for the command context.
+  pub fn resolve_or_default(
+    self,
+    context: CommandContext,
+  ) -> color_eyre::Result<Self> {
+    match self.resolve(context)? {
+      Self::Unspecified => {
+        match context {
+          CommandContext::Os => Self::try_find_default_for_os(),
+          CommandContext::Home => Self::try_find_default_for_home(),
+          CommandContext::Darwin => Self::try_find_default_for_darwin(),
+        }
+      },
+      installable => Ok(installable),
+    }
+  }
 }
 
 #[test]
