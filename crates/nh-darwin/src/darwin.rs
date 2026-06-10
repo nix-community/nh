@@ -90,12 +90,7 @@ impl DarwinRebuildArgs {
       .common
       .installable
       .clone()
-      .resolve(CommandContext::Darwin)?;
-
-    let installable = match installable {
-      Installable::Unspecified => Installable::try_find_default_for_darwin()?,
-      other => other,
-    };
+      .resolve_or_default(CommandContext::Darwin)?;
 
     if self.update_args.update_all || self.update_args.update_input.is_some() {
       update(
@@ -219,13 +214,9 @@ impl DarwinRebuildArgs {
 
 impl DarwinReplArgs {
   fn run(self) -> Result<()> {
-    let target_installable =
-      self.installable.resolve(CommandContext::Darwin)?;
-
-    let mut target_installable = match target_installable {
-      Installable::Unspecified => Installable::try_find_default_for_darwin()?,
-      other => other,
-    };
+    let mut target_installable = self
+      .installable
+      .resolve_or_default(CommandContext::Darwin)?;
 
     if matches!(target_installable, Installable::Store { .. }) {
       bail!("Nix doesn't support nix store installables.");
