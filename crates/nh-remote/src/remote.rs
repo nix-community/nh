@@ -432,7 +432,13 @@ impl NixStoreScheme {
   }
 }
 
-#[derive(Eq, PartialEq, Debug, Clone)]
+// NOTE: This _deliberately_ does not implement `Eq` or `PartialEq` because we
+// need to be clear about what we want to compare; This might differ on a
+// case-to-case basis. By not implementing `Eq`, we avoid accidental misuse of
+// equality comparisons that might conflate different concepts, such as
+// cases where we only want to compare the host and do not care about the
+// scheme.
+#[derive(Debug, Clone)]
 pub struct RemoteHost {
   /// The host string (may include user@)
   host:         String,

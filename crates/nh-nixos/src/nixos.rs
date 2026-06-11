@@ -1147,7 +1147,7 @@ fn validate_system_closure_remote(
 ) -> Result<()> {
   // Build context string for error messages
   let context = build_host.map(|build| {
-    if build == target_host {
+    if build.hostname() == target_host.hostname() {
       "also build host".to_string()
     } else {
       format!("built on '{build}'")
