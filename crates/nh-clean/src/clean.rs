@@ -21,6 +21,7 @@ use nix::{
 };
 use regex::Regex;
 use tracing::{Level, debug, info, instrument, span, warn};
+use walkdir::WalkDir;
 use yansi::{Color, Paint};
 
 // Nix impl:
@@ -32,15 +33,12 @@ static DIRENV_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     .expect("Failed to compile direnv regex")
 });
 
-static RESULT_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-  #[allow(clippy::expect_used)]
-  Regex::new(r".*result.*").expect("Failed to compile result regex")
-});
-
 static GENERATION_REGEX: LazyLock<Regex> = LazyLock::new(|| {
   #[allow(clippy::expect_used)]
   Regex::new(r"^(.*)-(\d+)-link$").expect("Failed to compile generation regex")
 });
+
+const AUTO_GCROOTS_DIR: &str = "/nix/var/nix/gcroots/auto";
 
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 struct Generation {
@@ -53,6 +51,13 @@ type ToBeRemoved = bool;
 // BTreeMap to automatically sort generations by id
 type GenerationsTagged = BTreeMap<Generation, ToBeRemoved>;
 type ProfilesTagged = HashMap<PathBuf, GenerationsTagged>;
+
+#[derive(Debug)]
+struct GcRootTagged {
+  src: PathBuf,
+  dst: PathBuf,
+  tbr: ToBeRemoved,
+}
 
 /// Filter paths to only include existing directories, logging warnings for
 /// missing ones
@@ -83,7 +88,7 @@ impl args::CleanMode {
   /// example, if  `User::from_uid(uid)` returns `None`.
   pub fn run(&self, elevate: ElevationStrategy) -> Result<()> {
     let mut profiles = Vec::new();
-    let mut gcroots_tagged: HashMap<PathBuf, ToBeRemoved> = HashMap::new();
+    let mut gcroots_tagged = Vec::new();
     let now = SystemTime::now();
     let mut is_profile_clean = false;
 
@@ -194,74 +199,115 @@ impl args::CleanMode {
     }
 
     // Query gcroots
-    let regexes = [&*DIRENV_REGEX, &*RESULT_REGEX];
+    let regexes = &[&*DIRENV_REGEX][..usize::from(!args.no_direnv)];
+    let mut orphan_gcroots: Vec<PathBuf> = Vec::new();
 
     if !is_profile_clean && !args.no_gcroots {
-      for elem in PathBuf::from("/nix/var/nix/gcroots/auto")
-        .read_dir()
-        .wrap_err("Reading auto gcroots dir")?
+      let dirfd = nix::fcntl::open(
+        ".",
+        nix::fcntl::OFlag::O_DIRECTORY,
+        nix::sys::stat::Mode::empty(),
+      )?;
+
+      for entry in WalkDir::new("/nix/var/nix/gcroots")
+        .follow_links(false)
+        .same_file_system(!args.cross_filesystems)
+        .into_iter()
+        .filter_map(|e| {
+          e.map_err(|err| {
+            warn!(?err, "gcroot walk error");
+          })
+          .ok()
+        })
+        .filter(|e| e.path().is_symlink())
       {
-        let src = elem.wrap_err("Reading auto gcroots element")?.path();
+        let src = entry.path().to_path_buf();
         let dst = src.read_link().wrap_err("Reading symlink destination")?;
         let span = span!(Level::TRACE, "gcroot detection", ?dst);
         let _entered = span.enter();
         debug!(?src);
 
-        if !regexes
-          .iter()
-          .any(|next| next.is_match(&dst.to_string_lossy()))
-        {
-          debug!("dst doesn't match any gcroot regex, skipping");
+        if !dst.is_symlink() && !dst.exists() {
+          debug!(
+            ?src,
+            "gcroot is orphaned (dst missing), tagging for removal"
+          );
+          orphan_gcroots.push(src);
           continue;
         }
 
-        // Create a file descriptor for the current working directory
-        let dirfd = nix::fcntl::open(
-          ".",
-          nix::fcntl::OFlag::O_DIRECTORY,
-          nix::sys::stat::Mode::empty(),
-        )?;
+        if !gcroot_matches_filter(&src, &dst, regexes) {
+          debug!("dst doesn't match any gcroot filter, skipping");
+          continue;
+        }
 
-        // Use .exists to not travel symlinks
-        if match faccessat(
+        match faccessat(
           &dirfd,
           &dst,
           AccessFlags::F_OK | AccessFlags::W_OK,
           AtFlags::AT_SYMLINK_NOFOLLOW,
         ) {
-          Ok(()) => true,
-          Err(errno) => {
-            match errno {
-              Errno::EACCES | Errno::ENOENT => false,
-              _ => {
-                bail!(
-                  eyre!("Checking access for gcroot {:?}, unknown error", dst)
-                    .wrap_err(errno)
-                )
-              },
+          Ok(()) => {
+            if dst.metadata().is_err() {
+              debug!(?dst, "gcroot target already GC'd, tagging for removal");
+              gcroots_tagged.push(GcRootTagged {
+                src,
+                dst,
+                tbr: true,
+              });
+            } else if args.keep_one
+              && DIRENV_REGEX.is_match(&dst.to_string_lossy())
+            {
+              gcroots_tagged.push(GcRootTagged {
+                src,
+                dst,
+                tbr: false,
+              });
+            } else {
+              let dur = now.duration_since(
+                dst
+                  .symlink_metadata()
+                  .wrap_err("Reading gcroot metadata")?
+                  .modified()?,
+              );
+              debug!(?dur);
+              match dur {
+                Err(err) => {
+                  warn!(?err, ?now, "Failed to compare time!");
+                },
+                Ok(val) if val <= args.keep_since.into() => {
+                  gcroots_tagged.push(GcRootTagged {
+                    src,
+                    dst,
+                    tbr: false,
+                  });
+                },
+                Ok(_) => {
+                  gcroots_tagged.push(GcRootTagged {
+                    src,
+                    dst,
+                    tbr: true,
+                  });
+                },
+              }
             }
           },
-        } {
-          let dur = now.duration_since(
-            dst
-              .symlink_metadata()
-              .wrap_err("Reading gcroot metadata")?
-              .modified()?,
-          );
-          debug!(?dur);
-          match dur {
-            Err(err) => {
-              warn!(?err, ?now, "Failed to compare time!");
-            },
-            Ok(val) if val <= args.keep_since.into() => {
-              gcroots_tagged.insert(dst, false);
-            },
-            Ok(_) => {
-              gcroots_tagged.insert(dst, true);
-            },
-          }
-        } else {
-          debug!("dst doesn't exist or is not writable, skipping");
+          Err(Errno::ENOENT) => {
+            debug!(
+              ?src,
+              "gcroot is orphaned (dst missing), tagging for removal"
+            );
+            orphan_gcroots.push(src);
+          },
+          Err(Errno::EACCES) => {
+            debug!("dst not writable, skipping");
+          },
+          Err(errno) => {
+            bail!(
+              eyre!("Checking access for gcroot {:?}, unknown error", dst)
+                .wrap_err(errno)
+            )
+          },
         }
       }
     }
@@ -277,6 +323,12 @@ impl args::CleanMode {
       "Keeping paths newer than {}",
       Paint::new(args.keep_since).fg(Color::Green)
     );
+    if args.keep_one {
+      println!("Keeping all active direnv gcroots");
+    }
+    if args.no_direnv {
+      println!("Skipping all direnv gcroots");
+    }
     println!();
     println!("legend:");
     println!(
@@ -286,28 +338,38 @@ impl args::CleanMode {
     println!("{}: path to be kept", Paint::new("OK").fg(Color::Green));
     println!("{}: path to be removed", Paint::new("DEL").fg(Color::Red));
     println!();
+    if !orphan_gcroots.is_empty() {
+      println!("{}", Paint::new("orphaned gcroots").fg(Color::Blue).bold());
+      for path in &orphan_gcroots {
+        println!(
+          "- {} {}",
+          Paint::new("DEL").fg(Color::Red),
+          path.to_string_lossy()
+        );
+      }
+      println!();
+    }
     if !gcroots_tagged.is_empty() {
-      println!(
-        "{}",
-        Paint::new("gcroots (matching the following regex patterns)")
-          .fg(Color::Blue)
-          .bold()
-      );
+      println!("{}", Paint::new("gcroots").fg(Color::Blue).bold());
       for re in regexes {
         println!("- {}  {}", Paint::new("RE").fg(Color::Magenta), re.as_str());
       }
-      for (path, tbr) in &gcroots_tagged {
-        if *tbr {
+      println!(
+        "- {}  /nix/store direct children",
+        Paint::new("RE").fg(Color::Magenta)
+      );
+      for gcroot in &gcroots_tagged {
+        if gcroot.tbr {
           println!(
             "- {} {}",
             Paint::new("DEL").fg(Color::Red),
-            path.to_string_lossy()
+            gcroot.dst.to_string_lossy()
           );
         } else {
           println!(
             "- {} {}",
             Paint::new("OK ").fg(Color::Green),
-            path.to_string_lossy()
+            gcroot.dst.to_string_lossy()
           );
         }
       }
@@ -346,10 +408,14 @@ impl args::CleanMode {
     }
 
     if !args.dry {
-      for (path, tbr) in &gcroots_tagged {
-        if *tbr {
-          remove_path_nofail(path);
+      for gcroot in &gcroots_tagged {
+        if gcroot.tbr {
+          remove_path_nofail(gcroot_path_to_remove(gcroot));
         }
+      }
+
+      for path in &orphan_gcroots {
+        remove_path_nofail(path);
       }
 
       for generations_tagged in profiles_tagged.values() {
@@ -507,9 +573,225 @@ fn cleanable_generations(
   Ok(result)
 }
 
+fn is_nix_store_direct_child(path: &Path) -> bool {
+  path
+    .strip_prefix("/nix/store")
+    .is_ok_and(|suffix| suffix.components().count() == 1)
+}
+
+fn gcroot_matches_filter(src: &Path, dst: &Path, regexes: &[&Regex]) -> bool {
+  let resolved_dst = if dst.is_symlink() {
+    dst.read_link().unwrap_or_else(|_| dst.to_path_buf())
+  } else {
+    dst.to_path_buf()
+  };
+
+  regexes
+    .iter()
+    .any(|next| next.is_match(&dst.to_string_lossy()))
+    || (is_auto_gcroot_entry(src) && is_nix_store_direct_child(&resolved_dst))
+}
+
+fn is_auto_gcroot_entry(path: &Path) -> bool {
+  path.starts_with(AUTO_GCROOTS_DIR)
+}
+
+fn gcroot_path_to_remove(gcroot: &GcRootTagged) -> &Path {
+  &gcroot.src
+}
+
 fn remove_path_nofail(path: &Path) {
   info!("Removing {}", path.to_string_lossy());
   if let Err(err) = std::fs::remove_file(path) {
     warn!(?path, ?err, "Failed to remove path");
+  }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn store_direct_child_accepts_top_level_entry() {
+    assert!(is_nix_store_direct_child(Path::new(
+      "/nix/store/abc123zzz-foo-1.0"
+    )));
+  }
+
+  #[test]
+  fn store_direct_child_rejects_nested_path() {
+    assert!(!is_nix_store_direct_child(Path::new(
+      "/nix/store/abc123zzz-foo-1.0/bin/foo"
+    )));
+  }
+
+  #[test]
+  fn store_direct_child_rejects_store_root_itself() {
+    assert!(!is_nix_store_direct_child(Path::new("/nix/store")));
+  }
+
+  #[test]
+  fn store_direct_child_rejects_unrelated_paths() {
+    assert!(!is_nix_store_direct_child(Path::new("/home/user/result")));
+    assert!(!is_nix_store_direct_child(Path::new("/result")));
+    assert!(!is_nix_store_direct_child(Path::new(
+      "/nix/store-backup/abc"
+    )));
+  }
+
+  #[test]
+  fn direnv_regex_matches_dotdirenv_subpath() {
+    assert!(DIRENV_REGEX.is_match("/home/user/project/.direnv/python3.11"));
+  }
+
+  #[test]
+  fn direnv_regex_matches_layouts_subpath() {
+    assert!(
+      DIRENV_REGEX.is_match("/home/user/project/direnv/layouts/python3.11")
+    );
+  }
+
+  #[test]
+  fn direnv_regex_rejects_result_and_store_paths() {
+    assert!(!DIRENV_REGEX.is_match("/home/user/project/result"));
+    assert!(!DIRENV_REGEX.is_match("/nix/store/abc123zzz-foo-1.0"));
+  }
+
+  #[test]
+  fn gcroot_filter_passes_direnv_path() {
+    let src = Path::new("/nix/var/nix/gcroots/project-direnv");
+    let dst = Path::new("/home/user/project/.direnv/something");
+    let regexes = [&*DIRENV_REGEX];
+    assert!(gcroot_matches_filter(src, dst, &regexes));
+  }
+
+  #[test]
+  fn gcroot_filter_passes_auto_store_direct_child() {
+    let src = Path::new("/nix/var/nix/gcroots/auto/example");
+    let dst = Path::new("/nix/store/abc123zzz-foo-1.0");
+    let regexes = [&*DIRENV_REGEX];
+    assert!(gcroot_matches_filter(src, dst, &regexes));
+  }
+
+  #[test]
+  fn gcroot_filter_rejects_non_auto_store_direct_child() {
+    let src = Path::new("/nix/var/nix/gcroots/current-system");
+    let dst = Path::new("/nix/store/abc123zzz-foo-1.0");
+    let regexes = [&*DIRENV_REGEX];
+    assert!(!gcroot_matches_filter(src, dst, &regexes));
+  }
+
+  #[test]
+  fn gcroot_filter_passes_auto_symlink_to_store_direct_child() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let link = dir.path().join("result");
+    std::os::unix::fs::symlink("/nix/store/abc123zzz-foo-1.0", &link)
+      .expect("symlink");
+
+    let src = Path::new("/nix/var/nix/gcroots/auto/example");
+    let regexes = [&*DIRENV_REGEX];
+    assert!(gcroot_matches_filter(src, &link, &regexes));
+  }
+
+  #[test]
+  fn direct_store_filter_is_limited_to_auto_gcroots() {
+    assert!(is_auto_gcroot_entry(Path::new(
+      "/nix/var/nix/gcroots/auto/example"
+    )));
+    assert!(!is_auto_gcroot_entry(Path::new(
+      "/nix/var/nix/gcroots/current-system"
+    )));
+    assert!(!is_auto_gcroot_entry(Path::new(
+      "/nix/var/nix/gcroots/booted-system"
+    )));
+    assert!(!is_auto_gcroot_entry(Path::new(
+      "/nix/var/nix/gcroots/profiles/system"
+    )));
+  }
+
+  #[test]
+  fn gcroot_cleanup_removes_source_not_system_destination() {
+    let gcroot = GcRootTagged {
+      src: PathBuf::from("/nix/var/nix/gcroots/auto/example"),
+      dst: PathBuf::from("/run/current-system"),
+      tbr: true,
+    };
+
+    assert_eq!(
+      gcroot_path_to_remove(&gcroot),
+      Path::new("/nix/var/nix/gcroots/auto/example")
+    );
+    assert_ne!(gcroot_path_to_remove(&gcroot), gcroot.dst.as_path());
+  }
+
+  #[test]
+  fn gcroot_cleanup_removes_source_not_profile_destination() {
+    let gcroot = GcRootTagged {
+      src: PathBuf::from("/nix/var/nix/gcroots/auto/example"),
+      dst: PathBuf::from("/nix/var/nix/profiles/system-2-link"),
+      tbr: true,
+    };
+
+    assert_eq!(
+      gcroot_path_to_remove(&gcroot),
+      Path::new("/nix/var/nix/gcroots/auto/example")
+    );
+    assert_ne!(gcroot_path_to_remove(&gcroot), gcroot.dst.as_path());
+  }
+
+  #[test]
+  fn gcroot_filter_rejects_arbitrary_path() {
+    let src = Path::new("/nix/var/nix/gcroots/auto/example");
+    let dst = Path::new("/home/user/some-random-link");
+    let regexes = [&*DIRENV_REGEX];
+    assert!(!gcroot_matches_filter(src, dst, &regexes));
+  }
+
+  #[test]
+  fn missing_path_triggers_case_a_condition() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let gone = dir.path().join("gone");
+    assert!(!gone.is_symlink() && !gone.exists());
+  }
+
+  #[test]
+  fn broken_symlink_does_not_trigger_case_a() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let target = dir.path().join("gone");
+    let link = dir.path().join("link");
+    std::os::unix::fs::symlink(&target, &link).expect("symlink");
+    assert!(link.is_symlink());
+    assert!(!link.exists());
+    assert!(link.is_symlink() || link.exists());
+  }
+
+  #[test]
+  fn broken_symlink_metadata_fails() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let target = dir.path().join("gone");
+    let link = dir.path().join("link");
+    std::os::unix::fs::symlink(&target, &link).expect("symlink");
+
+    assert!(link.is_symlink(), "symlink should exist");
+    assert!(
+      link.metadata().is_err(),
+      "following broken symlink should fail"
+    );
+  }
+
+  #[test]
+  fn live_symlink_metadata_succeeds() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let target = dir.path().join("real");
+    std::fs::write(&target, b"").expect("write");
+    let link = dir.path().join("link");
+    std::os::unix::fs::symlink(&target, &link).expect("symlink");
+
+    assert!(link.is_symlink(), "symlink should exist");
+    assert!(
+      link.metadata().is_ok(),
+      "live symlink metadata should succeed"
+    );
   }
 }

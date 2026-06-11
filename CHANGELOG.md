@@ -14,6 +14,93 @@ be put in the "Changed" section or, if it's just to remove code or
 functionality, under the "Removed" section.
 -->
 
+## Unreleased
+
+### Added
+
+- `nh search offline <query>` subcommand for offline search using
+  [spam-db](https://github.com/feel-co/spam) databases. Requires `-D <path>` (or
+  `NH_OFFLINE_DB`) pointing to the database directory.
+- `nh search prs <query>` subcommand for searching recent Nixpkgs pull requests
+  and showing which Nixpkgs branches merged PRs have reached. Numeric queries
+  and `#<number>` fetch that pull request directly.
+- `nh search issues <query>` subcommand for searching recent Nixpkgs issues
+  while excluding pull requests.
+- `NH_CONFIG` can override the NH configuration file path. `nh search prs` reads
+  GitHub authentication from `GH_TOKEN` first, then `auth.github_token` in the NH
+  configuration file.
+- `nh search --default-search` global option to set default search mode
+  (`packages` or `options`) when no subcommand is specified.
+- `nh clean --keep-one` preserves all active direnv gcroots regardless of
+  `--keep-since`, preventing projects from being collected when they haven't
+  been activated recently. Orphaned and broken gcroots are still removed.
+- `nh clean --cross-filesystems` / `-x` allows the gcroot scan to cross
+  filesystem boundaries. By default the walk stays on the same filesystem as
+  `/nix/var/nix/gcroots`.
+- `--no-direnv` passed to `nh clean all` will now preserve `.direnv/` paths as
+  well.
+
+### Changed
+
+- **Breaking Change**: `nh search` CLI has been restructured to use subcommands.
+  - `--options <query>` is now `nh search options <query>`
+  - `--options` flag has been removed
+  - `--json` is shared by all search modes, while `--channel`, `--limit`, and
+    `--platforms` now appear only on search modes that use them
+  - When no subcommand is specified, the default search mode is used
+    (configurable via `--default-search`)
+- `nh search` now uses search backend version 48 (previously 46) to track the
+  current Elasticsearch endpoint.
+- gcroot scanning now walks all of `/nix/var/nix/gcroots` recursively instead of
+  only the flat `/nix/var/nix/gcroots/auto` directory.
+- Orphaned gcroots where entries in `/nix/var/nix/gcroots` whose target symlink
+  no longer exists on disk were silently skipped. They are now detected and
+  tagged for removal.
+- Broken gcroots where symlinks whose `/nix/store` target has already been
+  collected were also silently skipped. They are now tagged for removal
+  unconditionally, bypassing `--keep-since`.
+- `RESULT_REGEX` (`.*result.*`) matched any path containing the word "result",
+  including unrelated files. It is replaced by a structural check that only
+  matches direct children of `/nix/store`.
+
+### Fixed
+
+- Local `run0` elevation now uses `--pty-late`, avoiding terminal ownership
+  changes can break subsequent commands.
+- `--no-build-output` / `-Q` now forwards `--quiet` to `nix build` instead of
+  the unsupported `--no-build-output` flag.
+- Generated Nushell completions now mark the `installable` argument as a path
+  while keeping nh's own parser compatible with flake references.
+- `nh os switch --target-host root@host` no longer wraps the activation in
+  `sudo --prompt= --stdin` when the SSH user is already uid 0. The elevation
+  decision now probes `id -u` over the established ControlMaster instead of
+  reading the local process uid, matching `nixos-rebuild` behaviour and
+  unblocking sudo shims that don't accept stdin passwords (e.g.
+  `run0-sudo-shim`).
+- The regression introduced by the `Subprocess` crate upgrade causing various
+  event outputs to be printed incorrectly should now be resolved.
+- `nh os info` now batches `nix path-info` calls into a single invocation
+  instead of spawning one process per generation. On systems with hundreds of
+  generations this reduces runtime from over a minute to a few seconds.
+  ([#636](https://github.com/nix-community/nh/issues/636))
+  - `nh os info` now uses a direct map lookup when extracting closure sizes from
+    `nix path-info` JSON output, replacing an O(N) key scan with an O(1) lookup.
+- The `indicatif` spinner shown during remote closure copying has been fixed so
+  it renders correctly again. Hooray.
+  ([#635](https://github.com/nix-community/nh/pull/635))
+
+### Removed
+
+- `nh` no longer supports `x86_64-darwin`, following Nixpkgs' decision 
+   to drop support for that platform.
+
+## 4.3.2
+
+### Fixed
+
+- Bumped the version of the search backend from 44 to 46 to fix outdated
+  elasticsearch credentials.
+
 ## 4.3.1
 
 ### Changed
@@ -21,6 +108,7 @@ functionality, under the "Removed" section.
 - The host used to select the `nixosConfiguration` now defaults to the
   `--target-host` for remote deployments instead of the local hostname, unless
   the hostname is explicitly specified via the `-H|--hostname` flag.
+- `nh os rollback` performance has been improved.
 
 ### Fixed
 

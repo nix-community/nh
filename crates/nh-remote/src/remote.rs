@@ -1,7 +1,7 @@
 use std::{
   env,
   ffi::OsString,
-  io::Read,
+  io::{BufRead, Read},
   path::{Path, PathBuf},
   sync::{
     Arc,
@@ -18,7 +18,12 @@ use color_eyre::{
 };
 use indicatif::{ProgressBar, ProgressStyle};
 use nh_core::{
-  command::{ElevationStrategy, cache_password, get_cached_password},
+  command::{
+    ElevationStrategy,
+    cache_password,
+    exec_with_streaming,
+    get_cached_password,
+  },
   installable::Installable,
   util::NixVariant,
 };
@@ -290,6 +295,46 @@ pub fn open_ssh_control_master(host: &RemoteHost) -> Result<()> {
   }
 
   Ok(())
+}
+
+/// Probe the effective uid on the remote host after SSH login.
+///
+/// This runs `id -u` over the already-opened `ControlMaster` connection and
+/// returns the parsed value. Callers use this to decide whether elevation is
+/// needed without trusting the username convention.
+///
+/// This must be called after [`open_ssh_control_master`] so the multiplexed
+/// connection is already up.
+///
+/// # Errors
+///
+/// Returns an error if the SSH connection fails, `id -u` exits non-zero, or
+/// its stdout cannot be parsed as a `u32`.
+pub fn probe_remote_uid(host: &RemoteHost) -> Result<u32> {
+  let ssh_opts = get_ssh_opts();
+  let mut cmd = Exec::cmd("ssh");
+  for opt in &ssh_opts {
+    cmd = cmd.arg(opt);
+  }
+  cmd = cmd.arg("-T").arg(host.ssh_host()).arg("id -u");
+
+  let capture = cmd
+    .capture()
+    .wrap_err_with(|| format!("Failed to probe remote uid on '{host}'"))?;
+
+  if !capture.exit_status.success() {
+    bail!(
+      "Remote uid probe on '{}' failed:\n{}",
+      host,
+      capture.stderr_str().trim()
+    );
+  }
+
+  capture
+    .stdout_str()
+    .trim()
+    .parse::<u32>()
+    .wrap_err_with(|| format!("Unexpected `id -u` output from '{host}'"))
 }
 
 /// Cache for the SSH control socket directory.
@@ -572,7 +617,7 @@ pub fn get_ssh_opts() -> Vec<String> {
     } else {
       let truncated = sshopts.chars().take(60).collect::<String>();
       let sshopts_display = if sshopts.len() > 60 {
-        format!("{truncated}...",)
+        format!("{truncated}...")
       } else {
         truncated
       };
@@ -801,41 +846,6 @@ fn run_remote_command(
   }
 }
 
-/// Copy a Nix closure to a remote host.
-fn copy_closure_to(
-  host: &RemoteHost,
-  path: &str,
-  use_substitutes: bool,
-) -> Result<()> {
-  info!("Copying closure to build host '{}'", host);
-
-  let mut cmd = Exec::cmd("nix-copy-closure")
-    .arg("--to")
-    .arg(host.ssh_host());
-
-  if use_substitutes {
-    cmd = cmd.arg("--use-substitutes");
-  }
-
-  cmd = cmd.arg(path).env("NIX_SSHOPTS", get_nix_sshopts_env());
-
-  debug!(?cmd, "nix-copy-closure --to");
-
-  let capture = cmd
-    .capture()
-    .wrap_err("Failed to copy closure to remote host")?;
-
-  if !capture.exit_status.success() {
-    bail!(
-      "nix-copy-closure --to '{}' failed:\n{}",
-      host,
-      capture.stderr_str()
-    );
-  }
-
-  Ok(())
-}
-
 /// Validates that essential files exist in a closure on a remote host.
 ///
 /// Performs batched SSH checks using connection multiplexing. This is useful
@@ -974,19 +984,88 @@ fn copy_closure_from(
 
   debug!(?cmd, "nix-copy-closure --from");
 
-  let capture = cmd
-    .capture()
+  let (exit_status, _stdout, _stderr) = exec_with_streaming(cmd, false)
     .wrap_err("Failed to copy closure from remote host")?;
 
-  if !capture.exit_status.success() {
+  if !exit_status.success() {
     bail!(
-      "nix-copy-closure --from '{}' failed:\n{}",
+      "nix-copy-closure --from '{}' failed (exit status: {:?})",
       host,
-      capture.stderr_str()
+      exit_status
     );
   }
 
   Ok(())
+}
+
+fn spawn_spinner_stream_thread<R>(
+  pipe: R,
+  spinner: ProgressBar,
+  stream_name: &'static str,
+) -> std::thread::JoinHandle<Result<()>>
+where
+  R: Read + Send + 'static,
+{
+  std::thread::spawn(move || {
+    let mut reader = std::io::BufReader::new(pipe);
+    let mut line = Vec::new();
+
+    loop {
+      line.clear();
+      let bytes_read = reader
+        .read_until(b'\n', &mut line)
+        .wrap_err_with(|| format!("Failed to read {stream_name}"))?;
+
+      if bytes_read == 0 {
+        break;
+      }
+
+      let message = String::from_utf8_lossy(&line)
+        .trim_end_matches(['\r', '\n'])
+        .to_string();
+      spinner.println(message);
+    }
+
+    Ok(())
+  })
+}
+
+fn exec_with_spinner_streaming(
+  cmd: Exec,
+  spinner: &ProgressBar,
+) -> Result<subprocess::ExitStatus> {
+  let mut job = cmd
+    .stdout(Redirection::Pipe)
+    .stderr(Redirection::Pipe)
+    .start()
+    .wrap_err("Failed to start command")?;
+
+  let stdout_pipe = job
+    .stdout
+    .take()
+    .ok_or_else(|| eyre!("Failed to capture stdout"))?;
+  let stderr_pipe = job
+    .stderr
+    .take()
+    .ok_or_else(|| eyre!("Failed to capture stderr"))?;
+
+  let stdout_thread =
+    spawn_spinner_stream_thread(stdout_pipe, spinner.clone(), "stdout");
+  let stderr_thread =
+    spawn_spinner_stream_thread(stderr_pipe, spinner.clone(), "stderr");
+
+  let exit_status = job
+    .wait()
+    .wrap_err("Failed to wait for command completion")?;
+
+  stdout_thread
+    .join()
+    .map_err(|_| eyre!("Stdout thread panicked"))??;
+  stderr_thread
+    .join()
+    .map_err(|_| eyre!("Stderr thread panicked"))??;
+
+  Ok(exit_status)
 }
 
 /// Copy a Nix closure from localhost to a remote host.
@@ -1056,17 +1135,22 @@ pub fn copy_to_remote(
   spinner.set_message(format!("Copying closure to remote host '{host}'..."));
   spinner.enable_steady_tick(Duration::from_millis(80));
 
-  let capture = cmd
-    .capture()
-    .wrap_err("Failed to copy closure to remote host")?;
+  let copy_result = exec_with_spinner_streaming(cmd, &spinner);
 
   // We finish and *clear*, because the log line needs to come next. If we try
   // to make the spinner change the text, we cannot reliably match the `info!`
   // or `error!` style.
   spinner.finish_and_clear();
-  if !capture.exit_status.success() {
+  let exit_status =
+    copy_result.wrap_err("Failed to copy closure to remote host")?;
+
+  if !exit_status.success() {
     error!("Failed to copy closure to remote host '{host}'");
-    bail!("nix copy --to '{}' failed:\n{}", host, capture.stderr_str());
+    bail!(
+      "nix copy --to '{}' failed (exit status: {:?})",
+      host,
+      exit_status
+    );
   }
   info!("Copied closure to remote host '{host}'");
 
@@ -1099,16 +1183,15 @@ fn copy_closure_between_remotes(
 
   debug!(?cmd, "nix copy between remotes");
 
-  let capture = cmd
-    .capture()
+  let (exit_status, _stdout, _stderr) = exec_with_streaming(cmd, false)
     .wrap_err("Failed to copy closure between remote hosts")?;
 
-  if !capture.exit_status.success() {
+  if !exit_status.success() {
     bail!(
-      "nix copy from '{}' to '{}' failed:\n{}",
+      "nix copy from '{}' to '{}' failed (exit status: {:?})",
       from_host,
       to_host,
-      capture.stderr_str()
+      exit_status
     );
   }
 
@@ -1411,7 +1494,7 @@ const NIXOS_SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
 
 /// Evaluate a flake installable to get its derivation path.
 /// Matches nixos-rebuild-ng: `nix eval --raw <flake>.drvPath`
-fn eval_drv_path(installable: &Installable) -> Result<String> {
+fn eval_drv_path(installable: &Installable) -> Result<PathBuf> {
   // Build the installable with .drvPath appended
   let drv_installable = match installable {
     Installable::Flake {
@@ -1477,12 +1560,15 @@ fn eval_drv_path(installable: &Installable) -> Result<String> {
     );
   }
 
-  let drv_path = capture.stdout_str().trim().to_string();
-  if drv_path.is_empty() {
-    bail!("nix eval returned empty derivation path");
+  let drv_path = PathBuf::from(capture.stdout_str().trim().to_string());
+  if !drv_path.is_file() {
+    bail!(
+      "nix eval returned invalid derivation path: {}",
+      drv_path.display()
+    );
   }
 
-  debug!("Derivation path: {}", drv_path);
+  debug!("Derivation path: {}", drv_path.display());
   Ok(drv_path)
 }
 
@@ -1553,7 +1639,7 @@ pub fn build_remote(
   let drv_path = eval_drv_path(installable)?;
 
   // Step 2: Copy derivation to build host
-  copy_closure_to(build_host, &drv_path, use_substitutes)?;
+  copy_to_remote(build_host, &drv_path, use_substitutes)?;
 
   // Step 3: Build on remote
   info!("Building on remote host '{}'", build_host);
@@ -1646,11 +1732,11 @@ pub fn build_remote(
 /// Returns the output path.
 fn build_on_remote(
   host: &RemoteHost,
-  drv_path: &str,
+  drv_path: &Path,
   config: &RemoteBuildConfig,
 ) -> Result<String> {
   // Build command: nix build <drv>^* --print-out-paths [extra_args...]
-  let drv_with_outputs = format!("{drv_path}^*");
+  let drv_with_outputs = format!("{}^*", drv_path.display());
 
   if config.use_nom {
     // Check that nom is available before attempting to use it
@@ -2509,5 +2595,65 @@ mod tests {
     // This should complete without error even when cleanup is disabled
     attempt_remote_cleanup(&host, remote_cmd);
     // If we reach here, the function handled the disabled case gracefully
+  }
+
+  /// A reader that always returns an I/O error, used to test error
+  /// propagation through `spawn_spinner_stream_thread`.
+  struct FaultyReader;
+
+  impl Read for FaultyReader {
+    fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+      Err(std::io::Error::new(
+        std::io::ErrorKind::BrokenPipe,
+        "simulated pipe failure",
+      ))
+    }
+  }
+
+  #[test]
+  fn test_exec_with_spinner_streaming_mixed_output_no_deadlock() {
+    let spinner = ProgressBar::hidden();
+    // Interleaved stdout and stderr: alternating lines with explicit flush.
+    let cmd = Exec::cmd("bash").arg("-c").arg(
+      r#"
+for i in $(seq 1 10); do
+  echo "stdout $i"
+  echo "stderr $i" >&2
+done
+"#,
+    );
+    let result = exec_with_spinner_streaming(cmd, &spinner);
+    assert!(
+      result.is_ok(),
+      "exec_with_spinner_streaming must not deadlock on mixed stdout/stderr"
+    );
+  }
+
+  #[test]
+  fn test_spawn_spinner_stream_thread_error_propagation() {
+    let spinner = ProgressBar::hidden();
+    let handle =
+      spawn_spinner_stream_thread(FaultyReader, spinner, "faulty-stream");
+    let result = handle
+      .join()
+      .expect("spawn_spinner_stream_thread should not panic");
+    assert!(
+      result.is_err(),
+      "spawn_spinner_stream_thread must propagate read errors"
+    );
+  }
+
+  #[test]
+  fn test_exec_with_spinner_streaming_command_start_error_propagation() {
+    let spinner = ProgressBar::hidden();
+    // A nonexistent command triggers `cmd.start()` failure.
+    // This should verify that errors propagate out of
+    // `exec_with_spinner_streaming` rather than panicking.
+    let cmd = Exec::cmd("nonexistent_command_xyz_123");
+    let result = exec_with_spinner_streaming(cmd, &spinner);
+    assert!(
+      result.is_err(),
+      "exec_with_spinner_streaming must propagate command start errors"
+    );
   }
 }

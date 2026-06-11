@@ -60,9 +60,6 @@ jobs:
           - platform: aarch64-linux
             runner: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-          - platform: x86_64-darwin
-            runner: macos-latest
-            target: x86_64-apple-darwin
           - platform: aarch64-darwin
             runner: macos-14
             target: aarch64-apple-darwin

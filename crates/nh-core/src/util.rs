@@ -510,17 +510,12 @@ pub fn print_dix_diff(
 ) -> Result<()> {
   let mut out = WriteFmt(io::stdout());
 
-  // Handle to the thread collecting closure size information.
-  let closure_size_handle = dix::spawn_size_diff(
-    old_generation.to_path_buf(),
-    new_generation.to_path_buf(),
-    true,
-  );
-
   println!(
     "{arrows} {old}",
     arrows = Paint::new("<<<").bold(),
-    old = old_generation.display(),
+    old = std::fs::canonicalize(old_generation)
+      .unwrap_or_else(|_| old_generation.to_path_buf())
+      .display(),
   );
   println!(
     "{arrows} {new}",
@@ -530,24 +525,13 @@ pub fn print_dix_diff(
       .display(),
   );
 
-  let wrote =
-    dix::write_package_diff(&mut out, old_generation, new_generation, true)
-      .unwrap_or_default();
+  let report = dix::query_diff_report(old_generation, new_generation, true)?;
+  let wrote = dix::write_diff_report(&mut out, &report)?;
 
-  if let Ok((size_old, size_new)) =
-    closure_size_handle.join().map_err(|_| {
-      eyre::eyre!("Failed to join closure size computation thread")
-    })?
-  {
-    if size_old == size_new {
-      info!("No version or size changes.");
-    } else {
-      if wrote > 0 {
-        println!();
-      }
-      dix::write_size_diff(&mut out, size_old, size_new)?;
-    }
+  if wrote == 0 && report.size_old() == report.size_new() {
+    info!("No version or size changes.");
   }
+
   Ok(())
 }
 
@@ -628,9 +612,14 @@ mod tests {
     let test_dir = tempfile::Builder::new()
       .prefix("nh-test")
       .tempdir()
-      .expect("Failed to create temp file");
+      .expect("Failed to create temp dir");
 
-    let test_file = test_dir.path().join("flake.nix");
+    // Canonicalize to resolve symlinks
+    let canonical = test_dir
+      .path()
+      .canonicalize()
+      .expect("Failed to canonicalize temp dir");
+    let test_file = canonical.join("flake.nix");
     let test_content = r"
 {
   outputs = _: {
@@ -645,12 +634,7 @@ mod tests {
     fs::write(&test_file, test_content).expect("Failed to write test file");
 
     let installable = Installable::Flake {
-      reference: test_dir
-        .path()
-        .to_path_buf()
-        .into_os_string()
-        .into_string()
-        .unwrap(),
+      reference: format!("path:{}", canonical.display()),
       attribute: vec![
         "nixosConfigurations".to_owned(),
         "test".to_string(),

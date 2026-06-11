@@ -48,6 +48,10 @@ pub struct CleanArgs {
   #[arg(long = "no-gcroots", alias = "nogcroots")]
   pub no_gcroots: bool,
 
+  /// Don't clean direnv gcroots
+  #[arg(long = "no-direnv", alias = "nodirenv")]
+  pub no_direnv: bool,
+
   /// Run nix-store --optimise after gc
   #[arg(long)]
   pub optimise: bool,
@@ -55,6 +59,14 @@ pub struct CleanArgs {
   /// Pass --max to nix store gc
   #[arg(long)]
   pub max: Option<String>,
+
+  /// Keep at least one gcroot per direnv project
+  #[arg(long)]
+  pub keep_one: bool,
+
+  /// Cross filesystem boundaries when scanning gcroots
+  #[arg(long, short = 'x')]
+  pub cross_filesystems: bool,
 }
 
 #[derive(Debug, Clone, Args)]

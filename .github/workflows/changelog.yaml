@@ -1,0 +1,47 @@
+# I just think it's a really good idea because I constantly forget to update
+# the goddamned CHANGELOG. This should help when I'm dealing with pull request
+# of my own creation, at the very least.
+# Taken from:
+#  <https://github.com/mikaelmello/inquire/blob/d443a94684e5af971b5e05265c4b511a7f2f4854/.github/workflows/changelog-check.yml>
+name: CHANGELOG Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled, edited]
+
+env:
+  CHANGELOG_REQUIRED: true
+  IGNORE_CHECK_LABEL: allow-no-changelog
+
+jobs:
+  changelog-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Override variable if PR is labeled ${{ env.IGNORE_CHECK_LABEL }}
+        if: ${{ contains(github.event.pull_request.labels.*.name, env.IGNORE_CHECK_LABEL) }}
+        run: |
+          echo "CHANGELOG_REQUIRED=false" >> $GITHUB_ENV
+
+      - name: Override variable if PR is from Dependabot
+        if: ${{ github.actor == 'dependabot[bot]' }}
+        run: |
+          echo "CHANGELOG_REQUIRED=false" >> $GITHUB_ENV
+
+      - uses: actions/checkout@v6
+        if: fromJSON(env.CHANGELOG_REQUIRED)
+
+      - name: Get changed files in the docs folder
+        if: fromJSON(env.CHANGELOG_REQUIRED)
+        id: changelog-changed
+        uses: tj-actions/changed-files@v47
+        with:
+          files: CHANGELOG.md
+
+      - name: Fail workflow if CHANGELOG.md has not been changed
+        if: fromJSON(env.CHANGELOG_REQUIRED) && steps.changelog-changed.outputs.any_changed == 'false'
+        run: |
+          echo "CHANGELOG.md has not been changed"
+          exit 1
+
+

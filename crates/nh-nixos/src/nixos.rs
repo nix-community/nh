@@ -158,7 +158,7 @@ impl OsRebuildActivateArgs {
   ) -> Result<()> {
     use OsRebuildVariant::{Build, BuildVm};
 
-    let (elevate, target_hostname) =
+    let (local_elevate, target_hostname) =
       self.rebuild.setup_build_context(&elevation)?;
 
     let (out_path, _tempdir_guard) =
@@ -207,6 +207,13 @@ impl OsRebuildActivateArgs {
       Some(guard)
     } else {
       None
+    };
+
+    // Now that the ControlMaster is up, probe the remote uid for elevation.
+    let elevate = if self.rebuild.target_host.is_some() {
+      self.rebuild.determine_remote_elevation(&elevation)?
+    } else {
+      local_elevate
     };
 
     let actual_store_path =
@@ -450,7 +457,9 @@ impl OsRebuildArgs {
   ///
   /// This includes:
   /// - Ensuring SSH key login if a remote build/target host is involved.
-  /// - Checking and determining elevation status.
+  /// - Determining elevation status for local activation; the remote case is
+  ///   handled by [`Self::determine_remote_elevation`] after the SSH
+  ///   `ControlMaster` is up.
   /// - Performing updates to Nix inputs if specified.
   /// - Resolving the target hostname for the build.
   ///
@@ -458,7 +467,10 @@ impl OsRebuildArgs {
   ///
   /// `Result` containing a tuple:
   ///
-  /// - `bool`: `true` if elevation is required, `false` otherwise.
+  /// - `bool`: `true` if local elevation is required. When `target_host` is set
+  ///   this value is meaningless (returned as `false`), and the real answer is
+  ///   produced by [`Self::determine_remote_elevation`] once the SSH
+  ///   `ControlMaster` is up.
   /// - `String`: The resolved target hostname.
   fn setup_build_context(
     &self,
@@ -469,7 +481,12 @@ impl OsRebuildArgs {
       ensure_ssh_key_login()?;
     }
 
-    let elevate = has_elevation_status(self.bypass_root_check, elevation)?;
+    // We still call this for the local-root guard it performs, even though
+    // remote-target flows take their elevate answer from
+    // `determine_remote_elevation` later.
+    let local_elevate =
+      has_elevation_status(self.bypass_root_check, elevation)?;
+    let elevate = self.target_host.is_none() && local_elevate;
 
     let target_hostname = get_hostname(
       self
@@ -479,6 +496,30 @@ impl OsRebuildArgs {
         .map(ToOwned::to_owned),
     )?;
     Ok((elevate, target_hostname))
+  }
+
+  /// Probe the remote uid to decide whether activation needs elevation.
+  ///
+  /// This must be called after [`nh_remote::open_ssh_control_master`]
+  /// so the probe reuses the established connection.
+  ///
+  /// # Returns
+  ///
+  /// `false` when `target_host` is unset (caller should use
+  /// [`Self::setup_build_context`] or [`has_elevation_status`] for the
+  /// local case) or when the elevation strategy is [`None`].
+  fn determine_remote_elevation(
+    &self,
+    elevation: &ElevationStrategy,
+  ) -> Result<bool> {
+    let Some(target_host) = &self.target_host else {
+      return Ok(false);
+    };
+    if matches!(elevation, ElevationStrategy::None) {
+      return Ok(false);
+    }
+    let uid = nh_remote::probe_remote_uid(target_host)?;
+    Ok(uid != 0)
   }
 
   fn determine_output_path(
@@ -518,7 +559,7 @@ impl OsRebuildArgs {
     toplevel_for(
       target_hostname,
       installable,
-      final_attrs.map_or_else(|| &["toplevel"][..], |v| v),
+      final_attrs.unwrap_or_else(|| &["toplevel"][..]),
     )
   }
 
@@ -1227,7 +1268,7 @@ fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
     if let Some(name) = path.file_name().and_then(|s| s.to_str())
       && name.starts_with("system-")
       && name.ends_with("-link")
-      && let Some(gen_info) = generations::describe(&path)
+      && let Some(gen_info) = generations::describe(&path, None)
     {
       generations.push(gen_info);
     }
@@ -1376,9 +1417,16 @@ impl OsGenerationsArgs {
       })
       .collect();
 
+    let gen_dir_refs: Vec<&std::path::Path> =
+      generations.iter().map(PathBuf::as_path).collect();
+    let closure_sizes = generations::get_closure_sizes_batch(&gen_dir_refs);
+
     let descriptions: Vec<generations::GenerationInfo> = generations
       .iter()
-      .filter_map(|gen_dir| generations::describe(gen_dir))
+      .filter_map(|gen_dir| {
+        let size = closure_sizes.get(gen_dir).cloned();
+        generations::describe(gen_dir, size)
+      })
       .collect();
 
     generations::print_info(descriptions, self.fields.as_deref())?;

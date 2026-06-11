@@ -5,12 +5,13 @@ resolver = "3"
 [workspace.package]
 edition      = "2024"
 license      = "EUPL-1.2"
-rust-version = "1.91.1"
-version      = "4.3.1"
+rust-version = "1.95.0"
+version      = "4.4.0-beta1"
 
 [workspace.dependencies]
 nh        = { path = "crates/nh" }
 nh-clean  = { path = "crates/nh-clean" }
+nh-config = { path = "crates/nh-config" }
 nh-core   = { path = "crates/nh-core" }
 nh-darwin = { path = "crates/nh-darwin" }
 nh-home   = { path = "crates/nh-home" }
@@ -26,7 +27,7 @@ clap_complete         = "4.5.61"
 clap_complete_nushell = "4.5.10"
 clap_mangen           = { features = [ "env" ], version = "0.3.0" }
 color-eyre            = { default-features = false, features = [ "track-caller" ], version = "0.6.5" }
-dix                   = "1.4.2"
+dix                   = "2.0.0"
 elasticsearch-dsl     = "0.4.24"
 humantime             = "2.3.0"
 indicatif             = "0.18.4"
@@ -46,17 +47,20 @@ semver = "1.0.27"
 serde = { features = [ "derive" ], version = "1.0.228" }
 serde_json = "1.0.145"
 serial_test = "3.2.0"
-shlex = "1.3.0"
+shlex = "2.0.1"
 signal-hook = "0.4.1"
-subprocess = "1.0.0"
+spam-db = "0.1.0"
+subprocess = "1.0.3"
 supports-hyperlinks = "3.1.0"
 system-configuration = "0.7.0"
 tempfile = "3.23.0"
 textwrap = { features = [ "terminal_size" ], version = "0.16.2" }
 thiserror = "2.0.17"
+toml_edit = "0.25.12"
 tracing = "0.1.41"
 tracing-subscriber = { features = [ "env-filter", "registry", "std" ], version = "0.3.20" }
 urlencoding = "2.1.3"
+walkdir = "2.5.0"
 which = "8.0.0"
 yansi = "1.0.1"
 
