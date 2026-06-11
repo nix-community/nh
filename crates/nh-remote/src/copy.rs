@@ -16,7 +16,7 @@ use tracing::{debug, error, info};
 
 use super::{RemoteHost, get_flake_flags, get_nix_sshopts_env};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
 enum CopyDirection<'a> {
   FromRemote(&'a RemoteHost),
   ToRemote {
