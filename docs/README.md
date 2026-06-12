@@ -348,6 +348,11 @@ example, if `NH_FLAKE` or `NH_OS_FLAKE` is set you may simply run `nh os switch`
 with no additional arguments, and it will automatically resolve
 `nixosConfigurations.<myHost>`.
 
+Additionally, NH also allows omitting the path to your non-flake nix config.
+You can specify the Nix file and Nix attribute path with the `NH_FILE` and
+`NH_ATTRP` environment variables. If `NH_FILE` and `NH_ATTRP` are both set,
+`nh os switch` effectively evaluates `$NH_FILE#$NH_ATTRP`.
+
 ## Environment variables
 
 NH supports several environment variables to control command behaviour. Some of
