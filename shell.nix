@@ -19,6 +19,9 @@ mkShell {
     cargo-nextest
     just
     nix-output-monitor
+
+    # Markdown formatting
+    deno
   ];
 
   buildInputs = lib.optionals stdenv.isDarwin [
