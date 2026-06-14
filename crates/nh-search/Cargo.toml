@@ -1,10 +1,10 @@
 [package]
 name                   = "nh-search"
 version                = "0.1.0"
-publish                = false
 edition.workspace      = true
-license.workspace      = true
 rust-version.workspace = true
+license.workspace      = true
+publish                = false
 
 [dependencies]
 chrono.workspace              = true
@@ -13,7 +13,6 @@ color-eyre.workspace          = true
 elasticsearch-dsl.workspace   = true
 indicatif.workspace           = true
 inquire.workspace             = true
-nh-config.workspace           = true
 regex.workspace               = true
 reqwest.workspace             = true
 secrecy.workspace             = true
@@ -22,9 +21,14 @@ serde_json.workspace          = true
 spam-db.workspace             = true
 subprocess.workspace          = true
 supports-hyperlinks.workspace = true
+tempfile.workspace            = true
 textwrap.workspace            = true
 tracing.workspace             = true
 yansi.workspace               = true
+
+[dev-dependencies]
+serial_test.workspace = true
+tempfile.workspace    = true
 
 [lints]
 workspace = true

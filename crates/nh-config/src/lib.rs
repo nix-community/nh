@@ -8,10 +8,9 @@ use std::{
 
 use color_eyre::{
   Result,
-  eyre::{Context, ContextCompat, bail},
+  eyre::{Context, bail},
 };
-use secrecy::{ExposeSecret, SecretString};
-use toml_edit::{DocumentMut, Item, Table, value};
+use toml_edit::DocumentMut;
 
 const CONFIG_ENV: &str = "NH_CONFIG";
 const CONFIG_FILE: &str = "config.toml";
@@ -23,14 +22,7 @@ pub struct ConfigStore {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct Config {
-  pub auth: AuthConfig,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct AuthConfig {
-  pub github_token: Option<SecretString>,
-}
+pub struct Config {}
 
 impl ConfigStore {
   /// Load NH configuration from the default path.
@@ -75,18 +67,8 @@ impl ConfigStore {
   /// # Errors
   ///
   /// Returns an error when a known field is present with the wrong type.
-  pub fn config(&self) -> Result<Config> {
-    Ok(Config {
-      auth: AuthConfig {
-        github_token: self.github_token()?,
-      },
-    })
-  }
-
-  /// Set the configured GitHub token.
-  pub fn set_github_token(&mut self, token: &SecretString) {
-    ensure_table(&mut self.document, "auth");
-    self.document["auth"]["github_token"] = value(token.expose_secret());
+  pub const fn config(&self) -> Result<Config> {
+    Ok(Config {})
   }
 
   /// Save the document, creating parent directories as needed.
@@ -97,24 +79,6 @@ impl ConfigStore {
   /// cannot be written.
   pub fn save(&self) -> Result<()> {
     write_private(&self.path, self.document.to_string().as_bytes())
-  }
-
-  fn github_token(&self) -> Result<Option<SecretString>> {
-    let Some(auth) = self.document.get("auth") else {
-      return Ok(None);
-    };
-    let table = auth
-      .as_table()
-      .context("invalid NH configuration: auth must be a table")?;
-    let Some(token) = table.get("github_token") else {
-      return Ok(None);
-    };
-    let token = token
-      .as_str()
-      .context("invalid NH configuration: auth.github_token must be a string")?
-      .trim();
-
-    Ok((!token.is_empty()).then(|| SecretString::new(token.into())))
   }
 }
 
@@ -159,12 +123,6 @@ fn non_empty_var(name: &str) -> Option<std::ffi::OsString> {
   env::var_os(name).filter(|value| !value.is_empty())
 }
 
-fn ensure_table(document: &mut DocumentMut, name: &str) {
-  if !document.as_table().contains_key(name) {
-    document[name] = Item::Table(Table::new());
-  }
-}
-
 fn write_private(path: &Path, contents: &[u8]) -> Result<()> {
   if let Some(parent) = path.parent() {
     create_config_dir(parent)?;
@@ -202,11 +160,7 @@ fn set_user_only_file(path: &Path) -> Result<()> {
 mod tests {
   use std::{env, fs, os::unix::fs::PermissionsExt};
 
-  use color_eyre::{
-    Result,
-    eyre::{Context, ContextCompat},
-  };
-  use secrecy::{ExposeSecret, SecretString};
+  use color_eyre::Result;
   use serial_test::serial;
   use tempfile::tempdir;
 
@@ -260,59 +214,24 @@ mod tests {
 
     let store = ConfigStore::load_from(&path)?;
 
-    assert!(store.config()?.auth.github_token.is_none());
+    let _config = store.config()?;
     assert!(!path.exists());
     Ok(())
   }
 
   #[test]
-  fn reads_trimmed_github_token() -> Result<()> {
+  fn save_preserves_comments_and_unknown_fields() -> Result<()> {
     let dir = tempdir()?;
     let path = dir.path().join("config.toml");
-    fs::write(&path, "[auth]\ngithub_token = \"  ghp_test  \"\n")?;
+    fs::write(&path, "# keep me\n[unknown]\nvalue = 1\n")?;
 
-    let token = ConfigStore::load_from(&path)
-      .with_context(|| format!("failed to load {}", path.display()))?
-      .config()?
-      .auth
-      .github_token
-      .context("expected configured GitHub token")?;
-
-    assert_eq!("ghp_test", token.expose_secret());
-    Ok(())
-  }
-
-  #[test]
-  fn empty_github_token_counts_as_missing() -> Result<()> {
-    let dir = tempdir()?;
-    let path = dir.path().join("config.toml");
-    fs::write(&path, "[auth]\ngithub_token = \"\"\n")?;
-
-    let config = ConfigStore::load_from(&path)?.config()?;
-
-    assert!(config.auth.github_token.is_none());
-    Ok(())
-  }
-
-  #[test]
-  fn saving_token_preserves_comments_and_unknown_fields() -> Result<()> {
-    let dir = tempdir()?;
-    let path = dir.path().join("config.toml");
-    fs::write(
-      &path,
-      "# keep me\n[unknown]\nvalue = 1\n\n[auth]\n# token below\ngithub_token \
-       = \"\"\n",
-    )?;
-
-    let mut store = ConfigStore::load_from(&path)?;
-    store.set_github_token(&SecretString::new("ghp_new".into()));
+    let store = ConfigStore::load_from(&path)?;
     store.save()?;
 
     let written = fs::read_to_string(&path)?;
     assert!(written.contains("# keep me"));
     assert!(written.contains("[unknown]"));
-    assert!(written.contains("# token below"));
-    assert!(written.contains("github_token = \"ghp_new\""));
+    assert!(written.contains("value = 1"));
     Ok(())
   }
 
@@ -320,8 +239,7 @@ mod tests {
   fn save_creates_private_file() -> Result<()> {
     let dir = tempdir()?;
     let path = dir.path().join("nh").join("config.toml");
-    let mut store = ConfigStore::load_from(&path)?;
-    store.set_github_token(&SecretString::new("ghp_new".into()));
+    let store = ConfigStore::load_from(&path)?;
     store.save()?;
 
     let mode = fs::metadata(&path)?.permissions().mode();
