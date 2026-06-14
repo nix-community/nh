@@ -49,12 +49,20 @@
 
           runtimeInputs = [
             pkgs.nixfmt-rfc-style
+            pkgs.taplo
+            pkgs.deno
             pkgs.fd
           ];
 
           text = ''
-            # Find Nix files in the tree and format them with Alejandra
+            # Format Nix with Nixfmt
             fd "$@" -t f -e nix -x nixfmt -q '{}'
+
+            # Format TOML with Taplo
+            fd "$@" -t f -e toml -x taplo fmt '{}'
+
+            # Format Markdown with Deno
+            fd "$@" -t f -e md -x deno fmt -q '{}'
           '';
         }
       );
