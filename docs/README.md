@@ -250,9 +250,10 @@ The command exposes three explicit subcommands and a convenient shorthand:
 `--json` is shared by all search modes. `--limit`, `--channel`, and
 `--platforms` are available on the modes that use them and on the shorthand
 form. `nh search prs` and `nh search issues` use `GH_TOKEN` for GitHub
-authentication, or `auth.github_token` from `$XDG_CONFIG_HOME/nh/config.toml`
-(or the path set by `NH_CONFIG`). If no token is found in an interactive
-terminal, NH prompts for one and saves it to the configuration file.
+authentication. If `GH_TOKEN` is unset, NH reads the token from
+`NH_GITHUB_TOKEN_FILE`, or from `$XDG_STATE_HOME/nh/github-token` falling back
+to `~/.local/state/nh/github-token`. If no token is found in an interactive
+terminal, NH prompts for one and saves it to that token file.
 
 <p align="center">
     <img
@@ -415,9 +416,15 @@ the common variables that you may encounter or choose to employ are as follows:
     `~/.config/nh/config.toml`.
 
 - `GH_TOKEN`
-  - GitHub token used by `nh search prs` and `nh search issues`. If unset, NH
-    reads `auth.github_token` from the NH configuration file. Tokens entered
-    through the interactive prompt are saved to that file.
+  - GitHub token used by `nh search prs` and `nh search issues`. If set, this
+    takes priority over any token file.
+
+- `NH_GITHUB_TOKEN_FILE`
+  - Overrides the path to the GitHub token file used by `nh search prs` and
+    `nh search issues` when `GH_TOKEN` is unset. If unset, NH uses
+    `$XDG_STATE_HOME/nh/github-token`, falling back to
+    `~/.local/state/nh/github-token`. Tokens entered through the interactive
+    prompt are saved to this file with user-only permissions.
 
 - `NH_SEARCH_CHANNEL`
   - Default Nixpkgs channel used by `nh search packages` and `nh search options`

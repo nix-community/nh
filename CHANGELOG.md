@@ -26,9 +26,9 @@ functionality, under the "Removed" section.
   and `#<number>` fetch that pull request directly.
 - `nh search issues <query>` subcommand for searching recent Nixpkgs issues
   while excluding pull requests.
-- `NH_CONFIG` can override the NH configuration file path. `nh search prs` reads
-  GitHub authentication from `GH_TOKEN` first, then `auth.github_token` in the NH
-  configuration file.
+- `nh search prs` reads GitHub authentication from `GH_TOKEN` first, then checks
+  `$XDG_STATE_HOME/nh/github-token` for a token file, falling back to
+  `~/.local/state/nh/github-token`.
 - `nh search --default-search` global option to set default search mode
   (`packages` or `options`) when no subcommand is specified.
 - `nh clean --keep-one` preserves all active direnv gcroots regardless of
@@ -91,8 +91,8 @@ functionality, under the "Removed" section.
 
 ### Removed
 
-- `nh` no longer supports `x86_64-darwin`, following Nixpkgs' decision 
-   to drop support for that platform.
+- `nh` no longer supports `x86_64-darwin`, following Nixpkgs' decision to drop
+  support for that platform.
 
 ## 4.3.2
 
@@ -141,8 +141,8 @@ functionality, under the "Removed" section.
     compatibility (falls back to `NH_ELEVATION_STRATEGY` if set)
 - Platform commands (`nh os`, `nh home`, `nh darwin`) now support SSH-based
   remote builds via `--build-host`. The flag now uses proper remote build
-  semantics: derivations are copied to the remote host via `nix copy`,
-  built remotely, and results are transferred back. This matches `nixos-rebuild`
+  semantics: derivations are copied to the remote host via `nix copy`, built
+  remotely, and results are transferred back. This matches `nixos-rebuild`
   behavior, and is significantly more robust than the previous implementation
   where `--build-host` would use Nix's `--builders` flag inefficiently.
   ([#428](https://github.com/nix-community/nh/issues/428),
