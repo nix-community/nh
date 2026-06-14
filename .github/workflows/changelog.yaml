@@ -43,5 +43,3 @@ jobs:
         run: |
           echo "CHANGELOG.md has not been changed"
           exit 1
-
-

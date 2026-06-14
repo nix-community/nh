@@ -23,7 +23,6 @@ body:
             and confirmed that my issue has not yet been reported. I understand that my issue will
             be closed if it is a duplicate.
 
-
   - type: textarea
     attributes:
       label: Description
@@ -72,12 +71,12 @@ body:
       label: System Information
       description: "Output of `nix-info --markdown`"
       placeholder: |-
-         - system:
-         - host os:
-         - multi-user?:
-         - sandbox:
-         - version:
-         - nixpkgs:
+        - system:
+        - host os:
+        - multi-user?:
+        - sandbox:
+        - version:
+        - nixpkgs:
 
     validations:
       required: true
