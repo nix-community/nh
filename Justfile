@@ -1,7 +1,7 @@
 #! /usr/bin/env -S just --justfile
 
 # Recipes to check correctness
-check: cargo-check clippy-check fmt-check taplo-check
+check: cargo-check clippy-check fmt-check taplo-check deno-check
 cargo-check:
     RUSTFLAGS="-Dwarnings" cargo check
 
@@ -14,8 +14,11 @@ fmt-check:
 taplo-check:
     taplo fmt --check
 
+deno-check:
+    deno fmt --check
+
 # Automatic fixup recipes
-fix: cargo-fix clippy-fix fmt-fix taplo-fmt
+fix: cargo-fix clippy-fix fmt-fix taplo-fmt deno-fmt
 cargo-fix:
     cargo fix --allow-dirty
 
@@ -28,7 +31,8 @@ fmt-fix:
 taplo-fmt:
     taplo fmt
 
+deno-fmt:
+    deno fmt .
+
 test:
     cargo nextest run
-
-
