@@ -42,7 +42,6 @@ please do make sure to include it above in your description.
 - Tested on platform(s):
   - [ ] `x86_64-linux`
   - [ ] `aarch64-linux`
-  - [ ] `x86_64-darwin`
   - [ ] `aarch64-darwin`
 
 ---
