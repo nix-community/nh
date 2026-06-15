@@ -125,20 +125,24 @@ fn read_token_file(path: &Path) -> Result<Option<SecretString>> {
 /// - Returns an error if the token cannot be written to a temporary file.
 /// - Returns an error if the temporary file cannot persisted to the target path
 fn write_token_file(path: &Path, token: &SecretString) -> Result<()> {
+  let parent_dir = path.parent().ok_or_else(|| {
+    color_eyre::eyre::eyre!(
+      "Invalid token path {}: no parent directory found",
+      path.display()
+    )
+  })?;
+
   // Ensure the parent directory exists with restrictive permissions
-  if let Some(parent) = path.parent() {
-    fs::DirBuilder::new()
-      .recursive(true)
-      .mode(0o700)
-      .create(parent)
-      .with_context(|| {
-        format!("failed to create directory {}", parent.display())
-      })?;
-  }
+  fs::DirBuilder::new()
+    .recursive(true)
+    .mode(0o700)
+    .create(parent_dir)
+    .with_context(|| {
+      format!("failed to create directory {}", parent_dir.display())
+    })?;
 
   // Write to a named temporary file in the same directory to ensure atomic
   // swap.
-  let parent_dir = path.parent().unwrap_or_else(|| Path::new("."));
   let mut temp_file = tempfile::NamedTempFile::new_in(parent_dir)
     .with_context(|| "failed to create temporary token file")?;
 
@@ -258,6 +262,7 @@ mod tests {
     let _token = EnvGuard::remove(TOKEN_ENV);
     let _token_file = EnvGuard::set(TOKEN_FILE_ENV, "");
 
+    #[expect(clippy::expect_used)]
     let err = token_store_path().expect_err("empty override should fail");
 
     assert!(err.to_string().contains(TOKEN_FILE_ENV));
