@@ -11,6 +11,7 @@ use color_eyre::{
   eyre::{Context, bail},
 };
 use secrecy::{ExposeSecret, SecretString};
+use yansi::Paint;
 
 const TOKEN_CREATION_URL: &str =
   "https://github.com/settings/personal-access-tokens/new";
@@ -42,16 +43,14 @@ pub fn token() -> Result<SecretString> {
   }
 
   eprintln!(
-    "Create a GitHub token at {TOKEN_CREATION_URL} if you do not already have \
-     one."
-  );
-  eprintln!(
-    "No token scopes are needed; NH only uses it so GitHub treats requests as \
-     authenticated."
-  );
-  eprintln!(
-    "The token will be saved at {} with user-only permissions.",
-    token_path.display()
+    r"NH needs a GitHub token to access the GitHub API for searching pull requests and issues.
+Please create a GitHub token at {}
+if you do not already have one, or paste an existing token down below.
+You do not need to set any scopes for your token since NH only uses it to make authenticated requests to GitHub.
+The token will be saved to {} with user-only permissions.
+     ",
+    TOKEN_CREATION_URL.underline().blue(),
+    token_path.display().green()
   );
 
   let token = inquire::Password::new("GitHub token:")
