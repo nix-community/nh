@@ -1,7 +1,4 @@
-use std::sync::OnceLock;
-
 use color_eyre::{Result, eyre::bail};
-use regex::Regex;
 use tracing::warn;
 
 // List of deprecated NixOS versions.
@@ -13,8 +10,6 @@ const DEPRECATED_VERSIONS: &[&str] = &[
   "nixos-25.05",
   "nixos-25.11",
 ];
-
-static SUPPORTED_BRANCH_REGEX: OnceLock<Regex> = OnceLock::new();
 
 /// Validates the channel, applying fallback for deprecated versions.
 ///
@@ -54,14 +49,15 @@ fn supported_branch<S: AsRef<str>>(branch: S) -> bool {
     return false;
   }
 
-  let re = SUPPORTED_BRANCH_REGEX.get_or_init(|| {
-    Regex::new(r"^nixos-\d+\.\d+$").unwrap_or_else(|e| {
-      warn!("invalid regex in supported_branch: {e}");
-      #[allow(clippy::expect_used)]
-      Regex::new("$^").expect("Regex $^ should always be valid")
+  branch
+    .strip_prefix("nixos-")
+    .and_then(|version| version.split_once('.'))
+    .is_some_and(|(major, minor)| {
+      !major.is_empty()
+        && !minor.is_empty()
+        && major.bytes().all(|byte| byte.is_ascii_digit())
+        && minor.bytes().all(|byte| byte.is_ascii_digit())
     })
-  });
-  re.is_match(branch)
 }
 
 #[test]
@@ -74,6 +70,10 @@ fn test_supported_branch() {
   assert!(!supported_branch("nixos-25.05"));
   assert!(!supported_branch("nixos-25.11"));
   assert!(!supported_branch("24.05"));
+  assert!(!supported_branch("nixos-26"));
+  assert!(!supported_branch("nixos-.05"));
+  assert!(!supported_branch("nixos-26."));
+  assert!(!supported_branch("nixos-26.05.1"));
   assert!(!supported_branch("nixpkgs-darwin"));
   assert!(!supported_branch("nixpks-21.11-darwin"));
 }
