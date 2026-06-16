@@ -13,19 +13,21 @@ dix.workspace            = true
 inquire.workspace        = true
 nh-installable.workspace = true
 nix.workspace            = true
-proptest.workspace       = true
 regex.workspace          = true
 secrecy.workspace        = true
 semver.workspace         = true
 serde_json.workspace     = true
-serial_test.workspace    = true
 shlex.workspace          = true
 subprocess.workspace     = true
-tempfile.workspace       = true
 thiserror.workspace      = true
 tracing.workspace        = true
 which.workspace          = true
 yansi.workspace          = true
+
+[dev-dependencies]
+proptest.workspace    = true
+serial_test.workspace = true
+tempfile.workspace    = true
 
 [target.'cfg(target_os="macos")'.dependencies]
 system-configuration.workspace = true
