@@ -15,14 +15,16 @@ indicatif.workspace      = true
 inquire.workspace        = true
 nh-core.workspace        = true
 nh-installable.workspace = true
-proptest.workspace       = true
 secrecy.workspace        = true
-serial_test.workspace    = true
 shlex.workspace          = true
 signal-hook.workspace    = true
 subprocess.workspace     = true
 tracing.workspace        = true
 which.workspace          = true
+
+[dev-dependencies]
+proptest.workspace    = true
+serial_test.workspace = true
 
 [lints]
 workspace = true
