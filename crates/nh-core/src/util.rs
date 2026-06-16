@@ -1,9 +1,6 @@
 use std::{
   collections::HashSet,
-  fmt,
-  io,
   os::unix::process::CommandExt,
-  path::Path,
   process::{Command as StdCommand, Stdio},
   sync::{LazyLock, OnceLock},
 };
@@ -13,8 +10,7 @@ use color_eyre::{
   eyre::{self, Context, eyre},
 };
 use regex::Regex;
-use tracing::{debug, info, warn};
-use yansi::Paint;
+use tracing::{debug, warn};
 
 use crate::command::{Command, ElevationStrategy};
 
@@ -41,13 +37,6 @@ fn get_nix_version_output() -> Option<&'static String> {
         .flatten()
     })
     .as_ref()
-}
-
-struct WriteFmt<W: io::Write>(W);
-impl<W: io::Write> fmt::Write for WriteFmt<W> {
-  fn write_str(&mut self, string: &str) -> fmt::Result {
-    self.0.write_all(string.as_bytes()).map_err(|_| fmt::Error)
-  }
 }
 
 /// Get the Nix variant
@@ -485,54 +474,6 @@ pub fn get_build_image_variants_flake(
     .wrap_err("Failed to parse image variants JSON")?;
 
   Ok(variants)
-}
-
-/// Prints the difference between two generations in terms of paths and closure
-/// sizes.
-///
-/// # Arguments
-///
-/// * `old_generation` - A reference to the path of the old generation.
-/// * `new_generation` - A reference to the path of the new generation.
-///
-/// # Returns
-///
-/// Returns `Ok(())` if the operation completed successfully, or an error
-/// wrapped in `eyre::Result` if something went wrong.
-///
-/// # Errors
-///
-/// Returns an error if the closure size thread panics or if writing size
-/// differences fails.
-pub fn print_dix_diff(
-  old_generation: &Path,
-  new_generation: &Path,
-) -> Result<()> {
-  let mut out = WriteFmt(io::stdout());
-
-  println!(
-    "{arrows} {old}",
-    arrows = Paint::new("<<<").bold(),
-    old = std::fs::canonicalize(old_generation)
-      .unwrap_or_else(|_| old_generation.to_path_buf())
-      .display(),
-  );
-  println!(
-    "{arrows} {new}",
-    arrows = Paint::new(">>>").bold(),
-    new = std::fs::canonicalize(new_generation)
-      .unwrap_or_else(|_| new_generation.to_path_buf())
-      .display(),
-  );
-
-  let report = dix::query_diff_report(old_generation, new_generation, true)?;
-  let wrote = dix::write_diff_report(&mut out, &report)?;
-
-  if wrote == 0 && report.size_old() == report.size_new() {
-    info!("No version or size changes.");
-  }
-
-  Ok(())
 }
 
 #[cfg(test)]

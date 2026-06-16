@@ -26,9 +26,11 @@ use subprocess::{Exec, Redirection};
 use tracing::{debug, error, info, warn};
 
 mod copy;
+mod dix;
 
 pub use copy::copy_to_remote;
 use copy::{copy_closure_between_remotes, copy_closure_from};
+pub use dix::ResolvedRemoteStorePath;
 
 /// Global flag indicating whether a SIGINT (Ctrl+C) was received.
 static INTERRUPTED: OnceLock<Arc<AtomicBool>> = OnceLock::new();

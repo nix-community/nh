@@ -457,9 +457,9 @@ dependencies = [
 
 [[package]]
 name = "dix"
-version = "2.0.1"
+version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18f3a41fc1567c5bb5f41c0a2bb95a1e69cbf114ac2ff415c87c6dbea1d85484"
+checksum = "a428eaf4f7896c57e28b8dac76e67f49c6873204b76aecaef8716854d1a5e124"
 dependencies = [
  "clap",
  "clap-verbosity-flag",
@@ -480,9 +480,9 @@ dependencies = [
 
 [[package]]
 name = "dix-diff"
-version = "2.0.1"
+version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4554a9f010f72f47aceebc606385717c209e476e8d35a91ea45c2bfadc8dba3"
+checksum = "1dfd728a430fa0eca997a9f90f39ff54d520a254b33180fa35739958163845d7"
 dependencies = [
  "derive_more",
  "itertools",
@@ -1060,9 +1060,9 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
 name = "itertools"
-version = "0.14.0"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
+checksum = "8b4baf93f58d4425749ca49a51c50ebab072c5df6994d08fed93541c331481dc"
 dependencies = [
  "either",
 ]
@@ -1293,7 +1293,6 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "color-eyre",
- "dix",
  "inquire",
  "nh-installable",
  "nix",
@@ -1310,7 +1309,6 @@ dependencies = [
  "thiserror",
  "tracing",
  "which",
- "yansi",
 ]
 
 [[package]]
@@ -1321,11 +1319,25 @@ dependencies = [
  "color-eyre",
  "inquire",
  "nh-core",
+ "nh-diff",
  "nh-installable",
  "nh-remote",
  "nix",
  "tempfile",
  "tracing",
+]
+
+[[package]]
+name = "nh-diff"
+version = "0.1.0"
+dependencies = [
+ "color-eyre",
+ "dix",
+ "indicatif",
+ "nh-core",
+ "nh-remote",
+ "tracing",
+ "yansi",
 ]
 
 [[package]]
@@ -1336,6 +1348,7 @@ dependencies = [
  "color-eyre",
  "inquire",
  "nh-core",
+ "nh-diff",
  "nh-installable",
  "nh-remote",
  "tempfile",
@@ -1363,6 +1376,7 @@ dependencies = [
  "color-eyre",
  "inquire",
  "nh-core",
+ "nh-diff",
  "nh-installable",
  "nh-remote",
  "nix",
@@ -1376,6 +1390,7 @@ name = "nh-remote"
 version = "0.1.0"
 dependencies = [
  "color-eyre",
+ "dix",
  "indicatif",
  "inquire",
  "nh-core",

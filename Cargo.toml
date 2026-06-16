@@ -14,6 +14,7 @@ nh-clean       = { path = "crates/nh-clean" }
 nh-config      = { path = "crates/nh-config" }
 nh-core        = { path = "crates/nh-core" }
 nh-darwin      = { path = "crates/nh-darwin" }
+nh-diff        = { path = "crates/nh-diff" }
 nh-home        = { path = "crates/nh-home" }
 nh-installable = { path = "crates/nh-installable" }
 nh-nixos       = { path = "crates/nh-nixos" }
@@ -28,7 +29,7 @@ clap_complete         = "4.5.61"
 clap_complete_nushell = "4.5.10"
 clap_mangen           = { features = [ "env" ], version = "0.3.0" }
 color-eyre            = { default-features = false, features = [ "track-caller" ], version = "0.6.5" }
-dix                   = "2.0.0"
+dix                   = "2.1.0"
 elasticsearch-dsl     = "0.4.24"
 humantime             = "2.3.0"
 indicatif             = "0.18.4"
