@@ -10,8 +10,9 @@ use color_eyre::{
 use nh_core::{
   command::{self, Command},
   update::update,
-  util::{get_hostname, print_dix_diff},
+  util::get_hostname,
 };
+use nh_diff::print_dix_diff;
 use nh_installable::{CommandContext, Installable};
 use nh_remote::{self, RemoteBuildConfig};
 use tracing::{debug, info, warn};

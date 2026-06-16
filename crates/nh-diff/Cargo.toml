@@ -1,0 +1,19 @@
+[package]
+name                   = "nh-diff"
+version                = "0.1.0"
+publish                = false
+edition.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+
+[dependencies]
+color-eyre.workspace = true
+dix.workspace        = true
+indicatif.workspace  = true
+nh-core.workspace    = true
+nh-remote.workspace  = true
+tracing.workspace    = true
+yansi.workspace      = true
+
+[lints]
+workspace = true

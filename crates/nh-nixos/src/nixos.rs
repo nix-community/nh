@@ -14,9 +14,9 @@ use nh_core::{
     get_build_image_variants,
     get_build_image_variants_flake,
     get_hostname,
-    print_dix_diff,
   },
 };
+use nh_diff::{handle_nixos_diff, print_dix_diff};
 use nh_installable::{CommandContext, Installable};
 use nh_remote::{self, RemoteBuildConfig, RemoteHost};
 use tracing::{debug, info, warn};
@@ -222,7 +222,13 @@ impl OsRebuildActivateArgs {
     let target_profile =
       self.rebuild.resolve_specialisation_and_profile(&out_path)?;
 
-    self.rebuild.handle_dix_diff(&target_profile);
+    handle_nixos_diff(
+      &self.rebuild.common.diff,
+      self.rebuild.target_host.as_ref(),
+      &target_profile,
+      actual_store_path.as_deref(),
+      &out_path,
+    )?;
 
     if self.rebuild.common.dry || matches!(variant, Build | BuildVm) {
       if self.rebuild.common.ask {
@@ -661,44 +667,6 @@ impl OsRebuildArgs {
     Ok(target_profile)
   }
 
-  fn handle_dix_diff(&self, target_profile: &Path) {
-    let current_profile = PathBuf::from(CURRENT_PROFILE);
-
-    match self.common.diff {
-      DiffType::Always => {
-        let _ = print_dix_diff(&current_profile, target_profile);
-      },
-      DiffType::Never => {
-        debug!("Not running dix as the --diff flag is set to never.");
-      },
-      DiffType::Auto => {
-        // Since dix relies on both system's derivations existing on the local
-        // machine, we only generate the diff if no remote
-        // target host is specified, implying a local system build.
-        if self.target_host.is_some() {
-          debug!("Not running dix as a remote host is involved.");
-        } else if !current_profile.exists() {
-          warn!(
-            "current profile {} does not exist, skipping dix diffing",
-            current_profile.display()
-          );
-        } else if !target_profile.exists() {
-          warn!(
-            "target profile {} does not exist, skipping dix diffing",
-            target_profile.display()
-          );
-        } else {
-          debug!(
-            "Comparing current profile {} with target profile: {}",
-            current_profile.display(),
-            target_profile.display()
-          );
-          let _ = print_dix_diff(&current_profile, target_profile);
-        }
-      },
-    }
-  }
-
   // final_attr is the attribute of config.system.build.X to evaluate.
   // Used by Build and BuildVm subcommands which don't activate
   fn build_only(
@@ -735,11 +703,17 @@ impl OsRebuildArgs {
       _ => "Building NixOS configuration",
     };
 
-    self.execute_build(toplevel, &out_path, message)?;
+    let actual_store_path = self.execute_build(toplevel, &out_path, message)?;
 
     let target_profile = self.resolve_specialisation_and_profile(&out_path)?;
 
-    self.handle_dix_diff(&target_profile);
+    handle_nixos_diff(
+      &self.common.diff,
+      self.target_host.as_ref(),
+      &target_profile,
+      actual_store_path.as_deref(),
+      &out_path,
+    )?;
 
     // Build, BuildVm and BuildIso subcommands never activate
     debug_assert!(matches!(variant, Build | BuildVm | BuildIso));
