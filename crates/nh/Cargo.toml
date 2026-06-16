@@ -10,11 +10,6 @@ edition.workspace      = true
 rust-version.workspace = true
 default-run            = "nh"
 
-[dev-dependencies]
-clap_mangen.workspace = true
-proptest.workspace    = true
-serial_test.workspace = true
-
 [dependencies]
 anstyle.workspace             = true
 clap.workspace                = true
