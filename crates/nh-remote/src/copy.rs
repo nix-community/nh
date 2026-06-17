@@ -10,7 +10,7 @@ use color_eyre::{
   eyre::{Context, eyre},
 };
 use indicatif::{ProgressBar, ProgressStyle};
-use nh_core::command::exec_with_streaming;
+use nh_core::command::{CommandKind, NixCommand, exec_with_streaming};
 use subprocess::{Exec, Redirection};
 use tracing::{debug, error, info};
 
@@ -34,14 +34,13 @@ impl CopyDirection<'_> {
   fn args(self) -> Vec<String> {
     match self {
       Self::FromRemote(host) => {
-        vec!["copy".to_string(), "--from".to_string(), store_uri(host)]
+        vec!["--from".to_string(), store_uri(host)]
       },
       Self::ToRemote {
         host,
         use_substitutes,
       } => {
-        let mut args =
-          vec!["copy".to_string(), "--to".to_string(), store_uri(host)];
+        let mut args = vec!["--to".to_string(), store_uri(host)];
         push_substitute_on_destination(&mut args, use_substitutes);
         args
       },
@@ -51,7 +50,6 @@ impl CopyDirection<'_> {
         use_substitutes,
       } => {
         let mut args = vec![
-          "copy".to_string(),
           "--from".to_string(),
           store_uri(from_host),
           "--to".to_string(),
@@ -82,13 +80,16 @@ fn build_nix_copy_command<P: Into<OsString>>(
   path: P,
 ) -> Exec {
   let flake_flags = get_flake_flags();
-  let mut cmd = Exec::cmd("nix").args(&flake_flags);
+  let mut cmd = NixCommand::new(CommandKind::Copy).global_args(&flake_flags);
 
   for arg in direction.args() {
     cmd = cmd.arg(arg);
   }
 
-  cmd.arg(path).env("NIX_SSHOPTS", get_nix_sshopts_env())
+  cmd
+    .arg(path.into())
+    .env("NIX_SSHOPTS", get_nix_sshopts_env())
+    .to_exec()
 }
 
 /// Copy a Nix closure from a remote host to localhost.
@@ -324,7 +325,6 @@ mod tests {
       }
       .args(),
       vec![
-        "copy",
         "--to",
         "ssh-ng://build.example",
         "--substitute-on-destination",
@@ -342,12 +342,7 @@ mod tests {
         use_substitutes: true,
       }
       .args(),
-      vec![
-        "copy",
-        "--to",
-        "ssh://build.example",
-        "--substitute-on-destination",
-      ]
+      vec!["--to", "ssh://build.example", "--substitute-on-destination",]
     );
   }
 
@@ -356,7 +351,6 @@ mod tests {
     let host = RemoteHost::parse("build.example").unwrap();
 
     assert_eq!(CopyDirection::FromRemote(&host).args(), vec![
-      "copy",
       "--from",
       "ssh-ng://build.example"
     ]);
@@ -375,7 +369,6 @@ mod tests {
       }
       .args(),
       vec![
-        "copy",
         "--from",
         "ssh-ng://build.example",
         "--to",
@@ -395,7 +388,7 @@ mod tests {
         use_substitutes: false,
       }
       .args(),
-      vec!["copy", "--to", "ssh-ng://user@[2001:db8::1]"]
+      vec!["--to", "ssh-ng://user@[2001:db8::1]"]
     );
   }
 

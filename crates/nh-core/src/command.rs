@@ -13,6 +13,7 @@ use color_eyre::{
   eyre::{self, Context, bail},
 };
 use nh_installable::Installable;
+pub use nix_command::{CommandKind, NixCommand};
 use secrecy::{ExposeSecret, SecretString};
 use subprocess::{Exec, ExitStatus, Redirection};
 use thiserror::Error;
@@ -400,6 +401,25 @@ impl Command {
       show_output: false,
       env_vars:    HashMap::new(),
     }
+  }
+
+  #[must_use]
+  pub fn from_nix_command(nix_command: NixCommand) -> Self {
+    let (command, args, env) = nix_command.into_parts();
+    let mut cmd = Self::new(command);
+    cmd.args = args;
+    for (key, value) in env {
+      cmd.env_vars.insert(
+        key.to_string_lossy().into_owned(),
+        EnvAction::Set(value.to_string_lossy().into_owned()),
+      );
+    }
+    cmd
+  }
+
+  #[must_use]
+  pub fn nix(kind: CommandKind) -> Self {
+    Self::from_nix_command(NixCommand::new(kind))
   }
 
   /// Set whether to run the command with elevated privileges.
@@ -980,10 +1000,12 @@ impl Build {
 
     let installable_args = self.installable.to_args();
 
-    let base_command = Exec::cmd("nix")
-      .arg("build")
+    let base_command = NixCommand::new(CommandKind::Build)
+      .print_build_logs(false)
       .args(&installable_args)
-      .args(&self.extra_args);
+      .args(&self.extra_args)
+      .with_required_env()
+      .to_exec();
 
     if self.nom {
       let pipeline = {

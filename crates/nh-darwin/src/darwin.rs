@@ -9,7 +9,7 @@ use color_eyre::{
 };
 use nh_core::{
   args::DiffType,
-  command::{Command, ElevationStrategy},
+  command::{Command, CommandKind, ElevationStrategy, NixCommand},
   update::update,
   util::{get_hostname, print_dix_diff},
 };
@@ -174,14 +174,16 @@ impl DarwinRebuildArgs {
     }
 
     if matches!(variant, Switch) {
-      Command::new("nix")
-        .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
-        .arg(&out_path)
-        .elevate(Some(elevation.clone()))
-        .dry(self.common.dry)
-        .with_required_env()
-        .run()
-        .wrap_err("Failed to set Darwin system profile")?;
+      Command::from_nix_command(
+        NixCommand::new(CommandKind::Build).print_build_logs(false),
+      )
+      .args(["--no-link", "--profile", SYSTEM_PROFILE])
+      .arg(&out_path)
+      .elevate(Some(elevation.clone()))
+      .dry(self.common.dry)
+      .with_required_env()
+      .run()
+      .wrap_err("Failed to set Darwin system profile")?;
 
       let darwin_rebuild = out_path.join("sw/bin/darwin-rebuild");
       let activate_user = out_path.join("activate-user");
@@ -233,8 +235,7 @@ impl DarwinReplArgs {
       attribute.push(hostname);
     }
 
-    Command::new("nix")
-      .arg("repl")
+    Command::nix(CommandKind::Repl)
       .args(target_installable.to_args())
       .with_required_env()
       .show_output(true)

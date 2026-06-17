@@ -12,6 +12,7 @@ color-eyre.workspace     = true
 dix.workspace            = true
 inquire.workspace        = true
 nh-installable.workspace = true
+nix-command.workspace    = true
 nix.workspace            = true
 regex.workspace          = true
 secrecy.workspace        = true

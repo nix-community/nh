@@ -8,7 +8,7 @@ use color_eyre::{
   eyre::{Context, bail, eyre},
 };
 use nh_core::{
-  command::{self, Command},
+  command::{self, Command, CommandKind},
   update::update,
   util::{get_hostname, print_dix_diff},
 };
@@ -301,9 +301,8 @@ where
       if let Some(config_name) = configuration_name {
         // Verify the provided configuration exists
         let func = format!(r#" x: x ? "{config_name}" "#);
-        let check_res = Command::new("nix")
+        let check_res = Command::nix(CommandKind::Eval)
           .with_required_env()
-          .arg("eval")
           .args(&extra_args)
           .arg("--apply")
           .arg(func)
@@ -357,9 +356,8 @@ where
 
         for attr_name in [format!("{username}@{hostname}"), username] {
           let func = format!(r#" x: x ? "{attr_name}" "#);
-          let check_res = Command::new("nix")
+          let check_res = Command::nix(CommandKind::Eval)
             .with_required_env()
-            .arg("eval")
             .args(&extra_args)
             .arg("--apply")
             .arg(func)
@@ -450,9 +448,8 @@ impl HomeReplArgs {
       self.configuration.clone(),
     )?;
 
-    Command::new("nix")
+    Command::nix(CommandKind::Repl)
       .with_required_env()
-      .arg("repl")
       .args(toplevel.to_args())
       .show_output(true)
       .run()?;

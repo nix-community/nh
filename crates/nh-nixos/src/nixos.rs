@@ -7,7 +7,7 @@ use std::{
 use color_eyre::eyre::{Context, Result, bail, eyre};
 use nh_core::{
   args::DiffType,
-  command::{self, Command, ElevationStrategy},
+  command::{self, Command, CommandKind, ElevationStrategy, NixCommand},
   update::update,
   util::{
     ensure_ssh_key_login,
@@ -416,13 +416,15 @@ impl OsRebuildActivateArgs {
           .canonicalize()
           .context("Failed to resolve base output path to store path")?;
 
-        Command::new("nix")
-          .elevate(elevate.then_some(elevation.clone()))
-          .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
-          .arg(&base_store_path)
-          .with_required_env()
-          .run()
-          .wrap_err("Failed to set system profile")?;
+        Command::from_nix_command(
+          NixCommand::new(CommandKind::Build).print_build_logs(false),
+        )
+        .elevate(elevate.then_some(elevation.clone()))
+        .args(["--no-link", "--profile", SYSTEM_PROFILE])
+        .arg(&base_store_path)
+        .with_required_env()
+        .run()
+        .wrap_err("Failed to set system profile")?;
 
         let mut cmd = Command::new(switch_to_configuration)
           .arg("boot")
@@ -1359,8 +1361,7 @@ impl OsReplArgs {
       attribute.push(hostname);
     }
 
-    Command::new("nix")
-      .arg("repl")
+    Command::nix(CommandKind::Repl)
       .args(target_installable.to_args())
       .with_required_env()
       .show_output(true)

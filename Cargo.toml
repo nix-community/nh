@@ -33,6 +33,7 @@ elasticsearch-dsl     = "0.4.24"
 humantime             = "2.3.0"
 indicatif             = "0.18.4"
 inquire               = { default-features = false, features = [ "crossterm" ], version = "0.9.1" }
+nix-command           = "0.2.3"
 
 nix = { default-features = false, features = [ "fs", "user", "hostname" ], version = "0.31.1" }
 proptest = "1.9.0"

@@ -17,7 +17,13 @@ use color_eyre::{
   eyre::{Context, bail, eyre},
 };
 use nh_core::{
-  command::{ElevationStrategy, cache_password, get_cached_password},
+  command::{
+    CommandKind,
+    ElevationStrategy,
+    NixCommand,
+    cache_password,
+    get_cached_password,
+  },
   util::NixVariant,
 };
 use nh_installable::Installable;
@@ -1343,11 +1349,12 @@ fn eval_drv_path(installable: &Installable) -> Result<PathBuf> {
   debug!("Evaluating drvPath: nix eval --raw {:?}", args);
 
   let flake_flags = get_flake_flags();
-  let cmd = Exec::cmd("nix")
-    .args(&flake_flags)
-    .arg("eval")
+  let cmd = NixCommand::new(CommandKind::Eval)
+    .global_args(&flake_flags)
     .arg("--raw")
     .args(&args)
+    .with_required_env()
+    .to_exec()
     .stdout(Redirection::Pipe)
     .stderr(Redirection::Pipe);
 
@@ -1562,14 +1569,18 @@ fn build_nix_command(
   let flake_flags = get_flake_flags();
   let extra_args_strings = convert_extra_args(extra_args)?;
 
-  let mut args = vec!["nix".to_string()];
-  args.extend(flake_flags.iter().map(|s| (*s).to_string()));
-  args.push("build".to_string());
-  args.push(drv_with_outputs.to_string());
-  args.extend(extra_flags.iter().map(|s| (*s).to_string()));
-  args.extend(extra_args_strings);
-
-  Ok(args)
+  Ok(
+    NixCommand::new(CommandKind::Build)
+      .print_build_logs(false)
+      .global_args(&flake_flags)
+      .arg(drv_with_outputs)
+      .args(extra_flags)
+      .args(extra_args_strings)
+      .argv()
+      .into_iter()
+      .map(|arg| arg.to_string_lossy().into_owned())
+      .collect(),
+  )
 }
 
 /// Build on remote without nom - just capture output.

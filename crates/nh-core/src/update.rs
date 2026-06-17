@@ -3,7 +3,7 @@ use color_eyre::Result;
 use nh_installable::Installable;
 use tracing::warn;
 
-use crate::command::Command;
+use crate::command::{Command, CommandKind};
 
 #[derive(Debug, Args)]
 pub struct UpdateArgs {
@@ -34,7 +34,7 @@ pub fn update(
     return Ok(());
   };
 
-  let mut cmd = Command::new("nix").args(["flake", "update"]);
+  let mut cmd = Command::nix(CommandKind::Flake).arg("update");
 
   if commit_lock_file {
     cmd = cmd.arg("--commit-lock-file");

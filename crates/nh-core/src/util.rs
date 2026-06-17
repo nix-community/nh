@@ -16,7 +16,7 @@ use regex::Regex;
 use tracing::{debug, info, warn};
 use yansi::Paint;
 
-use crate::command::{Command, ElevationStrategy};
+use crate::command::{Command, CommandKind, ElevationStrategy, NixCommand};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NixVariant {
@@ -34,8 +34,7 @@ static NIX_EXPERIMENTAL_FEATURES: OnceLock<HashSet<String>> = OnceLock::new();
 fn get_nix_version_output() -> Option<&'static String> {
   NIX_VERSION_OUTPUT
     .get_or_init(|| {
-      Command::new("nix")
-        .arg("--version")
+      Command::from_nix_command(NixCommand::raw().arg("--version"))
         .run_capture()
         .ok()
         .flatten()
@@ -308,8 +307,8 @@ pub fn get_nix_experimental_features() -> Result<HashSet<String>> {
   }
 
   // Not cached, fetch them
-  let output = Command::new("nix")
-    .args(["config", "show", "experimental-features"])
+  let output = Command::nix(CommandKind::Config)
+    .args(["show", "experimental-features"])
     .run_capture()?;
 
   // If running with dry=true, output might be None
@@ -435,7 +434,7 @@ in
     },
   };
 
-  let result = Command::new("nix-instantiate")
+  let result = Command::from_nix_command(NixCommand::nix_instantiate())
     .arg("--eval")
     .arg("--strict")
     .arg("--json")
@@ -472,8 +471,7 @@ in
 pub fn get_build_image_variants_flake(
   installable: &nh_installable::Installable,
 ) -> Result<Vec<String>> {
-  let result = Command::new("nix")
-    .arg("eval")
+  let result = Command::nix(CommandKind::Eval)
     .arg("--json")
     .args(installable.to_args())
     .arg("--apply")
