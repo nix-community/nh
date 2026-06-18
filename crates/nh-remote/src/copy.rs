@@ -34,14 +34,23 @@ impl CopyDirection<'_> {
   fn args(self) -> Vec<String> {
     match self {
       Self::FromRemote(host) => {
-        vec!["copy".to_string(), "--from".to_string(), store_uri(host)]
+        vec![
+          "copy".to_string(),
+          "--no-check-sigs".to_string(),
+          "--from".to_string(),
+          store_uri(host),
+        ]
       },
       Self::ToRemote {
         host,
         use_substitutes,
       } => {
-        let mut args =
-          vec!["copy".to_string(), "--to".to_string(), store_uri(host)];
+        let mut args = vec![
+          "copy".to_string(),
+          "--no-check-sigs".to_string(),
+          "--to".to_string(),
+          store_uri(host),
+        ];
         push_substitute_on_destination(&mut args, use_substitutes);
         args
       },
@@ -52,6 +61,7 @@ impl CopyDirection<'_> {
       } => {
         let mut args = vec![
           "copy".to_string(),
+          "--no-check-sigs".to_string(),
           "--from".to_string(),
           store_uri(from_host),
           "--to".to_string(),
@@ -340,6 +350,7 @@ mod tests {
       .args(),
       vec![
         "copy",
+        "--no-check-sigs",
         "--to",
         "ssh-ng://build.example",
         "--substitute-on-destination",
@@ -359,6 +370,7 @@ mod tests {
       .args(),
       vec![
         "copy",
+        "--no-check-sigs",
         "--to",
         "ssh://build.example",
         "--substitute-on-destination",
@@ -372,6 +384,7 @@ mod tests {
 
     assert_eq!(CopyDirection::FromRemote(&host).args(), vec![
       "copy",
+      "--no-check-sigs",
       "--from",
       "ssh-ng://build.example"
     ]);
@@ -391,6 +404,7 @@ mod tests {
       .args(),
       vec![
         "copy",
+        "--no-check-sigs",
         "--from",
         "ssh-ng://build.example",
         "--to",
@@ -410,7 +424,12 @@ mod tests {
         use_substitutes: false,
       }
       .args(),
-      vec!["copy", "--to", "ssh-ng://user@[2001:db8::1]"]
+      vec![
+        "copy",
+        "--no-check-sigs",
+        "--to",
+        "ssh-ng://user@[2001:db8::1]"
+      ]
     );
   }
 
