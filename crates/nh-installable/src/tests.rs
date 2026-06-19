@@ -1,4 +1,4 @@
-use std::env;
+use std::{env, fs};
 
 use serial_test::serial;
 
@@ -84,7 +84,7 @@ fn test_resolve_non_unspecified_returns_unchanged() {
 #[test]
 fn test_resolve_or_default_non_unspecified_returns_unchanged() {
   let flake = Installable::Flake {
-    reference: String::from("/path/to/flake"),
+    reference: String::from("github:user/repo"),
     attribute: vec![String::from("host")],
   };
 
@@ -100,7 +100,12 @@ fn test_resolve_or_default_non_unspecified_returns_unchanged() {
 #[serial]
 fn test_resolve_or_default_uses_env_before_default() {
   let env_guard = EnvGuard::clear();
-  env_guard.set("NH_OS_FLAKE", "/etc/nixos#myhost");
+  let flake_dir = tempfile::tempdir().unwrap();
+  fs::write(flake_dir.path().join("flake.nix"), "{}").unwrap();
+  env_guard.set(
+    "NH_OS_FLAKE",
+    &format!("{}#myhost", flake_dir.path().display()),
+  );
 
   let resolved = Installable::Unspecified
     .resolve_or_default(CommandContext::Os)
@@ -111,10 +116,132 @@ fn test_resolve_or_default_uses_env_before_default() {
       reference,
       attribute,
     } => {
-      assert_eq!(reference, "/etc/nixos");
+      assert_eq!(reference, flake_dir.path().to_string_lossy());
       assert_eq!(attribute, vec!["myhost"]);
     },
     _ => panic!("Expected Flake, got {resolved:?}"),
+  }
+}
+
+#[test]
+fn test_resolve_or_default_accepts_existing_local_flake_path() {
+  let flake_dir = tempfile::tempdir().unwrap();
+  fs::write(flake_dir.path().join("flake.nix"), "{}").unwrap();
+
+  let installable = Installable::Flake {
+    reference: flake_dir.path().to_string_lossy().into_owned(),
+    attribute: vec![],
+  };
+
+  let resolved = installable.resolve_or_default(CommandContext::Os).unwrap();
+
+  assert_eq!(resolved.to_args(), vec![format!(
+    "{}#",
+    flake_dir.path().display()
+  )]);
+}
+
+#[test]
+fn test_resolve_or_default_rejects_missing_absolute_path() {
+  let parent = tempfile::tempdir().unwrap();
+  let missing_path = parent.path().join("missing-flake");
+  assert!(!missing_path.exists());
+
+  let installable = Installable::Flake {
+    reference: missing_path.to_string_lossy().into_owned(),
+    attribute: vec![],
+  };
+
+  let err = installable
+    .resolve_or_default(CommandContext::Os)
+    .unwrap_err()
+    .to_string();
+
+  assert!(err.contains("Flake reference"));
+  assert!(err.contains("does not exist or does not contain a flake.nix"));
+  assert!(err.contains("NH_FLAKE/NH_OS_FLAKE"));
+}
+
+#[test]
+fn test_resolve_or_default_rejects_existing_dir_without_flake_nix() {
+  let dir = tempfile::tempdir().unwrap();
+
+  let installable = Installable::Flake {
+    reference: dir.path().to_string_lossy().into_owned(),
+    attribute: vec![],
+  };
+
+  let err = installable
+    .resolve_or_default(CommandContext::Os)
+    .unwrap_err()
+    .to_string();
+
+  assert!(err.contains("does not exist or does not contain a flake.nix"));
+}
+
+#[test]
+fn test_resolve_or_default_rejects_subdir_inside_flake() {
+  let flake_dir = tempfile::tempdir().unwrap();
+  fs::write(flake_dir.path().join("flake.nix"), "{}").unwrap();
+  let subdir = flake_dir.path().join("modules");
+  fs::create_dir(&subdir).unwrap();
+
+  let installable = Installable::Flake {
+    reference: subdir.to_string_lossy().into_owned(),
+    attribute: vec![],
+  };
+
+  let err = installable
+    .resolve_or_default(CommandContext::Os)
+    .unwrap_err()
+    .to_string();
+
+  assert!(err.contains("does not exist or does not contain a flake.nix"));
+}
+
+#[test]
+fn test_resolve_or_default_rejects_missing_path_scheme() {
+  let parent = tempfile::tempdir().unwrap();
+  let missing_path = parent.path().join("missing-flake");
+  assert!(!missing_path.exists());
+
+  let installable = Installable::Flake {
+    reference: format!("path:{}", missing_path.display()),
+    attribute: vec![],
+  };
+
+  let err = installable
+    .resolve_or_default(CommandContext::Home)
+    .unwrap_err()
+    .to_string();
+
+  assert!(err.contains("NH_FLAKE/NH_HOME_FLAKE"));
+}
+
+#[test]
+fn test_resolve_or_default_accepts_path_scheme_with_query() {
+  let flake_dir = tempfile::tempdir().unwrap();
+  fs::write(flake_dir.path().join("flake.nix"), "{}").unwrap();
+  let reference = format!("path:{}?lastModified=1", flake_dir.path().display());
+  let installable = Installable::Flake {
+    reference: reference.clone(),
+    attribute: vec![],
+  };
+
+  let resolved = installable.resolve_or_default(CommandContext::Os).unwrap();
+
+  assert_eq!(resolved.to_args(), vec![format!("{reference}#")]);
+}
+
+#[test]
+fn test_resolve_or_default_ignores_registry_and_url_refs() {
+  for reference in ["nixpkgs", "github:NixOS/nixpkgs"] {
+    let installable = Installable::Flake {
+      reference: reference.to_string(),
+      attribute: vec![],
+    };
+
+    installable.resolve_or_default(CommandContext::Os).unwrap();
   }
 }
 

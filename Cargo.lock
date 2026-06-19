@@ -1384,6 +1384,7 @@ dependencies = [
  "clap",
  "color-eyre",
  "serial_test",
+ "tempfile",
  "tracing",
  "yansi",
 ]

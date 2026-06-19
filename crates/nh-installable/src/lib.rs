@@ -1,4 +1,8 @@
-use std::{env, fs, path::PathBuf};
+use std::{
+  env,
+  fs,
+  path::{Path, PathBuf},
+};
 
 use clap::{Arg, ArgAction, Args, FromArgMatches, ValueHint, error::ErrorKind};
 use tracing::debug;
@@ -12,6 +16,16 @@ pub enum CommandContext {
   Os,
   Home,
   Darwin,
+}
+
+impl CommandContext {
+  const fn specific_flake_env_var(self) -> &'static str {
+    match self {
+      Self::Os => "NH_OS_FLAKE",
+      Self::Home => "NH_HOME_FLAKE",
+      Self::Darwin => "NH_DARWIN_FLAKE",
+    }
+  }
 }
 
 #[derive(Debug, Clone)]
@@ -293,11 +307,7 @@ impl Installable {
     match self {
       Self::Unspecified => {
         // Check command-specific env var first
-        let specific_var = match context {
-          CommandContext::Os => "NH_OS_FLAKE",
-          CommandContext::Home => "NH_HOME_FLAKE",
-          CommandContext::Darwin => "NH_DARWIN_FLAKE",
-        };
+        let specific_var = context.specific_flake_env_var();
         if let Ok(flake) = env::var(specific_var) {
           debug!("Using {specific_var}: {flake}");
           let mut elems = flake.splitn(2, '#');
@@ -354,23 +364,76 @@ impl Installable {
   /// Resolve an installable and fall back to the command-specific default when
   /// the installable is unspecified.
   ///
+  /// Explicit local flake references are validated before command execution. A
+  /// supplied local path must point at the directory containing `flake.nix`;
+  /// `nh` does not let Nix search parent directories for it.
+  ///
   /// # Errors
   ///
-  /// Returns an error when environment resolution fails or when no default
+  /// Returns an error when environment resolution fails, when a local flake
+  /// reference does not point at a flake directory, or when no default
   /// installable can be found for the command context.
   pub fn resolve_or_default(
     self,
     context: CommandContext,
   ) -> color_eyre::Result<Self> {
-    match self.resolve(context)? {
+    let installable = match self.resolve(context)? {
       Self::Unspecified => {
-        match context {
+        return match context {
           CommandContext::Os => Self::try_find_default_for_os(),
           CommandContext::Home => Self::try_find_default_for_home(),
           CommandContext::Darwin => Self::try_find_default_for_darwin(),
-        }
+        };
       },
-      installable => Ok(installable),
+      installable => installable,
+    };
+
+    installable.validate_local_flake_ref(context)?;
+    Ok(installable)
+  }
+
+  fn validate_local_flake_ref(
+    &self,
+    context: CommandContext,
+  ) -> color_eyre::Result<()> {
+    let Self::Flake { reference, .. } = self else {
+      return Ok(());
+    };
+
+    let Some(path) = local_flake_reference_path(reference) else {
+      return Ok(());
+    };
+
+    // For explicit local refs, fail before invoking Nix so the error points at
+    // the bad configuration instead of Nix's parent-directory search.
+    match resolve_fallback_flake_dir(&path) {
+      Ok(_) => Ok(()),
+      Err(FallbackError::NotFound) => {
+        Err(color_eyre::eyre::eyre!(
+          "Flake reference `{}` points to local path `{}`, but that path does \
+           not exist or does not contain a flake.nix file.\nPass an existing \
+           flake path or update NH_FLAKE/{} if this value came from the \
+           environment.",
+          reference,
+          path.display(),
+          context.specific_flake_env_var()
+        ))
+      },
+      Err(FallbackError::PermissionDenied(path)) => {
+        Err(color_eyre::eyre::eyre!(
+          "Permission denied accessing {} while checking flake reference `{}`.",
+          path.display(),
+          reference
+        ))
+      },
+      Err(FallbackError::Io(source)) => {
+        Err(color_eyre::eyre::eyre!(
+          "I/O error checking flake reference `{}` at {}: {}",
+          reference,
+          path.display(),
+          source
+        ))
+      },
     }
   }
 }
@@ -422,6 +485,29 @@ where
   }
 
   res
+}
+
+fn local_flake_reference_path(reference: &str) -> Option<PathBuf> {
+  // Only preflight references that are unmistakably filesystem paths. Bare
+  // names like `nixpkgs`, plus URL/registry-style refs, stay in Nix's hands.
+  if let Some(path) = reference.strip_prefix("path:") {
+    // Query parameters affect Nix's flakeref, not the local path existence
+    // check. Keep the original reference unchanged for command execution.
+    let path = path.split_once('?').map_or(path, |(path, _)| path);
+    return Some(PathBuf::from(path));
+  }
+
+  let path = Path::new(reference);
+
+  if path.is_absolute()
+    || matches!(path.to_str(), Some("." | ".."))
+    || path.starts_with("./")
+    || path.starts_with("../")
+  {
+    return Some(path.to_path_buf());
+  }
+
+  None
 }
 
 #[test]
