@@ -89,24 +89,15 @@ impl FromArgMatches for Installable {
     }
 
     if let Some(i) = installable {
-      let mut elems = i.splitn(2, '#');
-      let reference = elems
-        .next()
-        .ok_or_else(|| {
-          clap::Error::raw(
-            ErrorKind::ValueValidation,
-            "Invalid installable format: missing reference",
-          )
-        })?
-        .to_owned();
+      let (reference, attribute) = parse_flake_reference(i).map_err(|err| {
+        clap::Error::raw(
+          ErrorKind::ValueValidation,
+          format!("installable argument {err}"),
+        )
+      })?;
       return Ok(Self::Flake {
         reference,
-        attribute: parse_attribute(
-          elems
-            .next()
-            .map(std::string::ToString::to_string)
-            .unwrap_or_default(),
-        ),
+        attribute,
       });
     }
 
@@ -230,6 +221,27 @@ where
   res
 }
 
+fn parse_flake_reference(
+  value: &str,
+) -> Result<(String, Vec<String>), &'static str> {
+  // CLI installables and NH_*_FLAKE values share the same flakeref grammar.
+  // Reject empty references here so Nix never turns `""` or `#attr` into an
+  // implicit search from the current directory.
+  if value.is_empty() {
+    return Err("is empty. Set it to a flake reference or remove it.");
+  }
+
+  let (reference, attribute) = value
+    .split_once('#')
+    .map_or((value, ""), |(reference, attribute)| (reference, attribute));
+
+  if reference.is_empty() {
+    return Err("missing reference part before `#`");
+  }
+
+  Ok((reference.to_owned(), parse_attribute(attribute)))
+}
+
 #[test]
 fn test_parse_attribute() {
   assert_eq!(parse_attribute(r"foo.bar"), vec!["foo", "bar"]);
@@ -310,19 +322,7 @@ impl Installable {
         let specific_var = context.specific_flake_env_var();
         if let Ok(flake) = env::var(specific_var) {
           debug!("Using {specific_var}: {flake}");
-          let mut elems = flake.splitn(2, '#');
-          let reference = elems.next().ok_or_else(|| {
-            color_eyre::eyre::eyre!("{specific_var} missing reference part")
-          })?;
-          return Ok(Self::Flake {
-            reference: reference.to_owned(),
-            attribute: parse_attribute(
-              elems
-                .next()
-                .map(std::string::ToString::to_string)
-                .unwrap_or_default(),
-            ),
-          });
+          return Self::flake_from_env_var(specific_var, &flake);
         }
 
         // Fall back to NH_FILE
@@ -339,19 +339,7 @@ impl Installable {
         // Fall back to NH_FLAKE
         if let Ok(flake) = env::var("NH_FLAKE") {
           debug!("Using NH_FLAKE: {flake}");
-          let mut elems = flake.splitn(2, '#');
-          let reference = elems.next().ok_or_else(|| {
-            color_eyre::eyre::eyre!("NH_FLAKE missing reference part")
-          })?;
-          return Ok(Self::Flake {
-            reference: reference.to_owned(),
-            attribute: parse_attribute(
-              elems
-                .next()
-                .map(std::string::ToString::to_string)
-                .unwrap_or_default(),
-            ),
-          });
+          return Self::flake_from_env_var("NH_FLAKE", &flake);
         }
 
         // Return Unspecified - caller should try default resolution
@@ -359,6 +347,15 @@ impl Installable {
       },
       other => Ok(other),
     }
+  }
+
+  fn flake_from_env_var(name: &str, value: &str) -> color_eyre::Result<Self> {
+    let (reference, attribute) = parse_flake_reference(value)
+      .map_err(|err| color_eyre::eyre::eyre!("{name} {err}"))?;
+    Ok(Self::Flake {
+      reference,
+      attribute,
+    })
   }
 
   /// Resolve an installable and fall back to the command-specific default when
