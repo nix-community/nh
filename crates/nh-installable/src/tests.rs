@@ -336,6 +336,71 @@ fn test_cli_installable_rejects_attribute_without_reference() {
 
 #[test]
 #[serial]
+fn test_uses_flakes_checks_cli_and_env_inputs() {
+  let env_guard = EnvGuard::clear();
+
+  assert!(!InstallableArgs::Unspecified.uses_flakes(CommandContext::Os));
+
+  let file = specified(Installable::File {
+    path:      PathBuf::from("/path/to/file.nix"),
+    attribute: vec![],
+  });
+  assert!(!file.uses_flakes(CommandContext::Os));
+
+  let flake = specified(Installable::Flake {
+    reference: String::from("github:user/repo"),
+    attribute: vec![],
+  });
+  assert!(flake.uses_flakes(CommandContext::Os));
+
+  env_guard.set("NH_FLAKE", "github:user/repo");
+  assert!(InstallableArgs::Unspecified.uses_flakes(CommandContext::Os));
+  assert!(InstallableArgs::Unspecified.uses_flakes(CommandContext::Home));
+  assert!(InstallableArgs::Unspecified.uses_flakes(CommandContext::Darwin));
+}
+
+#[test]
+#[serial]
+fn test_uses_flakes_checks_context_specific_env() {
+  let env_guard = EnvGuard::clear();
+  env_guard.set("NH_HOME_FLAKE", "github:user/home");
+
+  assert!(!InstallableArgs::Unspecified.uses_flakes(CommandContext::Os));
+  assert!(InstallableArgs::Unspecified.uses_flakes(CommandContext::Home));
+  assert!(!InstallableArgs::Unspecified.uses_flakes(CommandContext::Darwin));
+}
+
+#[test]
+#[serial]
+fn test_uses_flakes_respects_resolution_precedence() {
+  let env_guard = EnvGuard::clear();
+  env_guard.set("NH_FLAKE", "github:user/repo");
+
+  let file = specified(Installable::File {
+    path:      PathBuf::from("/path/to/file.nix"),
+    attribute: vec![],
+  });
+  assert!(!file.uses_flakes(CommandContext::Os));
+
+  env_guard.set("NH_FILE", "/path/to/file.nix");
+  assert!(!InstallableArgs::Unspecified.uses_flakes(CommandContext::Os));
+
+  env_guard.set("NH_OS_FLAKE", "github:user/os");
+  assert!(InstallableArgs::Unspecified.uses_flakes(CommandContext::Os));
+}
+
+#[test]
+#[serial]
+fn test_uses_flakes_ignores_empty_env_values() {
+  let env_guard = EnvGuard::clear();
+  env_guard.set("NH_OS_FLAKE", "");
+  env_guard.set("NH_FLAKE", "");
+
+  assert!(!InstallableArgs::Unspecified.uses_flakes(CommandContext::Os));
+}
+
+#[test]
+#[serial]
 fn test_resolve_os_context_uses_nh_os_flake() {
   let env_guard = EnvGuard::clear();
   env_guard.set("NH_OS_FLAKE", "/etc/nixos#myhost");

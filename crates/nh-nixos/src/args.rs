@@ -1,4 +1,4 @@
-use std::{env, path::PathBuf};
+use std::path::PathBuf;
 
 use clap::{Args, Subcommand};
 use nh_core::{
@@ -10,7 +10,7 @@ use nh_core::{
     OsReplFeatures,
   },
 };
-use nh_installable::InstallableArgs;
+use nh_installable::{CommandContext, InstallableArgs};
 use nh_remote::RemoteHost;
 
 use crate::{
@@ -202,13 +202,7 @@ pub struct OsRebuildActivateArgs {
 impl OsRebuildArgs {
   #[must_use]
   pub fn uses_flakes(&self) -> bool {
-    // Check environment variables first
-    if env::var("NH_OS_FLAKE").is_ok_and(|v| !v.is_empty()) {
-      return true;
-    }
-
-    // Check installable type
-    self.common.installable.is_flake()
+    self.common.installable.uses_flakes(CommandContext::Os)
   }
 }
 
@@ -287,13 +281,7 @@ pub struct OsReplArgs {
 impl OsReplArgs {
   #[must_use]
   pub fn uses_flakes(&self) -> bool {
-    // Check environment variables first
-    if env::var("NH_OS_FLAKE").is_ok() {
-      return true;
-    }
-
-    // Check installable type
-    self.installable.is_flake()
+    self.installable.uses_flakes(CommandContext::Os)
   }
 }
 
