@@ -303,13 +303,6 @@ pub fn toplevel_for<S: AsRef<str>>(
     Installable::Store { .. } => {
       bail!("Nix doesn't support nix store installables.");
     },
-
-    Installable::Unspecified => {
-      unreachable!(
-        "Unspecified installable should have been resolved before calling \
-         toplevel_for"
-      )
-    },
   }
 
   Ok(res)

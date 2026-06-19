@@ -29,6 +29,12 @@ impl CommandContext {
 }
 
 #[derive(Debug, Clone)]
+pub enum InstallableArgs {
+  Specified(Installable),
+  Unspecified,
+}
+
+#[derive(Debug, Clone)]
 pub enum Installable {
   Flake {
     reference: String,
@@ -45,13 +51,9 @@ pub enum Installable {
     expression: String,
     attribute:  Vec<String>,
   },
-
-  /// Represents a deferred resolution of a missing installable.
-  /// This variant should be resolved to a concrete installable before use.
-  Unspecified,
 }
 
-impl FromArgMatches for Installable {
+impl FromArgMatches for InstallableArgs {
   fn from_arg_matches(matches: &clap::ArgMatches) -> Result<Self, clap::Error> {
     let mut matches = matches.clone();
     Self::from_arg_matches_mut(&mut matches)
@@ -70,22 +72,22 @@ impl FromArgMatches for Installable {
       if let Ok(p) = canonical
         && p.starts_with("/nix/store")
       {
-        return Ok(Self::Store { path: p });
+        return Ok(Self::Specified(Installable::Store { path: p }));
       }
     }
 
     if let Some(f) = file {
-      return Ok(Self::File {
+      return Ok(Self::Specified(Installable::File {
         path:      PathBuf::from(f),
         attribute: parse_attribute(installable.cloned().unwrap_or_default()),
-      });
+      }));
     }
 
     if let Some(e) = expr {
-      return Ok(Self::Expression {
+      return Ok(Self::Specified(Installable::Expression {
         expression: e.clone(),
         attribute:  parse_attribute(installable.cloned().unwrap_or_default()),
-      });
+      }));
     }
 
     if let Some(i) = installable {
@@ -95,10 +97,10 @@ impl FromArgMatches for Installable {
           format!("installable argument {err}"),
         )
       })?;
-      return Ok(Self::Flake {
+      return Ok(Self::Specified(Installable::Flake {
         reference,
         attribute,
-      });
+      }));
     }
 
     Ok(Self::Unspecified)
@@ -106,13 +108,14 @@ impl FromArgMatches for Installable {
 
   fn update_from_arg_matches(
     &mut self,
-    _matches: &clap::ArgMatches,
+    matches: &clap::ArgMatches,
   ) -> Result<(), clap::Error> {
-    todo!()
+    *self = Self::from_arg_matches(matches)?;
+    Ok(())
   }
 }
 
-impl Args for Installable {
+impl Args for InstallableArgs {
   fn augment_args(cmd: clap::Command) -> clap::Command {
     cmd
       .arg(
@@ -250,6 +253,111 @@ fn test_parse_attribute() {
   assert_eq!(parse_attribute(""), v);
 }
 
+impl InstallableArgs {
+  #[must_use]
+  pub const fn is_flake(&self) -> bool {
+    matches!(self, Self::Specified(Installable::Flake { .. }))
+  }
+
+  /// Resolves an installable from the CLI value or environment.
+  ///
+  /// If an installable was supplied on the CLI, returns it as-is. Otherwise,
+  /// checks env vars in priority order based on the command context:
+  /// - The command-specific flake env var: `NH_OS_FLAKE`, `NH_HOME_FLAKE`, or
+  ///   `NH_DARWIN_FLAKE`
+  /// - `NH_FILE`, with `NH_ATTRP` as the optional attribute path
+  /// - `NH_FLAKE`
+  ///
+  /// Returns `None` when no installable environment variable is set.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error when a configured flake environment variable is
+  /// malformed.
+  fn resolve(
+    self,
+    context: CommandContext,
+  ) -> color_eyre::Result<Option<Installable>> {
+    match self {
+      Self::Unspecified => {
+        // Check command-specific env var first
+        let specific_var = context.specific_flake_env_var();
+        if let Ok(flake) = env::var(specific_var) {
+          debug!("Using {specific_var}: {flake}");
+          return flake_from_env_var(specific_var, &flake).map(Some);
+        }
+
+        // Fall back to NH_FILE
+        if let Ok(file) = env::var("NH_FILE") {
+          debug!("Using NH_FILE: {file}");
+          return Ok(Some(Installable::File {
+            path:      PathBuf::from(file),
+            attribute: parse_attribute(
+              env::var("NH_ATTRP").unwrap_or_default(),
+            ),
+          }));
+        }
+
+        // Fall back to NH_FLAKE
+        if let Ok(flake) = env::var("NH_FLAKE") {
+          debug!("Using NH_FLAKE: {flake}");
+          return flake_from_env_var("NH_FLAKE", &flake).map(Some);
+        }
+
+        // Return None - caller should try default resolution
+        Ok(None)
+      },
+      Self::Specified(installable) => Ok(Some(installable)),
+    }
+  }
+
+  /// Resolve an installable and fall back to the command-specific default when
+  /// the installable is unspecified.
+  ///
+  /// Explicit local flake references are validated before command execution. A
+  /// supplied local path must point at the directory containing `flake.nix`;
+  /// `nh` does not let Nix search parent directories for it.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error when environment resolution fails, when a local flake
+  /// reference does not point at a flake directory, or when no default
+  /// installable can be found for the command context.
+  pub fn resolve_or_default(
+    self,
+    context: CommandContext,
+  ) -> color_eyre::Result<Installable> {
+    let Some(installable) = self.resolve(context)? else {
+      return default_installable_for(context);
+    };
+
+    installable.validate_local_flake_ref(context)?;
+    Ok(installable)
+  }
+}
+
+fn default_installable_for(
+  context: CommandContext,
+) -> color_eyre::Result<Installable> {
+  match context {
+    CommandContext::Os => try_find_default_for_os(),
+    CommandContext::Home => try_find_default_for_home(),
+    CommandContext::Darwin => try_find_default_for_darwin(),
+  }
+}
+
+fn flake_from_env_var(
+  name: &str,
+  value: &str,
+) -> color_eyre::Result<Installable> {
+  let (reference, attribute) = parse_flake_reference(value)
+    .map_err(|err| color_eyre::eyre::eyre!("{name} {err}"))?;
+  Ok(Installable::Flake {
+    reference,
+    attribute,
+  })
+}
+
 impl Installable {
   #[must_use]
   pub fn to_args(&self) -> Vec<String> {
@@ -287,106 +395,9 @@ impl Installable {
           return Vec::new();
         }
       },
-
-      #[expect(clippy::unreachable)]
-      Self::Unspecified => {
-        unreachable!(
-          "Unspecified installable should have been resolved before calling \
-           to_args"
-        )
-      },
     }
 
     res
-  }
-
-  /// Resolves an installable, checking environment variables in
-  /// command-specific priority order.
-  ///
-  /// If the installable is not Unspecified, returns it as-is.
-  /// Otherwise, checks env vars in priority order based on the command context:
-  /// - For NixOS: `NH_OS_FLAKE`, then `NH_FLAKE`
-  /// - For Home: `NH_HOME_FLAKE`, then `NH_FLAKE`
-  /// - For Darwin: `NH_DARWIN_FLAKE`, then `NH_FLAKE`
-  ///
-  /// Returns `Unspecified` when no installable environment variable is set.
-  ///
-  /// # Errors
-  ///
-  /// Returns an error when a configured flake environment variable is
-  /// malformed.
-  fn resolve(self, context: CommandContext) -> color_eyre::Result<Self> {
-    match self {
-      Self::Unspecified => {
-        // Check command-specific env var first
-        let specific_var = context.specific_flake_env_var();
-        if let Ok(flake) = env::var(specific_var) {
-          debug!("Using {specific_var}: {flake}");
-          return Self::flake_from_env_var(specific_var, &flake);
-        }
-
-        // Fall back to NH_FILE
-        if let Ok(file) = env::var("NH_FILE") {
-          debug!("Using NH_FILE: {file}");
-          return Ok(Self::File {
-            path:      PathBuf::from(file),
-            attribute: parse_attribute(
-              env::var("NH_ATTRP").unwrap_or_default(),
-            ),
-          });
-        }
-
-        // Fall back to NH_FLAKE
-        if let Ok(flake) = env::var("NH_FLAKE") {
-          debug!("Using NH_FLAKE: {flake}");
-          return Self::flake_from_env_var("NH_FLAKE", &flake);
-        }
-
-        // Return Unspecified - caller should try default resolution
-        Ok(Self::Unspecified)
-      },
-      other => Ok(other),
-    }
-  }
-
-  fn flake_from_env_var(name: &str, value: &str) -> color_eyre::Result<Self> {
-    let (reference, attribute) = parse_flake_reference(value)
-      .map_err(|err| color_eyre::eyre::eyre!("{name} {err}"))?;
-    Ok(Self::Flake {
-      reference,
-      attribute,
-    })
-  }
-
-  /// Resolve an installable and fall back to the command-specific default when
-  /// the installable is unspecified.
-  ///
-  /// Explicit local flake references are validated before command execution. A
-  /// supplied local path must point at the directory containing `flake.nix`;
-  /// `nh` does not let Nix search parent directories for it.
-  ///
-  /// # Errors
-  ///
-  /// Returns an error when environment resolution fails, when a local flake
-  /// reference does not point at a flake directory, or when no default
-  /// installable can be found for the command context.
-  pub fn resolve_or_default(
-    self,
-    context: CommandContext,
-  ) -> color_eyre::Result<Self> {
-    let installable = match self.resolve(context)? {
-      Self::Unspecified => {
-        return match context {
-          CommandContext::Os => Self::try_find_default_for_os(),
-          CommandContext::Home => Self::try_find_default_for_home(),
-          CommandContext::Darwin => Self::try_find_default_for_darwin(),
-        };
-      },
-      installable => installable,
-    };
-
-    installable.validate_local_flake_ref(context)?;
-    Ok(installable)
   }
 
   fn validate_local_flake_ref(
@@ -632,219 +643,218 @@ impl Installable {
       Self::File { .. } => "file",
       Self::Store { .. } => "store path",
       Self::Expression { .. } => "expression",
-      Self::Unspecified => "unspecified",
     }
   }
+}
 
-  /// Attempts to find a default installable for `NixOS` builds.
-  ///
-  /// Checks if `/etc/nixos/flake.nix` exists and returns a flake installable
-  /// pointing to it if found. If the directory is a symlink, it is resolved
-  /// to its canonical path. Otherwise, returns an error with instructions on
-  /// how to specify an installable.
-  ///
-  /// # Errors
-  ///
-  /// Returns an error if:
-  ///
-  /// - No flake is found at `/etc/nixos/flake.nix`
-  /// - Permission is denied accessing the path
-  /// - The resolved path contains invalid UTF-8
-  fn try_find_default_for_os() -> color_eyre::Result<Self> {
-    use tracing::warn;
+/// Attempts to find a default installable for `NixOS` builds.
+///
+/// Checks if `/etc/nixos/flake.nix` exists and returns a flake installable
+/// pointing to it if found. If the directory is a symlink, it is resolved to
+/// its canonical path. Otherwise, returns an error with instructions on how to
+/// specify an installable.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// - No flake is found at `/etc/nixos/flake.nix`
+/// - Permission is denied accessing the path
+/// - The resolved path contains invalid UTF-8
+fn try_find_default_for_os() -> color_eyre::Result<Installable> {
+  use tracing::warn;
 
-    let default_dir = std::path::Path::new("/etc/nixos");
+  let default_dir = std::path::Path::new("/etc/nixos");
 
-    match resolve_fallback_flake_dir(default_dir) {
-      Ok(resolved) => {
-        warn!(
-          "No installable was specified, falling back to {}",
-          resolved.display()
-        );
-        Ok(Self::Flake {
-          reference: resolved
-            .to_str()
-            .ok_or_else(|| {
-              color_eyre::eyre::eyre!(
-                "Resolved path {} contains invalid UTF-8",
-                resolved.display()
-              )
-            })?
-            .to_string(),
-          attribute: vec![],
-        })
-      },
-      Err(FallbackError::PermissionDenied(path)) => {
-        Err(color_eyre::eyre::eyre!(
-          "Permission denied accessing {}.\nPlease either:\n- Pass a flake \
-           path as an argument (e.g., 'nh os switch .')\n- Set the NH_FLAKE \
-           environment variable\n- Set the NH_OS_FLAKE environment \
-           variable\n\n{}",
-          path.display(),
-          FALLBACK_HELP_HINT
-        ))
-      },
-      Err(FallbackError::Io(e)) => {
-        Err(color_eyre::eyre::eyre!(
-          "I/O error accessing {}: {}\n\n{}",
-          default_dir.display(),
-          e,
-          FALLBACK_HELP_HINT
-        ))
-      },
-      Err(FallbackError::NotFound) => {
-        Err(color_eyre::eyre::eyre!(
-          "No installable specified and no flake found at \
-           {}/flake.nix.\nPlease either:\n- Pass a flake path as an argument \
-           (e.g., 'nh os switch .')\n- Set the NH_FLAKE environment \
-           variable\n- Set the NH_OS_FLAKE environment variable\n\n{}",
-          default_dir.display(),
-          FALLBACK_HELP_HINT
-        ))
-      },
-    }
+  match resolve_fallback_flake_dir(default_dir) {
+    Ok(resolved) => {
+      warn!(
+        "No installable was specified, falling back to {}",
+        resolved.display()
+      );
+      Ok(Installable::Flake {
+        reference: resolved
+          .to_str()
+          .ok_or_else(|| {
+            color_eyre::eyre::eyre!(
+              "Resolved path {} contains invalid UTF-8",
+              resolved.display()
+            )
+          })?
+          .to_string(),
+        attribute: vec![],
+      })
+    },
+    Err(FallbackError::PermissionDenied(path)) => {
+      Err(color_eyre::eyre::eyre!(
+        "Permission denied accessing {}.\nPlease either:\n- Pass a flake path \
+         as an argument (e.g., 'nh os switch .')\n- Set the NH_FLAKE \
+         environment variable\n- Set the NH_OS_FLAKE environment \
+         variable\n\n{}",
+        path.display(),
+        FALLBACK_HELP_HINT
+      ))
+    },
+    Err(FallbackError::Io(e)) => {
+      Err(color_eyre::eyre::eyre!(
+        "I/O error accessing {}: {}\n\n{}",
+        default_dir.display(),
+        e,
+        FALLBACK_HELP_HINT
+      ))
+    },
+    Err(FallbackError::NotFound) => {
+      Err(color_eyre::eyre::eyre!(
+        "No installable specified and no flake found at {}/flake.nix.\nPlease \
+         either:\n- Pass a flake path as an argument (e.g., 'nh os switch \
+         .')\n- Set the NH_FLAKE environment variable\n- Set the NH_OS_FLAKE \
+         environment variable\n\n{}",
+        default_dir.display(),
+        FALLBACK_HELP_HINT
+      ))
+    },
   }
+}
 
-  /// Attempts to find a default installable for Home Manager builds.
-  ///
-  /// Checks if `$HOME/.config/home-manager/flake.nix` exists and returns a
-  /// flake installable pointing to it if found. If the directory is a
-  /// symlink, it is resolved to its canonical path. Otherwise, returns an
-  /// error with instructions on how to specify an installable.
-  ///
-  /// # Errors
-  ///
-  /// Returns an error if:
-  ///
-  /// - The `HOME` environment variable is not set
-  /// - No flake is found at `$HOME/.config/home-manager/flake.nix`
-  /// - Permission is denied accessing the path
-  /// - The resolved path contains invalid UTF-8
-  fn try_find_default_for_home() -> color_eyre::Result<Self> {
-    use tracing::warn;
+/// Attempts to find a default installable for Home Manager builds.
+///
+/// Checks if `$HOME/.config/home-manager/flake.nix` exists and returns a flake
+/// installable pointing to it if found. If the directory is a symlink, it is
+/// resolved to its canonical path. Otherwise, returns an error with
+/// instructions on how to specify an installable.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// - The `HOME` environment variable is not set
+/// - No flake is found at `$HOME/.config/home-manager/flake.nix`
+/// - Permission is denied accessing the path
+/// - The resolved path contains invalid UTF-8
+fn try_find_default_for_home() -> color_eyre::Result<Installable> {
+  use tracing::warn;
 
-    let home = env::var("HOME").map_err(|_| {
-      color_eyre::eyre::eyre!("HOME environment variable not set")
-    })?;
-    let default_dir = PathBuf::from(&home).join(".config/home-manager");
+  let home = env::var("HOME").map_err(|_| {
+    color_eyre::eyre::eyre!("HOME environment variable not set")
+  })?;
+  let default_dir = PathBuf::from(&home).join(".config/home-manager");
 
-    match resolve_fallback_flake_dir(&default_dir) {
-      Ok(resolved) => {
-        warn!(
-          "No installable was specified, falling back to {}",
-          resolved.display()
-        );
-        Ok(Self::Flake {
-          reference: resolved
-            .to_str()
-            .ok_or_else(|| {
-              color_eyre::eyre::eyre!(
-                "Resolved path {} contains invalid UTF-8",
-                resolved.display()
-              )
-            })?
-            .to_string(),
-          attribute: vec![],
-        })
-      },
-      Err(FallbackError::PermissionDenied(path)) => {
-        Err(color_eyre::eyre::eyre!(
-          "Permission denied accessing {}.\nPlease either:\n- Pass a flake \
-           path as an argument (e.g., 'nh home switch .')\n- Set the NH_FLAKE \
-           environment variable\n- Set the NH_HOME_FLAKE environment \
-           variable\n\n{}",
-          path.display(),
-          FALLBACK_HELP_HINT
-        ))
-      },
-      Err(FallbackError::Io(e)) => {
-        Err(color_eyre::eyre::eyre!(
-          "I/O error accessing {}: {}\n\n{}",
-          default_dir.display(),
-          e,
-          FALLBACK_HELP_HINT
-        ))
-      },
-      Err(FallbackError::NotFound) => {
-        Err(color_eyre::eyre::eyre!(
-          "No installable specified and no flake found at \
-           {}/flake.nix.\nPlease either:\n- Pass a flake path as an argument \
-           (e.g., 'nh home switch .')\n- Set the NH_FLAKE environment \
-           variable\n- Set the NH_HOME_FLAKE environment variable\n\n{}",
-          default_dir.display(),
-          FALLBACK_HELP_HINT
-        ))
-      },
-    }
+  match resolve_fallback_flake_dir(&default_dir) {
+    Ok(resolved) => {
+      warn!(
+        "No installable was specified, falling back to {}",
+        resolved.display()
+      );
+      Ok(Installable::Flake {
+        reference: resolved
+          .to_str()
+          .ok_or_else(|| {
+            color_eyre::eyre::eyre!(
+              "Resolved path {} contains invalid UTF-8",
+              resolved.display()
+            )
+          })?
+          .to_string(),
+        attribute: vec![],
+      })
+    },
+    Err(FallbackError::PermissionDenied(path)) => {
+      Err(color_eyre::eyre::eyre!(
+        "Permission denied accessing {}.\nPlease either:\n- Pass a flake path \
+         as an argument (e.g., 'nh home switch .')\n- Set the NH_FLAKE \
+         environment variable\n- Set the NH_HOME_FLAKE environment \
+         variable\n\n{}",
+        path.display(),
+        FALLBACK_HELP_HINT
+      ))
+    },
+    Err(FallbackError::Io(e)) => {
+      Err(color_eyre::eyre::eyre!(
+        "I/O error accessing {}: {}\n\n{}",
+        default_dir.display(),
+        e,
+        FALLBACK_HELP_HINT
+      ))
+    },
+    Err(FallbackError::NotFound) => {
+      Err(color_eyre::eyre::eyre!(
+        "No installable specified and no flake found at {}/flake.nix.\nPlease \
+         either:\n- Pass a flake path as an argument (e.g., 'nh home switch \
+         .')\n- Set the NH_FLAKE environment variable\n- Set the \
+         NH_HOME_FLAKE environment variable\n\n{}",
+        default_dir.display(),
+        FALLBACK_HELP_HINT
+      ))
+    },
   }
+}
 
-  /// Attempts to find a default installable for Darwin builds.
-  ///
-  /// Checks if `/etc/nix-darwin/flake.nix` exists and returns a flake
-  /// installable pointing to it if found. If the directory is a symlink,
-  /// it is resolved to its canonical path. Otherwise, returns an error with
-  /// instructions on how to specify an installable.
-  ///
-  /// # Errors
-  ///
-  /// Returns an error if:
-  ///
-  /// - No flake is found at `/etc/nix-darwin/flake.nix`
-  /// - Permission is denied accessing the path
-  /// - The resolved path contains invalid UTF-8
-  fn try_find_default_for_darwin() -> color_eyre::Result<Self> {
-    use tracing::warn;
+/// Attempts to find a default installable for Darwin builds.
+///
+/// Checks if `/etc/nix-darwin/flake.nix` exists and returns a flake installable
+/// pointing to it if found. If the directory is a symlink, it is resolved to
+/// its canonical path. Otherwise, returns an error with instructions on how to
+/// specify an installable.
+///
+/// # Errors
+///
+/// Returns an error if:
+///
+/// - No flake is found at `/etc/nix-darwin/flake.nix`
+/// - Permission is denied accessing the path
+/// - The resolved path contains invalid UTF-8
+fn try_find_default_for_darwin() -> color_eyre::Result<Installable> {
+  use tracing::warn;
 
-    let default_dir = std::path::Path::new("/etc/nix-darwin");
+  let default_dir = std::path::Path::new("/etc/nix-darwin");
 
-    match resolve_fallback_flake_dir(default_dir) {
-      Ok(resolved) => {
-        warn!(
-          "No installable was specified, falling back to {}",
-          resolved.display()
-        );
-        Ok(Self::Flake {
-          reference: resolved
-            .to_str()
-            .ok_or_else(|| {
-              color_eyre::eyre::eyre!(
-                "Resolved path {} contains invalid UTF-8",
-                resolved.display()
-              )
-            })?
-            .to_string(),
-          attribute: vec![],
-        })
-      },
-      Err(FallbackError::PermissionDenied(path)) => {
-        Err(color_eyre::eyre::eyre!(
-          "Permission denied accessing {}.\nPlease either:\n- Pass a flake \
-           path as an argument (e.g., 'nh darwin switch .')\n- Set the \
-           NH_FLAKE environment variable\n- Set the NH_DARWIN_FLAKE \
-           environment variable\n\n{}",
-          path.display(),
-          FALLBACK_HELP_HINT
-        ))
-      },
-      Err(FallbackError::Io(e)) => {
-        Err(color_eyre::eyre::eyre!(
-          "I/O error accessing {}: {}\n\n{}",
-          default_dir.display(),
-          e,
-          FALLBACK_HELP_HINT
-        ))
-      },
-      Err(FallbackError::NotFound) => {
-        Err(color_eyre::eyre::eyre!(
-          "No installable specified and no flake found at \
-           {}/flake.nix.\nPlease either:\n- Pass a flake path as an argument \
-           (e.g., 'nh darwin switch .')\n- Set the NH_FLAKE environment \
-           variable\n- Set the NH_DARWIN_FLAKE environment variable\n\n{}",
-          default_dir.display(),
-          FALLBACK_HELP_HINT
-        ))
-      },
-    }
+  match resolve_fallback_flake_dir(default_dir) {
+    Ok(resolved) => {
+      warn!(
+        "No installable was specified, falling back to {}",
+        resolved.display()
+      );
+      Ok(Installable::Flake {
+        reference: resolved
+          .to_str()
+          .ok_or_else(|| {
+            color_eyre::eyre::eyre!(
+              "Resolved path {} contains invalid UTF-8",
+              resolved.display()
+            )
+          })?
+          .to_string(),
+        attribute: vec![],
+      })
+    },
+    Err(FallbackError::PermissionDenied(path)) => {
+      Err(color_eyre::eyre::eyre!(
+        "Permission denied accessing {}.\nPlease either:\n- Pass a flake path \
+         as an argument (e.g., 'nh darwin switch .')\n- Set the NH_FLAKE \
+         environment variable\n- Set the NH_DARWIN_FLAKE environment \
+         variable\n\n{}",
+        path.display(),
+        FALLBACK_HELP_HINT
+      ))
+    },
+    Err(FallbackError::Io(e)) => {
+      Err(color_eyre::eyre::eyre!(
+        "I/O error accessing {}: {}\n\n{}",
+        default_dir.display(),
+        e,
+        FALLBACK_HELP_HINT
+      ))
+    },
+    Err(FallbackError::NotFound) => {
+      Err(color_eyre::eyre::eyre!(
+        "No installable specified and no flake found at {}/flake.nix.\nPlease \
+         either:\n- Pass a flake path as an argument (e.g., 'nh darwin switch \
+         .')\n- Set the NH_FLAKE environment variable\n- Set the \
+         NH_DARWIN_FLAKE environment variable\n\n{}",
+        default_dir.display(),
+        FALLBACK_HELP_HINT
+      ))
+    },
   }
 }
 

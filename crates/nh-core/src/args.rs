@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Args, ValueEnum};
-use nh_installable::Installable;
+use nh_installable::InstallableArgs;
 use tracing::warn;
 
 #[derive(Debug, Args)]
@@ -15,7 +15,7 @@ pub struct CommonRebuildArgs {
   pub ask: bool,
 
   #[command(flatten)]
-  pub installable: Installable,
+  pub installable: InstallableArgs,
 
   /// Don't use nix-output-monitor for the build process
   #[arg(long)]

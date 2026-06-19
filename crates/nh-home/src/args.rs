@@ -10,7 +10,7 @@ use nh_core::{
     LegacyFeatures,
   },
 };
-use nh_installable::Installable;
+use nh_installable::InstallableArgs;
 use nh_remote::RemoteHost;
 
 #[derive(Debug, Subcommand)]
@@ -99,14 +99,14 @@ impl HomeRebuildArgs {
     }
 
     // Check installable type
-    matches!(self.common.installable, Installable::Flake { .. })
+    self.common.installable.is_flake()
   }
 }
 
 #[derive(Debug, Args)]
 pub struct HomeReplArgs {
   #[command(flatten)]
-  pub installable: Installable,
+  pub installable: InstallableArgs,
 
   /// Name of the flake homeConfigurations attribute, like username@hostname
   ///
@@ -128,6 +128,6 @@ impl HomeReplArgs {
     }
 
     // Check installable type
-    matches!(self.installable, Installable::Flake { .. })
+    self.installable.is_flake()
   }
 }

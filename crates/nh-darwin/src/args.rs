@@ -11,7 +11,7 @@ use nh_core::{
   },
   update::UpdateArgs,
 };
-use nh_installable::Installable;
+use nh_installable::InstallableArgs;
 use nh_remote::RemoteHost;
 
 /// Nix-darwin functionality
@@ -91,14 +91,14 @@ impl DarwinRebuildArgs {
     }
 
     // Check installable type
-    matches!(self.common.installable, Installable::Flake { .. })
+    self.common.installable.is_flake()
   }
 }
 
 #[derive(Debug, Args)]
 pub struct DarwinReplArgs {
   #[command(flatten)]
-  pub installable: Installable,
+  pub installable: InstallableArgs,
 
   /// When using a flake installable, select this hostname from
   /// darwinConfigurations
@@ -115,6 +115,6 @@ impl DarwinReplArgs {
     }
 
     // Check installable type
-    matches!(self.installable, Installable::Flake { .. })
+    self.installable.is_flake()
   }
 }
