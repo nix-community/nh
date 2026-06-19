@@ -247,6 +247,75 @@ fn test_resolve_or_default_ignores_registry_and_url_refs() {
 
 #[test]
 #[serial]
+fn test_resolve_rejects_empty_nh_flake() {
+  let env_guard = EnvGuard::clear();
+  env_guard.set("NH_FLAKE", "");
+
+  let err = Installable::Unspecified
+    .resolve(CommandContext::Os)
+    .unwrap_err()
+    .to_string();
+
+  assert!(err.contains("NH_FLAKE is empty"));
+}
+
+#[test]
+#[serial]
+fn test_resolve_rejects_empty_command_specific_flake() {
+  let env_guard = EnvGuard::clear();
+  env_guard.set("NH_OS_FLAKE", "");
+  env_guard.set("NH_FLAKE", "github:user/repo");
+
+  let err = Installable::Unspecified
+    .resolve(CommandContext::Os)
+    .unwrap_err()
+    .to_string();
+
+  assert!(err.contains("NH_OS_FLAKE is empty"));
+}
+
+#[test]
+#[serial]
+fn test_resolve_rejects_env_flake_without_reference_before_attribute() {
+  let env_guard = EnvGuard::clear();
+  env_guard.set("NH_FLAKE", "#fallback");
+
+  let err = Installable::Unspecified
+    .resolve(CommandContext::Os)
+    .unwrap_err()
+    .to_string();
+
+  assert!(err.contains("NH_FLAKE missing reference part before `#`"));
+}
+
+#[test]
+fn test_cli_installable_rejects_empty_flake_reference() {
+  let cmd = Installable::augment_args(clap::Command::new("test"));
+  let err = Installable::from_arg_matches(
+    &cmd.try_get_matches_from(["test", ""]).unwrap(),
+  )
+  .unwrap_err()
+  .to_string();
+
+  assert!(err.contains("installable argument is empty"));
+}
+
+#[test]
+fn test_cli_installable_rejects_attribute_without_reference() {
+  let cmd = Installable::augment_args(clap::Command::new("test"));
+  let err = Installable::from_arg_matches(
+    &cmd.try_get_matches_from(["test", "#fallback"]).unwrap(),
+  )
+  .unwrap_err()
+  .to_string();
+
+  assert!(
+    err.contains("installable argument missing reference part before `#`")
+  );
+}
+
+#[test]
+#[serial]
 fn test_resolve_os_context_uses_nh_os_flake() {
   let env_guard = EnvGuard::clear();
   env_guard.set("NH_OS_FLAKE", "/etc/nixos#myhost");
