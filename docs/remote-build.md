@@ -211,6 +211,11 @@ When `--build-host` and `--target-host` point to the same machine, the result
 stays on that machine. A requested local out-link is skipped rather than forcing
 the result back to localhost.
 
+Remote build products are usually not signed by a binary cache key, so NH passes
+`--no-check-sigs` to its `nix copy` invocations. This preserves the behavior
+expected from an interactive remote build rather than treating the build host as
+a public substituter.
+
 For security, you are _encouraged to be explicit_ in your hostnames and not
 trust the DNS blindly.
 

@@ -34,13 +34,23 @@ impl CopyDirection<'_> {
   fn args(self) -> Vec<String> {
     match self {
       Self::FromRemote(host) => {
-        vec!["--from".to_string(), store_uri(host)]
+        vec![
+          "copy".to_string(),
+          "--no-check-sigs".to_string(),
+          "--from".to_string(),
+          store_uri(host),
+        ]
       },
       Self::ToRemote {
         host,
         use_substitutes,
       } => {
-        let mut args = vec!["--to".to_string(), store_uri(host)];
+        let mut args = vec![
+          "copy".to_string(),
+          "--no-check-sigs".to_string(),
+          "--to".to_string(),
+          store_uri(host),
+        ];
         push_substitute_on_destination(&mut args, use_substitutes);
         args
       },
@@ -50,6 +60,8 @@ impl CopyDirection<'_> {
         use_substitutes,
       } => {
         let mut args = vec![
+          "copy".to_string(),
+          "--no-check-sigs".to_string(),
           "--from".to_string(),
           store_uri(from_host),
           "--to".to_string(),
@@ -99,15 +111,15 @@ pub fn copy_closure_from(host: &RemoteHost, path: &str) -> Result<()> {
   let cmd = build_nix_copy_command(CopyDirection::FromRemote(host), path);
   debug!(?cmd, "nix copy --from");
 
-  let (exit_status, _stdout, _stderr) = exec_with_streaming(cmd, false)
+  let (exit_status, _stdout, stderr) = exec_with_streaming(cmd, true)
     .wrap_err("Failed to copy closure from remote host")?;
 
   if !exit_status.success() {
-    color_eyre::eyre::bail!(
-      "nix copy --from '{}' failed (exit status: {:?})",
-      host,
-      exit_status
-    );
+    color_eyre::eyre::bail!(format_copy_failure(
+      &format!("nix copy --from '{host}' failed"),
+      exit_status,
+      &stderr,
+    ));
   }
 
   Ok(())
@@ -117,13 +129,14 @@ fn spawn_spinner_stream_thread<R>(
   pipe: R,
   spinner: ProgressBar,
   stream_name: &'static str,
-) -> std::thread::JoinHandle<Result<()>>
+) -> std::thread::JoinHandle<Result<String>>
 where
   R: Read + Send + 'static,
 {
   std::thread::spawn(move || {
     let mut reader = std::io::BufReader::new(pipe);
     let mut line = Vec::new();
+    let mut output = String::new();
 
     loop {
       line.clear();
@@ -139,16 +152,31 @@ where
         .trim_end_matches(['\r', '\n'])
         .to_string();
       spinner.println(message);
+      output.push_str(&String::from_utf8_lossy(&line));
     }
 
-    Ok(())
+    Ok(output)
   })
+}
+
+fn format_copy_failure(
+  message: &str,
+  exit_status: subprocess::ExitStatus,
+  stderr: &str,
+) -> String {
+  let stderr = stderr.trim();
+
+  if stderr.is_empty() {
+    format!("{message} (exit status: {exit_status:?})")
+  } else {
+    format!("{message} (exit status: {exit_status:?})\nstderr:\n{stderr}")
+  }
 }
 
 fn exec_with_spinner_streaming(
   cmd: Exec,
   spinner: &ProgressBar,
-) -> Result<subprocess::ExitStatus> {
+) -> Result<(subprocess::ExitStatus, String, String)> {
   let mut job = cmd
     .stdout(Redirection::Pipe)
     .stderr(Redirection::Pipe)
@@ -173,14 +201,14 @@ fn exec_with_spinner_streaming(
     .wait()
     .wrap_err("Failed to wait for command completion")?;
 
-  stdout_thread
+  let stdout = stdout_thread
     .join()
     .map_err(|_| eyre!("Stdout thread panicked"))??;
-  stderr_thread
+  let stderr = stderr_thread
     .join()
     .map_err(|_| eyre!("Stderr thread panicked"))??;
 
-  Ok(exit_status)
+  Ok((exit_status, stdout, stderr))
 }
 
 /// Copy a Nix closure from localhost to a remote host.
@@ -251,16 +279,16 @@ pub fn copy_to_remote(
   // to make the spinner change the text, we cannot reliably match the `info!`
   // or `error!` style.
   spinner.finish_and_clear();
-  let exit_status =
+  let (exit_status, _stdout, stderr) =
     copy_result.wrap_err("Failed to copy closure to remote host")?;
 
   if !exit_status.success() {
     error!("Failed to copy closure to remote host '{host}'");
-    color_eyre::eyre::bail!(
-      "nix copy --to '{}' failed (exit status: {:?})",
-      host,
-      exit_status
-    );
+    color_eyre::eyre::bail!(format_copy_failure(
+      &format!("nix copy --to '{host}' failed"),
+      exit_status,
+      &stderr,
+    ));
   }
   info!("Copied closure to remote host '{host}'");
 
@@ -287,16 +315,15 @@ pub fn copy_closure_between_remotes(
   );
   debug!(?cmd, "nix copy between remotes");
 
-  let (exit_status, _stdout, _stderr) = exec_with_streaming(cmd, false)
+  let (exit_status, _stdout, stderr) = exec_with_streaming(cmd, true)
     .wrap_err("Failed to copy closure between remote hosts")?;
 
   if !exit_status.success() {
-    color_eyre::eyre::bail!(
-      "nix copy from '{}' to '{}' failed (exit status: {:?})",
-      from_host,
-      to_host,
-      exit_status
-    );
+    color_eyre::eyre::bail!(format_copy_failure(
+      &format!("nix copy from '{from_host}' to '{to_host}' failed"),
+      exit_status,
+      &stderr,
+    ));
   }
 
   Ok(())
@@ -325,6 +352,8 @@ mod tests {
       }
       .args(),
       vec![
+        "copy",
+        "--no-check-sigs",
         "--to",
         "ssh-ng://build.example",
         "--substitute-on-destination",
@@ -342,7 +371,13 @@ mod tests {
         use_substitutes: true,
       }
       .args(),
-      vec!["--to", "ssh://build.example", "--substitute-on-destination",]
+      vec![
+        "copy",
+        "--no-check-sigs",
+        "--to",
+        "ssh://build.example",
+        "--substitute-on-destination",
+      ]
     );
   }
 
@@ -351,6 +386,8 @@ mod tests {
     let host = RemoteHost::parse("build.example").unwrap();
 
     assert_eq!(CopyDirection::FromRemote(&host).args(), vec![
+      "copy",
+      "--no-check-sigs",
       "--from",
       "ssh-ng://build.example"
     ]);
@@ -369,6 +406,8 @@ mod tests {
       }
       .args(),
       vec![
+        "copy",
+        "--no-check-sigs",
         "--from",
         "ssh-ng://build.example",
         "--to",
@@ -388,7 +427,12 @@ mod tests {
         use_substitutes: false,
       }
       .args(),
-      vec!["--to", "ssh-ng://user@[2001:db8::1]"]
+      vec![
+        "copy",
+        "--no-check-sigs",
+        "--to",
+        "ssh-ng://user@[2001:db8::1]"
+      ]
     );
   }
 
@@ -422,6 +466,9 @@ done
       result.is_ok(),
       "exec_with_spinner_streaming must not deadlock on mixed stdout/stderr"
     );
+    let (_status, stdout, stderr) = result.unwrap();
+    assert!(stdout.contains("stdout 10"));
+    assert!(stderr.contains("stderr 10"));
   }
 
   #[test]
