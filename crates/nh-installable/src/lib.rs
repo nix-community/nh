@@ -34,6 +34,49 @@ pub enum InstallableArgs {
   Unspecified,
 }
 
+enum EnvInstallableSource {
+  SpecificFlake {
+    env_var: &'static str,
+    value:   String,
+  },
+  File {
+    path:      String,
+    attribute: String,
+  },
+  GenericFlake(String),
+}
+
+impl EnvInstallableSource {
+  const fn uses_flakes(&self) -> bool {
+    match self {
+      Self::SpecificFlake { value, .. } | Self::GenericFlake(value) => {
+        !value.is_empty()
+      },
+      Self::File { .. } => false,
+    }
+  }
+
+  fn into_installable(self) -> color_eyre::Result<Installable> {
+    match self {
+      Self::SpecificFlake { env_var, value } => {
+        debug!("Using {env_var}: {value}");
+        flake_from_env_var(env_var, &value)
+      },
+      Self::File { path, attribute } => {
+        debug!("Using NH_FILE: {path}");
+        Ok(Installable::File {
+          path:      PathBuf::from(path),
+          attribute: parse_attribute(attribute),
+        })
+      },
+      Self::GenericFlake(value) => {
+        debug!("Using NH_FLAKE: {value}");
+        flake_from_env_var("NH_FLAKE", &value)
+      },
+    }
+  }
+}
+
 #[derive(Debug, Clone)]
 pub enum Installable {
   Flake {
@@ -254,9 +297,20 @@ fn test_parse_attribute() {
 }
 
 impl InstallableArgs {
+  /// Returns whether the parsed CLI input or non-empty flake environment
+  /// variables select flake mode for the command context.
   #[must_use]
-  pub const fn is_flake(&self) -> bool {
-    matches!(self, Self::Specified(Installable::Flake { .. }))
+  pub fn uses_flakes(&self, context: CommandContext) -> bool {
+    // Empty flake env vars are invalid inputs. Do not count them as feature
+    // requirements here; resolution reports the targeted validation error.
+    match self {
+      Self::Specified(Installable::Flake { .. }) => true,
+      Self::Specified(_) => false,
+      Self::Unspecified => {
+        env_installable_source(context)
+          .is_some_and(|source| source.uses_flakes())
+      },
+    }
   }
 
   /// Resolves an installable from the CLI value or environment.
@@ -280,32 +334,9 @@ impl InstallableArgs {
   ) -> color_eyre::Result<Option<Installable>> {
     match self {
       Self::Unspecified => {
-        // Check command-specific env var first
-        let specific_var = context.specific_flake_env_var();
-        if let Ok(flake) = env::var(specific_var) {
-          debug!("Using {specific_var}: {flake}");
-          return flake_from_env_var(specific_var, &flake).map(Some);
-        }
-
-        // Fall back to NH_FILE
-        if let Ok(file) = env::var("NH_FILE") {
-          debug!("Using NH_FILE: {file}");
-          return Ok(Some(Installable::File {
-            path:      PathBuf::from(file),
-            attribute: parse_attribute(
-              env::var("NH_ATTRP").unwrap_or_default(),
-            ),
-          }));
-        }
-
-        // Fall back to NH_FLAKE
-        if let Ok(flake) = env::var("NH_FLAKE") {
-          debug!("Using NH_FLAKE: {flake}");
-          return flake_from_env_var("NH_FLAKE", &flake).map(Some);
-        }
-
-        // Return None - caller should try default resolution
-        Ok(None)
+        env_installable_source(context)
+          .map(EnvInstallableSource::into_installable)
+          .transpose()
       },
       Self::Specified(installable) => Ok(Some(installable)),
     }
@@ -334,6 +365,31 @@ impl InstallableArgs {
     installable.validate_local_flake_ref(context)?;
     Ok(installable)
   }
+}
+
+fn env_installable_source(
+  context: CommandContext,
+) -> Option<EnvInstallableSource> {
+  let specific_var = context.specific_flake_env_var();
+  if let Ok(value) = env::var(specific_var) {
+    return Some(EnvInstallableSource::SpecificFlake {
+      env_var: specific_var,
+      value,
+    });
+  }
+
+  if let Ok(path) = env::var("NH_FILE") {
+    return Some(EnvInstallableSource::File {
+      path,
+      attribute: env::var("NH_ATTRP").unwrap_or_default(),
+    });
+  }
+
+  if let Ok(value) = env::var("NH_FLAKE") {
+    return Some(EnvInstallableSource::GenericFlake(value));
+  }
+
+  None
 }
 
 fn default_installable_for(

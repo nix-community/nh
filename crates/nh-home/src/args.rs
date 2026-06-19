@@ -1,5 +1,3 @@
-use std::env;
-
 use clap::{Args, Subcommand};
 use nh_core::{
   args::CommonRebuildArgs,
@@ -10,7 +8,7 @@ use nh_core::{
     LegacyFeatures,
   },
 };
-use nh_installable::InstallableArgs;
+use nh_installable::{CommandContext, InstallableArgs};
 use nh_remote::RemoteHost;
 
 #[derive(Debug, Subcommand)]
@@ -93,13 +91,7 @@ pub struct HomeRebuildArgs {
 impl HomeRebuildArgs {
   #[must_use]
   pub fn uses_flakes(&self) -> bool {
-    // Check environment variables first
-    if env::var("NH_HOME_FLAKE").is_ok_and(|v| !v.is_empty()) {
-      return true;
-    }
-
-    // Check installable type
-    self.common.installable.is_flake()
+    self.common.installable.uses_flakes(CommandContext::Home)
   }
 }
 
@@ -122,12 +114,6 @@ pub struct HomeReplArgs {
 impl HomeReplArgs {
   #[must_use]
   pub fn uses_flakes(&self) -> bool {
-    // Check environment variables first
-    if env::var("NH_HOME_FLAKE").is_ok_and(|v| !v.is_empty()) {
-      return true;
-    }
-
-    // Check installable type
-    self.installable.is_flake()
+    self.installable.uses_flakes(CommandContext::Home)
   }
 }
