@@ -309,6 +309,21 @@ fn test_resolve_rejects_env_flake_without_reference_before_attribute() {
 }
 
 #[test]
+#[serial]
+fn test_resolve_rejects_malformed_nh_attrp() {
+  let env_guard = EnvGuard::clear();
+  env_guard.set("NH_FILE", "/path/to/file.nix");
+  env_guard.set("NH_ATTRP", r#"foo."bar"#);
+
+  let err = InstallableArgs::Unspecified
+    .resolve(CommandContext::Os)
+    .unwrap_err()
+    .to_string();
+
+  assert!(err.contains("NH_ATTRP contains an unclosed quoted attribute"));
+}
+
+#[test]
 fn test_cli_installable_rejects_empty_flake_reference() {
   let cmd = InstallableArgs::augment_args(clap::Command::new("test"));
   let err = InstallableArgs::from_arg_matches(
@@ -332,6 +347,19 @@ fn test_cli_installable_rejects_attribute_without_reference() {
   assert!(
     err.contains("installable argument missing reference part before `#`")
   );
+}
+
+#[test]
+fn test_cli_file_rejects_malformed_attribute() {
+  let cmd = InstallableArgs::augment_args(clap::Command::new("test"));
+  let matches = cmd
+    .try_get_matches_from(["test", "--file", "file.nix", r#"foo."bar"#])
+    .unwrap();
+  let err = InstallableArgs::from_arg_matches(&matches)
+    .unwrap_err()
+    .to_string();
+
+  assert!(err.contains("attribute path contains an unclosed quoted attribute"));
 }
 
 #[test]
