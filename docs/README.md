@@ -223,7 +223,7 @@ experience, done so with two subcommands provided out of the box.
 
 #### `nh search`
 
-[SPAM]: https://github.com/nix-community/SPAM
+[SPAM]: https://github.com/feel-co/SPAM
 
 We provide a super-fast search tool for Nix packages and NixOS/Home Manager
 options (powered by an Elasticsearch client against search.nixos.org), offline
