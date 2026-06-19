@@ -28,6 +28,18 @@ jobs:
         run: |
           echo "CHANGELOG_REQUIRED=false" >> $GITHUB_ENV
 
+      - name: Override variable if PR diff is 100 lines or fewer
+        if: fromJSON(env.CHANGELOG_REQUIRED)
+        env:
+          PR_ADDITIONS: ${{ github.event.pull_request.additions }}
+          PR_DELETIONS: ${{ github.event.pull_request.deletions }}
+        run: |
+          changed_lines=$(( PR_ADDITIONS + PR_DELETIONS ))
+
+          if [ "$changed_lines" -le 100 ]; then
+            echo "CHANGELOG_REQUIRED=false" >> $GITHUB_ENV
+          fi
+
       - uses: actions/checkout@v6
         if: fromJSON(env.CHANGELOG_REQUIRED)
 
