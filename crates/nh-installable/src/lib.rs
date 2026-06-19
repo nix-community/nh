@@ -66,7 +66,8 @@ impl EnvInstallableSource {
         debug!("Using NH_FILE: {path}");
         Ok(Installable::File {
           path:      PathBuf::from(path),
-          attribute: parse_attribute(attribute),
+          attribute: parse_attribute(&attribute)
+            .map_err(|err| color_eyre::eyre::eyre!("NH_ATTRP {err}"))?,
         })
       },
       Self::GenericFlake(value) => {
@@ -120,16 +121,30 @@ impl FromArgMatches for InstallableArgs {
     }
 
     if let Some(f) = file {
+      let attribute = parse_attribute(installable.map_or("", String::as_str))
+        .map_err(|err| {
+        clap::Error::raw(
+          ErrorKind::ValueValidation,
+          format!("attribute path {err}"),
+        )
+      })?;
       return Ok(Self::Specified(Installable::File {
-        path:      PathBuf::from(f),
-        attribute: parse_attribute(installable.cloned().unwrap_or_default()),
+        path: PathBuf::from(f),
+        attribute,
       }));
     }
 
     if let Some(e) = expr {
+      let attribute = parse_attribute(installable.map_or("", String::as_str))
+        .map_err(|err| {
+        clap::Error::raw(
+          ErrorKind::ValueValidation,
+          format!("attribute path {err}"),
+        )
+      })?;
       return Ok(Self::Specified(Installable::Expression {
         expression: e.clone(),
-        attribute:  parse_attribute(installable.cloned().unwrap_or_default()),
+        attribute,
       }));
     }
 
@@ -223,27 +238,18 @@ Nix accepts various kinds of installables:
   }
 }
 
-// TODO: `parse_attribute` should handle quoted attributes, such as:
-// foo."bar.baz" -> ["foo", "bar.baz"]
-// Maybe we want to use chumsky for this?
-/// # Panics
-///
-/// Panics if the attribute path contains an unclosed quoted segment.
-fn parse_attribute<S>(s: S) -> Vec<String>
-where
-  S: AsRef<str>,
-{
-  let s = s.as_ref();
+fn parse_attribute(s: &str) -> Result<Vec<String>, &'static str> {
   let mut res = Vec::new();
 
   if s.is_empty() {
-    return res;
+    return Ok(res);
   }
 
   let mut in_quote = false;
-
   let mut elem = String::new();
-  for char in s.chars() {
+
+  let mut chars = s.chars();
+  while let Some(char) = chars.next() {
     match char {
       '.' => {
         if in_quote {
@@ -256,15 +262,23 @@ where
       '"' => {
         in_quote = !in_quote;
       },
+      '\\' if in_quote => {
+        let escaped = chars
+          .next()
+          .ok_or("contains an incomplete quoted attribute escape")?;
+        elem.push(escaped);
+      },
       _ => elem.push(char),
     }
   }
 
   res.push(elem);
 
-  assert!(!in_quote, "Failed to parse attribute: {s}");
+  if in_quote {
+    return Err("contains an unclosed quoted attribute segment");
+  }
 
-  res
+  Ok(res)
 }
 
 fn parse_flake_reference(
@@ -285,15 +299,32 @@ fn parse_flake_reference(
     return Err("missing reference part before `#`");
   }
 
-  Ok((reference.to_owned(), parse_attribute(attribute)))
+  let attribute = parse_attribute(attribute)?;
+  Ok((reference.to_owned(), attribute))
 }
 
 #[test]
 fn test_parse_attribute() {
-  assert_eq!(parse_attribute(r"foo.bar"), vec!["foo", "bar"]);
-  assert_eq!(parse_attribute(r#"foo."bar.baz""#), vec!["foo", "bar.baz"]);
+  assert_eq!(
+    parse_attribute(r"foo.bar"),
+    Ok(vec!["foo".to_string(), "bar".to_string()])
+  );
+  assert_eq!(
+    parse_attribute(r#"foo."bar.baz""#),
+    Ok(vec!["foo".to_string(), "bar.baz".to_string()])
+  );
+  assert_eq!(
+    parse_attribute(r#"foo."bar\"baz"."bar\\baz""#),
+    Ok(vec![
+      "foo".to_string(),
+      "bar\"baz".to_string(),
+      "bar\\baz".to_string()
+    ])
+  );
   let v: Vec<String> = vec![];
-  assert_eq!(parse_attribute(""), v);
+  assert_eq!(parse_attribute(""), Ok(v));
+  assert!(parse_attribute(r#"foo."bar"#).is_err());
+  assert!(parse_attribute(r#"foo."bar\"#).is_err());
 }
 
 impl InstallableArgs {
@@ -539,9 +570,17 @@ where
 
     let s = elem.as_ref();
 
-    if s.contains('.') {
+    if s.is_empty() || s.contains(['.', '"', '\\']) {
       res.push('"');
-      res.push_str(s);
+      for char in s.chars() {
+        match char {
+          '"' | '\\' => {
+            res.push('\\');
+            res.push(char);
+          },
+          _ => res.push(char),
+        }
+      }
       res.push('"');
     } else {
       res.push_str(s);
@@ -578,6 +617,10 @@ fn local_flake_reference_path(reference: &str) -> Option<PathBuf> {
 fn test_join_attribute() {
   assert_eq!(join_attribute(vec!["foo", "bar"]), "foo.bar");
   assert_eq!(join_attribute(vec!["foo", "bar.baz"]), r#"foo."bar.baz""#);
+  assert_eq!(
+    join_attribute(vec!["foo", r#"bar"baz"#, r"bar\baz", ""]),
+    "foo.\"bar\\\"baz\".\"bar\\\\baz\".\"\""
+  );
 }
 
 enum FallbackError {
