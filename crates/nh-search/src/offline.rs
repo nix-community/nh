@@ -1,6 +1,9 @@
 use std::{path::PathBuf, time::Instant};
 
-use color_eyre::{Result, eyre::Context};
+use color_eyre::{
+  Result,
+  eyre::{Context, bail},
+};
 use spam_db::{FileRecord, OptionRecord, SpamDb};
 use tracing::debug;
 use yansi::{Color, Paint};
@@ -52,6 +55,13 @@ pub fn run(
         for rec in records {
           package_results.push((db_label.clone(), rec));
         }
+      },
+      SpamDb::Index(_) => {
+        bail!(
+          "Invalid database format for {}: expected `options` or `packages`, \
+           got `index`.",
+          db_path.display()
+        );
       },
     }
   }
