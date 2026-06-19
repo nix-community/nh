@@ -14,6 +14,7 @@ yansi.workspace      = true
 
 [dev-dependencies]
 serial_test.workspace = true
+tempfile.workspace    = true
 
 [lints]
 workspace = true
