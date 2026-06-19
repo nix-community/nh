@@ -9,8 +9,8 @@ use nh_core::{
     HomeReplFeatures,
     LegacyFeatures,
   },
-  installable::Installable,
 };
+use nh_installable::Installable;
 use nh_remote::RemoteHost;
 
 #[derive(Debug, Subcommand)]

@@ -108,7 +108,7 @@ fn closure_size_from_json(
     || {
       json.as_object().and_then(|obj| {
         obj
-          .get(&*store_path_str)
+          .get(store_path_str)
           .and_then(|value| value.get("closureSize"))
           .and_then(serde_json::Value::as_u64)
       })

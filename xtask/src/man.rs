@@ -76,6 +76,16 @@ pub fn generate(out_dir: &str) -> Result<(), String> {
        precedence over NH_FLAKE.",
     ),
     (
+      "NH_FILE",
+      "Preferred path to a directory/file containing a Nix expression. Chosen \
+       after os/home/darwin-specific env vars, but before NH_FLAKE.",
+    ),
+    (
+      "NH_ATTRP",
+      "Nix attribute path for an expression specified with NH_FILE. For \
+       example, nixosConfigurations.<hostname>.",
+    ),
+    (
       "NH_SUDO_ASKPASS",
       "Path to a program used as SUDO_ASKPASS when NH self-elevates with sudo.",
     ),

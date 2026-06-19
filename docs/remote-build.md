@@ -7,8 +7,8 @@ similar tools, using the `--build-host` and `--target-host` options.
 
 Remote deployment has two independent concepts:
 
-- **`--build-host`**: Where the configuration is **built** (via
-  `nix-copy-closure` + `nix build`)
+- **`--build-host`**: Where the configuration is **built** (via `nix copy` +
+  `nix build`)
 - **`--target-host`**: Where the result is **deployed** and activated
 
 You can use either, both, or neither. Derivation evaluation always happens
@@ -69,11 +69,14 @@ avoids unnecessary data transfers by detecting when both hosts are the same.
 
 Hosts can be specified in several formats:
 
-- `hostname` - connects as the current user
-- `user@hostname` - connects as the specified user
-- `ssh://hostname` or `ssh://user@hostname` - URI format (scheme is stripped)
-- `ssh-ng://hostname` or `ssh-ng://user@hostname` - Nix store URI format (scheme
-  is stripped)
+- `hostname` - connects as the current user and uses `ssh-ng://` for Nix store
+  copies
+- `user@hostname` - connects as the specified user and uses `ssh-ng://` for Nix
+  store copies
+- `ssh-ng://hostname` or `ssh-ng://user@hostname` - uses the Nix SSH-NG store
+  protocol
+- `ssh://hostname` or `ssh://user@hostname` - uses the legacy Nix SSH store
+  protocol
 - IPv6 addresses must use bracketed notation: `[2001:db8::1]` or
   `user@[2001:db8::1]`
 
@@ -175,7 +178,7 @@ When you use `--build-host`, `nh` follows this process:
 
 1. **Evaluate** the derivation path locally using
    `nix eval --raw <flake>.drvPath`
-2. **Copy derivation** to the build host using `nix-copy-closure --to`
+2. **Copy derivation** to the build host using `nix copy --to`
 3. **Build remotely** by running `nix build <drv>^* --print-out-paths` on the
    build host
 4. **Copy result** back based on the deployment scenario (see below)
@@ -192,7 +195,7 @@ configuration:
 | Build remote, no target                      | `build -> local`                                   |
 | Build remote, target = different host        | `build -> target`, `build -> local` (for out-link) |
 | Build remote, target = build host            | `(nothing)` (already on target)                    |
-| Build remote, target = build host + out-link | `build -> local` (only for out-link)               |
+| Build remote, target = build host + out-link | `(nothing)` (local out-link is skipped)            |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -205,8 +208,8 @@ and has zero negative effect over your builds. Instead, it may optimize the
 number of connections when all hosts are connected over Tailscale, for example.
 
 When `--build-host` and `--target-host` point to the same machine, the result
-stays on that machine unless you need a local out-link (symlink to the build
-result).
+stays on that machine. A requested local out-link is skipped rather than forcing
+the result back to localhost.
 
 For security, you are _encouraged to be explicit_ in your hostnames and not
 trust the DNS blindly.
@@ -220,11 +223,9 @@ binary caches instead of building everything:
 nh os switch --build-host buildserver --use-substitutes
 ```
 
-This passes:
-
-- `--use-substitutes` to `nix-copy-closure`
-- `--substitute-on-destination` to `nix copy` (when copying between two remote
-  hosts)
+This passes `--substitute-on-destination` to `nix copy` when the destination is
+a remote store, so the remote host can fetch missing paths from its configured
+substituters.
 
 ## Build Output
 

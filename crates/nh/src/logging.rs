@@ -85,7 +85,9 @@ pub fn setup_logging(
     .with_line_number(true)
     .event_format(InfoFormatter)
     .with_filter(
-      EnvFilter::from_env("NH_LOG").add_directive(fallback_level.into()),
+      EnvFilter::from_env("NH_LOG")
+        .add_directive(fallback_level.into())
+        .add_directive("dix=WARN".parse()?),
     );
 
   tracing_subscriber::registry().with(layer).init();

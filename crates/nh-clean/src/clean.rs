@@ -199,7 +199,7 @@ impl args::CleanMode {
     }
 
     // Query gcroots
-    let regexes = &[&*DIRENV_REGEX][..(!args.no_direnv as usize)];
+    let regexes = &[&*DIRENV_REGEX][..usize::from(!args.no_direnv)];
     let mut orphan_gcroots: Vec<PathBuf> = Vec::new();
 
     if !is_profile_clean && !args.no_gcroots {
@@ -576,8 +576,7 @@ fn cleanable_generations(
 fn is_nix_store_direct_child(path: &Path) -> bool {
   path
     .strip_prefix("/nix/store")
-    .map(|suffix| suffix.components().count() == 1)
-    .unwrap_or(false)
+    .is_ok_and(|suffix| suffix.components().count() == 1)
 }
 
 fn gcroot_matches_filter(src: &Path, dst: &Path, regexes: &[&Regex]) -> bool {

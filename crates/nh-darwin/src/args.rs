@@ -9,9 +9,9 @@ use nh_core::{
     FlakeFeatures,
     LegacyFeatures,
   },
-  installable::Installable,
   update::UpdateArgs,
 };
+use nh_installable::Installable;
 use nh_remote::RemoteHost;
 
 /// Nix-darwin functionality

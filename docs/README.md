@@ -223,9 +223,37 @@ experience, done so with two subcommands provided out of the box.
 
 #### `nh search`
 
-We provide a super-fast package searching tool (powered by an Elasticsearch
-client) for Nix packages in supported Nixpkgs branches, available as
-`nh search`.
+[SPAM]: https://github.com/nix-community/SPAM
+
+We provide a super-fast search tool for Nix packages and NixOS/Home Manager
+options (powered by an Elasticsearch client against search.nixos.org), offline
+search against local [SPAM] databases, and Nixpkgs pull request and issue search. All
+available as `nh search`!
+
+The command exposes three explicit subcommands and a convenient shorthand:
+
+<!--markdownlint-disable MD013 -->
+
+[found here]: https://github.com/feel-co/spam/actions/workflows/auto-index.yml
+
+| Invocation                                    | What it does                                                                                  |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `nh search <query>`                           | Shorthand; searches packages by default (see `NH_DEFAULT_SEARCH`)                             |
+| `nh search packages <query>`                  | Search Nixpkgs packages via search.nixos.org                                                  |
+| `nh search options [--scope=<SCOPE>] <query>` | Search NixOS/Home Manager options (`--scope`: `nixpkgs`, `home-manager`, `all`)               |
+| `nh search offline --db <PATH> <query>`       | Search a local SPAM database without network access. Generated DBs can be [found here].       |
+| `nh search prs [--days <DAYS>] <query>`       | Search Nixpkgs pull requests and show branch reachability for merged PRs. Defaults to 15 days. |
+| `nh search issues [--days <DAYS>] <query>`    | Search Nixpkgs issues, excluding pull requests. Defaults to 15 days.                          |
+
+<!--markdownlint-enable MD013 -->
+
+`--json` is shared by all search modes. `--limit`, `--channel`, and
+`--platforms` are available on the modes that use them and on the shorthand
+form. `nh search prs` and `nh search issues` use `GH_TOKEN` for GitHub
+authentication. If `GH_TOKEN` is unset, NH reads the token from
+`NH_GITHUB_TOKEN_FILE`, or from `$XDG_STATE_HOME/nh/github-token` falling back
+to `~/.local/state/nh/github-token`. If no token is found in an interactive
+terminal, NH prompts for one and saves it to that token file.
 
 <p align="center">
     <img
@@ -321,6 +349,11 @@ example, if `NH_FLAKE` or `NH_OS_FLAKE` is set you may simply run `nh os switch`
 with no additional arguments, and it will automatically resolve
 `nixosConfigurations.<myHost>`.
 
+Additionally, NH also allows omitting the path to your non-flake nix config.
+You can specify the Nix file and Nix attribute path with the `NH_FILE` and
+`NH_ATTRP` environment variables. If `NH_FILE` and `NH_ATTRP` are both set,
+`nh os switch` effectively evaluates `$NH_FILE#$NH_ATTRP`.
+
 ## Environment variables
 
 NH supports several environment variables to control command behaviour. Some of
@@ -376,6 +409,46 @@ the common variables that you may encounter or choose to employ are as follows:
 - `NH_LOG`
   - Sets the tracing/log filter for NH. This uses the same format as
     `tracing_subscriber` env filters (for example: `nh=trace`).
+
+- `NH_CONFIG`
+  - Overrides the path to the NH configuration file. If unset, NH uses
+    `$XDG_CONFIG_HOME/nh/config.toml`, falling back to
+    `~/.config/nh/config.toml`.
+
+- `GH_TOKEN`
+  - GitHub token used by `nh search prs` and `nh search issues`. If set, this
+    takes priority over any token file.
+
+- `NH_GITHUB_TOKEN_FILE`
+  - Overrides the path to the GitHub token file used by `nh search prs` and
+    `nh search issues` when `GH_TOKEN` is unset. If unset, NH uses
+    `$XDG_STATE_HOME/nh/github-token`, falling back to
+    `~/.local/state/nh/github-token`. Tokens entered through the interactive
+    prompt are saved to this file with user-only permissions.
+
+- `NH_SEARCH_CHANNEL`
+  - Default Nixpkgs channel used by `nh search packages` and `nh search options`
+    (e.g. `nixos-unstable`, `nixos-24.11`). Overridden per-invocation by
+    `--channel`.
+
+- `NH_SEARCH_JSON`
+  - When set to a truthy value, `nh search` outputs results as raw JSON instead
+    of the formatted display. Equivalent to `--json`.
+
+- `NH_SEARCH_PLATFORM`
+  - When set to a truthy value, supported platforms are shown for each package
+    result. Equivalent to `--platforms`.
+
+- `NH_DEFAULT_SEARCH`
+  - Controls the target of the `nh search <query>` shorthand when no subcommand
+    is given. Accepted values: `packages` (default), `options` (uses scope
+    `all`). Equivalent to `--default-search`.
+
+- `NH_OFFLINE_DB`
+  - Colon-separated list of paths to SPAM database files used by
+    `nh search offline`. Each path is treated as a separate database. Equivalent
+    to passing `--db` multiple times. Example:
+    `NH_OFFLINE_DB=/var/cache/spam/nixpkgs.db:/var/cache/spam/hm.db`.
 
 - `NH_NOM`
   - Control whether `nom` (nix-output-monitor) should be enabled for the build
@@ -446,7 +519,7 @@ contributions are always welcome.
 [nvd]: https://sr.ht/~khumba/nvd/
 [dix]: https://github.com/faukah/dix
 [nix-output-monitor]: https://github.com/maralorn/nix-output-monitor
-[crates]: ./Cargo.toml
+[crates]: /Cargo.toml
 
 NH has had a long history, and it has grown a lot over the years. I, NotAShelf,
 would first like to extend my thanks to [ViperML] for his immense efforts as the

@@ -1,0 +1,18 @@
+[package]
+name                   = "nh-config"
+version                = "0.1.0"
+publish                = false
+edition.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+
+[dependencies]
+color-eyre.workspace = true
+toml_edit.workspace  = true
+
+[dev-dependencies]
+serial_test.workspace = true
+tempfile.workspace    = true
+
+[lints]
+workspace = true

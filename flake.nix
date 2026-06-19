@@ -11,14 +11,21 @@
       crane,
     }:
     let
-      forAllSystems =
-        function:
-        nixpkgs.lib.genAttrs [
-          "x86_64-linux"
-          "aarch64-linux"
-          "x86_64-darwin"
-          "aarch64-darwin"
-        ] (system: function nixpkgs.legacyPackages.${system});
+      inherit (nixpkgs) lib;
+
+      pkgsFor = system: nixpkgs.legacyPackages.${system} or (import nixpkgs { inherit system; });
+
+      supportedSystems = builtins.filter (
+        system: (builtins.tryEval (pkgsFor system).stdenv.hostPlatform).success
+      ) (lib.systems.doubles.linux ++ lib.systems.doubles.darwin);
+
+      forAllSystems = function: lib.genAttrs supportedSystems (system: function (pkgsFor system));
+
+      ciSystems = [
+        "x86_64-linux"
+        "aarch64-linux"
+        "aarch64-darwin"
+      ];
 
       rev = self.shortRev or self.dirtyShortRev or "dirty";
     in
@@ -38,7 +45,7 @@
         default = self.packages.${pkgs.stdenv.hostPlatform.system}.nh;
       });
 
-      checks = builtins.removeAttrs (self.packages // self.devShells) [ "x86_64-darwin" ];
+      checks = lib.genAttrs ciSystems (system: self.packages.${system});
 
       devShells = forAllSystems (pkgs: {
         default = import ./shell.nix { inherit pkgs; };

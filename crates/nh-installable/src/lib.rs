@@ -1,6 +1,6 @@
 use std::{env, fs, path::PathBuf};
 
-use clap::{Arg, ArgAction, Args, FromArgMatches, error::ErrorKind};
+use clap::{Arg, ArgAction, Args, FromArgMatches, ValueHint, error::ErrorKind};
 use tracing::debug;
 use yansi::{Color, Paint};
 
@@ -128,6 +128,7 @@ impl Args for Installable {
       .arg(
         Arg::new("installable")
           .action(ArgAction::Set)
+          .value_hint(ValueHint::AnyPath)
           .value_name("INSTALLABLE")
           .help("Which installable to use")
           .long_help(format!(
@@ -174,7 +175,10 @@ Nix accepts various kinds of installables:
 // TODO: `parse_attribute` should handle quoted attributes, such as:
 // foo."bar.baz" -> ["foo", "bar.baz"]
 // Maybe we want to use chumsky for this?
-pub fn parse_attribute<S>(s: S) -> Vec<String>
+/// # Panics
+///
+/// Panics if the attribute path contains an unclosed quoted segment.
+fn parse_attribute<S>(s: S) -> Vec<String>
 where
   S: AsRef<str>,
 {
@@ -279,9 +283,13 @@ impl Installable {
   /// - For Home: `NH_HOME_FLAKE`, then `NH_FLAKE`
   /// - For Darwin: `NH_DARWIN_FLAKE`, then `NH_FLAKE`
   ///
-  /// Returns an error if no installable could be resolved and no default is
-  /// available.
-  pub fn resolve(self, context: CommandContext) -> color_eyre::Result<Self> {
+  /// Returns `Unspecified` when no installable environment variable is set.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error when a configured flake environment variable is
+  /// malformed.
+  fn resolve(self, context: CommandContext) -> color_eyre::Result<Self> {
     match self {
       Self::Unspecified => {
         // Check command-specific env var first
@@ -342,6 +350,29 @@ impl Installable {
       other => Ok(other),
     }
   }
+
+  /// Resolve an installable and fall back to the command-specific default when
+  /// the installable is unspecified.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error when environment resolution fails or when no default
+  /// installable can be found for the command context.
+  pub fn resolve_or_default(
+    self,
+    context: CommandContext,
+  ) -> color_eyre::Result<Self> {
+    match self.resolve(context)? {
+      Self::Unspecified => {
+        match context {
+          CommandContext::Os => Self::try_find_default_for_os(),
+          CommandContext::Home => Self::try_find_default_for_home(),
+          CommandContext::Darwin => Self::try_find_default_for_darwin(),
+        }
+      },
+      installable => Ok(installable),
+    }
+  }
 }
 
 #[test]
@@ -382,7 +413,9 @@ where
     let s = elem.as_ref();
 
     if s.contains('.') {
-      res.push_str(&format!(r#""{s}""#));
+      res.push('"');
+      res.push_str(s);
+      res.push('"');
     } else {
       res.push_str(s);
     }
@@ -534,7 +567,7 @@ impl Installable {
   /// - No flake is found at `/etc/nixos/flake.nix`
   /// - Permission is denied accessing the path
   /// - The resolved path contains invalid UTF-8
-  pub fn try_find_default_for_os() -> color_eyre::Result<Self> {
+  fn try_find_default_for_os() -> color_eyre::Result<Self> {
     use tracing::warn;
 
     let default_dir = std::path::Path::new("/etc/nixos");
@@ -604,7 +637,7 @@ impl Installable {
   /// - No flake is found at `$HOME/.config/home-manager/flake.nix`
   /// - Permission is denied accessing the path
   /// - The resolved path contains invalid UTF-8
-  pub fn try_find_default_for_home() -> color_eyre::Result<Self> {
+  fn try_find_default_for_home() -> color_eyre::Result<Self> {
     use tracing::warn;
 
     let home = env::var("HOME").map_err(|_| {
@@ -676,7 +709,7 @@ impl Installable {
   /// - No flake is found at `/etc/nix-darwin/flake.nix`
   /// - Permission is denied accessing the path
   /// - The resolved path contains invalid UTF-8
-  pub fn try_find_default_for_darwin() -> color_eyre::Result<Self> {
+  fn try_find_default_for_darwin() -> color_eyre::Result<Self> {
     use tracing::warn;
 
     let default_dir = std::path::Path::new("/etc/nix-darwin");
@@ -734,363 +767,4 @@ impl Installable {
 
 #[cfg(test)]
 #[expect(clippy::panic, clippy::unwrap_used, reason = "Fine in tests")]
-mod tests {
-  use std::env;
-
-  use serial_test::serial;
-
-  use super::*;
-
-  #[test]
-  fn test_resolve_non_unspecified_returns_unchanged() {
-    // Test that non-Unspecified installables are returned as-is
-    let flake = Installable::Flake {
-      reference: String::from("/path/to/flake"),
-      attribute: vec![String::from("host")],
-    };
-    let resolved = flake.clone().resolve(CommandContext::Os).unwrap();
-    assert_eq!(flake.to_args(), resolved.to_args());
-
-    let file = Installable::File {
-      path:      PathBuf::from("/path/to/file.nix"),
-      attribute: vec![String::from("config")],
-    };
-    let resolved = file.clone().resolve(CommandContext::Home).unwrap();
-    assert_eq!(file.to_args(), resolved.to_args());
-
-    let store = Installable::Store {
-      path: PathBuf::from("/nix/store/abc"),
-    };
-    let resolved = store.clone().resolve(CommandContext::Darwin).unwrap();
-    assert_eq!(store.to_args(), resolved.to_args());
-
-    let expr = Installable::Expression {
-      expression: String::from("{ pkgs }: pkgs.hello"),
-      attribute:  vec![],
-    };
-    let resolved = expr.clone().resolve(CommandContext::Os).unwrap();
-    assert_eq!(expr.to_args(), resolved.to_args());
-  }
-
-  #[test]
-  #[serial]
-  fn test_resolve_os_context_uses_nh_os_flake() {
-    // Set only NH_OS_FLAKE
-    unsafe {
-      env::set_var("NH_OS_FLAKE", "/etc/nixos#myhost");
-      env::remove_var("NH_FLAKE");
-      env::remove_var("NH_HOME_FLAKE");
-      env::remove_var("NH_DARWIN_FLAKE");
-    }
-
-    let resolved = Installable::Unspecified
-      .resolve(CommandContext::Os)
-      .unwrap();
-    match resolved {
-      Installable::Flake {
-        reference,
-        attribute,
-      } => {
-        assert_eq!(reference, "/etc/nixos");
-        assert_eq!(attribute, vec!["myhost"]);
-      },
-      _ => panic!("Expected Flake, got {resolved:?}"),
-    }
-
-    unsafe {
-      env::remove_var("NH_OS_FLAKE");
-    }
-  }
-
-  #[test]
-  #[serial]
-  fn test_resolve_os_context_prefers_os_flake_over_generic() {
-    // Set both NH_OS_FLAKE and NH_FLAKE
-    unsafe {
-      env::set_var("NH_OS_FLAKE", "/etc/nixos#myhost");
-      env::set_var("NH_FLAKE", "/home/user/flake#other");
-    }
-
-    let resolved = Installable::Unspecified
-      .resolve(CommandContext::Os)
-      .unwrap();
-    match resolved {
-      Installable::Flake {
-        reference,
-        attribute,
-      } => {
-        assert_eq!(reference, "/etc/nixos");
-        assert_eq!(attribute, vec!["myhost"]);
-      },
-      _ => panic!("Expected Flake, got {resolved:?}"),
-    }
-
-    unsafe {
-      env::remove_var("NH_OS_FLAKE");
-      env::remove_var("NH_FLAKE");
-    }
-  }
-
-  #[test]
-  #[serial]
-  fn test_resolve_os_context_falls_back_to_nh_flake() {
-    // Set only NH_FLAKE
-    unsafe {
-      env::remove_var("NH_OS_FLAKE");
-      env::set_var("NH_FLAKE", "/home/user/flake#fallback");
-    }
-
-    let resolved = Installable::Unspecified
-      .resolve(CommandContext::Os)
-      .unwrap();
-    match resolved {
-      Installable::Flake {
-        reference,
-        attribute,
-      } => {
-        assert_eq!(reference, "/home/user/flake");
-        assert_eq!(attribute, vec!["fallback"]);
-      },
-      _ => panic!("Expected Flake, got {resolved:?}"),
-    }
-
-    unsafe {
-      env::remove_var("NH_FLAKE");
-    }
-  }
-
-  #[test]
-  #[serial]
-  fn test_resolve_home_context_uses_nh_home_flake() {
-    // Set only NH_HOME_FLAKE
-    unsafe {
-      env::set_var("NH_HOME_FLAKE", "~/.config/home-manager#myuser");
-      env::remove_var("NH_FLAKE");
-    }
-
-    let resolved = Installable::Unspecified
-      .resolve(CommandContext::Home)
-      .unwrap();
-    match resolved {
-      Installable::Flake {
-        reference,
-        attribute,
-      } => {
-        assert_eq!(reference, "~/.config/home-manager");
-        assert_eq!(attribute, vec!["myuser"]);
-      },
-      _ => panic!("Expected Flake, got {resolved:?}"),
-    }
-
-    unsafe {
-      env::remove_var("NH_HOME_FLAKE");
-    }
-  }
-
-  #[test]
-  #[serial]
-  fn test_resolve_home_context_prefers_home_flake_over_generic() {
-    // Set both NH_HOME_FLAKE and NH_FLAKE
-    unsafe {
-      env::set_var("NH_HOME_FLAKE", "~/.config/home-manager#myuser");
-      env::set_var("NH_FLAKE", "/other/flake#other");
-    }
-
-    let resolved = Installable::Unspecified
-      .resolve(CommandContext::Home)
-      .unwrap();
-    match resolved {
-      Installable::Flake {
-        reference,
-        attribute,
-      } => {
-        assert_eq!(reference, "~/.config/home-manager");
-        assert_eq!(attribute, vec!["myuser"]);
-      },
-      _ => panic!("Expected Flake, got {resolved:?}"),
-    }
-
-    unsafe {
-      env::remove_var("NH_HOME_FLAKE");
-      env::remove_var("NH_FLAKE");
-    }
-  }
-
-  #[test]
-  #[serial]
-  fn test_resolve_darwin_context_uses_nh_darwin_flake() {
-    // Set only NH_DARWIN_FLAKE
-    unsafe {
-      env::set_var("NH_DARWIN_FLAKE", "/etc/nix-darwin#macbook");
-      env::remove_var("NH_FLAKE");
-    }
-
-    let resolved = Installable::Unspecified
-      .resolve(CommandContext::Darwin)
-      .unwrap();
-    match resolved {
-      Installable::Flake {
-        reference,
-        attribute,
-      } => {
-        assert_eq!(reference, "/etc/nix-darwin");
-        assert_eq!(attribute, vec!["macbook"]);
-      },
-      _ => panic!("Expected Flake, got {resolved:?}"),
-    }
-
-    unsafe {
-      env::remove_var("NH_DARWIN_FLAKE");
-    }
-  }
-
-  #[test]
-  #[serial]
-  fn test_resolve_darwin_context_prefers_darwin_flake_over_generic() {
-    // Set both NH_DARWIN_FLAKE and NH_FLAKE
-    unsafe {
-      env::set_var("NH_DARWIN_FLAKE", "/etc/nix-darwin#macbook");
-      env::set_var("NH_FLAKE", "/other/flake#other");
-    }
-
-    let resolved = Installable::Unspecified
-      .resolve(CommandContext::Darwin)
-      .unwrap();
-    match resolved {
-      Installable::Flake {
-        reference,
-        attribute,
-      } => {
-        assert_eq!(reference, "/etc/nix-darwin");
-        assert_eq!(attribute, vec!["macbook"]);
-      },
-      _ => panic!("Expected Flake, got {resolved:?}"),
-    }
-
-    unsafe {
-      env::remove_var("NH_DARWIN_FLAKE");
-      env::remove_var("NH_FLAKE");
-    }
-  }
-
-  #[test]
-  #[serial]
-  fn test_resolve_no_env_vars_returns_unspecified() {
-    // Clear all env vars
-    unsafe {
-      env::remove_var("NH_FLAKE");
-      env::remove_var("NH_OS_FLAKE");
-      env::remove_var("NH_HOME_FLAKE");
-      env::remove_var("NH_DARWIN_FLAKE");
-    }
-
-    let resolved = Installable::Unspecified
-      .resolve(CommandContext::Os)
-      .unwrap();
-    assert!(matches!(resolved, Installable::Unspecified));
-
-    let resolved = Installable::Unspecified
-      .resolve(CommandContext::Home)
-      .unwrap();
-    assert!(matches!(resolved, Installable::Unspecified));
-
-    let resolved = Installable::Unspecified
-      .resolve(CommandContext::Darwin)
-      .unwrap();
-    assert!(matches!(resolved, Installable::Unspecified));
-  }
-
-  #[test]
-  #[serial]
-  fn test_resolve_with_empty_attribute() {
-    // Test flake without attribute
-    unsafe {
-      env::set_var("NH_OS_FLAKE", "/etc/nixos");
-    }
-
-    let resolved = Installable::Unspecified
-      .resolve(CommandContext::Os)
-      .unwrap();
-    match resolved {
-      Installable::Flake {
-        reference,
-        attribute,
-      } => {
-        assert_eq!(reference, "/etc/nixos");
-        assert!(attribute.is_empty());
-      },
-      _ => panic!("Expected Flake, got {resolved:?}"),
-    }
-
-    unsafe {
-      env::remove_var("NH_OS_FLAKE");
-    }
-  }
-
-  #[test]
-  #[serial]
-  fn test_resolve_with_nested_attribute() {
-    // Test flake with chained attribute
-    unsafe {
-      env::set_var(
-        "NH_HOME_FLAKE",
-        "~/.config/home-manager#homeConfigurations.user",
-      );
-    }
-
-    let resolved = Installable::Unspecified
-      .resolve(CommandContext::Home)
-      .unwrap();
-    match resolved {
-      Installable::Flake {
-        reference,
-        attribute,
-      } => {
-        assert_eq!(reference, "~/.config/home-manager");
-        assert_eq!(attribute, vec!["homeConfigurations", "user"]);
-      },
-      _ => panic!("Expected Flake, got {resolved:?}"),
-    }
-
-    unsafe {
-      env::remove_var("NH_HOME_FLAKE");
-    }
-  }
-
-  #[test]
-  #[serial]
-  fn test_resolve_command_specific_isolation() {
-    // Ensure command contexts are isolated - setting NH_HOME_FLAKE should not
-    // affect OS context
-    unsafe {
-      env::set_var("NH_HOME_FLAKE", "~/.config/home-manager#user");
-      env::remove_var("NH_OS_FLAKE");
-      env::remove_var("NH_FLAKE");
-    }
-
-    // OS context should not pick up NH_HOME_FLAKE
-    let resolved = Installable::Unspecified
-      .resolve(CommandContext::Os)
-      .unwrap();
-    assert!(matches!(resolved, Installable::Unspecified));
-
-    // But Home context should
-    let resolved = Installable::Unspecified
-      .resolve(CommandContext::Home)
-      .unwrap();
-    match resolved {
-      Installable::Flake {
-        reference,
-        attribute,
-      } => {
-        assert_eq!(reference, "~/.config/home-manager");
-        assert_eq!(attribute, vec!["user"]);
-      },
-      _ => panic!("Expected Flake, got {resolved:?}"),
-    }
-
-    unsafe {
-      env::remove_var("NH_HOME_FLAKE");
-    }
-  }
-}
+mod tests;

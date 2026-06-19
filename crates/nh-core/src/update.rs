@@ -1,8 +1,9 @@
 use clap::Args;
 use color_eyre::Result;
+use nh_installable::Installable;
 use tracing::warn;
 
-use crate::{command::Command, installable::Installable};
+use crate::command::Command;
 
 #[derive(Debug, Args)]
 pub struct UpdateArgs {
@@ -15,6 +16,11 @@ pub struct UpdateArgs {
   pub update_input: Option<Vec<String>>,
 }
 
+/// Update flake inputs for an installable.
+///
+/// # Errors
+///
+/// Returns an error if `nix flake update` fails.
 pub fn update(
   installable: &Installable,
   inputs: Option<Vec<String>>,

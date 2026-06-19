@@ -18,6 +18,19 @@ functionality, under the "Removed" section.
 
 ### Added
 
+- `nh search offline <query>` subcommand for offline search using
+  [spam-db](https://github.com/feel-co/spam) databases. Requires `-D <path>` (or
+  `NH_OFFLINE_DB`) pointing to the database directory.
+- `nh search prs <query>` subcommand for searching recent Nixpkgs pull requests
+  and showing which Nixpkgs branches merged PRs have reached. Numeric queries
+  and `#<number>` fetch that pull request directly.
+- `nh search issues <query>` subcommand for searching recent Nixpkgs issues
+  while excluding pull requests.
+- `nh search prs` reads GitHub authentication from `GH_TOKEN` first, then checks
+  `$XDG_STATE_HOME/nh/github-token` for a token file, falling back to
+  `~/.local/state/nh/github-token`.
+- `nh search --default-search` global option to set default search mode
+  (`packages` or `options`) when no subcommand is specified.
 - `nh clean --keep-one` preserves all active direnv gcroots regardless of
   `--keep-since`, preventing projects from being collected when they haven't
   been activated recently. Orphaned and broken gcroots are still removed.
@@ -29,6 +42,13 @@ functionality, under the "Removed" section.
 
 ### Changed
 
+- **Breaking Change**: `nh search` CLI has been restructured to use subcommands.
+  - `--options <query>` is now `nh search options <query>`
+  - `--options` flag has been removed
+  - `--json` is shared by all search modes, while `--channel`, `--limit`, and
+    `--platforms` now appear only on search modes that use them
+  - When no subcommand is specified, the default search mode is used
+    (configurable via `--default-search`)
 - `nh search` now uses search backend version 48 (previously 46) to track the
   current Elasticsearch endpoint.
 - gcroot scanning now walks all of `/nix/var/nix/gcroots` recursively instead of
@@ -45,6 +65,12 @@ functionality, under the "Removed" section.
 
 ### Fixed
 
+- Local `run0` elevation now uses `--pty-late`, avoiding terminal ownership
+  changes can break subsequent commands.
+- `--no-build-output` / `-Q` now forwards `--quiet` to `nix build` instead of
+  the unsupported `--no-build-output` flag.
+- Generated Nushell completions now mark the `installable` argument as a path
+  while keeping nh's own parser compatible with flake references.
 - `nh os switch --target-host root@host` no longer wraps the activation in
   `sudo --prompt= --stdin` when the SSH user is already uid 0. The elevation
   decision now probes `id -u` over the established ControlMaster instead of
@@ -64,6 +90,9 @@ functionality, under the "Removed" section.
   ([#635](https://github.com/nix-community/nh/pull/635))
 
 ### Removed
+
+- `nh` no longer supports `x86_64-darwin`, following Nixpkgs' decision to drop
+  support for that platform.
 
 ## 4.3.2
 
@@ -112,8 +141,8 @@ functionality, under the "Removed" section.
     compatibility (falls back to `NH_ELEVATION_STRATEGY` if set)
 - Platform commands (`nh os`, `nh home`, `nh darwin`) now support SSH-based
   remote builds via `--build-host`. The flag now uses proper remote build
-  semantics: derivations are copied to the remote host via `nix-copy-closure`,
-  built remotely, and results are transferred back. This matches `nixos-rebuild`
+  semantics: derivations are copied to the remote host via `nix copy`, built
+  remotely, and results are transferred back. This matches `nixos-rebuild`
   behavior, and is significantly more robust than the previous implementation
   where `--build-host` would use Nix's `--builders` flag inefficiently.
   ([#428](https://github.com/nix-community/nh/issues/428),

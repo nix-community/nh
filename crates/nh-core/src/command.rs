@@ -12,13 +12,14 @@ use color_eyre::{
   Result,
   eyre::{self, Context, bail},
 };
+use nh_installable::Installable;
 use secrecy::{ExposeSecret, SecretString};
 use subprocess::{Exec, ExitStatus, Redirection};
 use thiserror::Error;
 use tracing::{debug, info, warn};
 use which::which;
 
-use crate::{args::NixBuildPassthroughArgs, installable::Installable};
+use crate::args::NixBuildPassthroughArgs;
 
 /// Execute a command, streaming output to stdout/stderr while optionally
 /// capturing it for error reporting.
@@ -613,13 +614,19 @@ impl Command {
     {
       cmd = cmd.env("SUDO_ASKPASS", askpass).arg("-A");
     }
+    // Request allocation of a pseudo TTY for the run0 session. Without this,
+    // running `run0` changes the user of `/dev/pts/<current-terminal>
+    // to `root`, which we want to avoid since it can cause issues with
+    // subsequent commands.
+    if program_name == "run0" {
+      cmd = cmd.arg("--pty-late");
+    }
 
     // NH_PRESERVE_ENV: set to "0" to disable preserving environment variables,
     // "1" to force, unset defaults to force
     let preserve_env = std::env::var("NH_PRESERVE_ENV")
       .as_deref()
-      .map(|x| !matches!(x, "0"))
-      .unwrap_or(true);
+      .map_or(true, |x| !matches!(x, "0"));
 
     // Insert 'env' command to explicitly pass environment variables to the
     // elevated command
@@ -662,11 +669,17 @@ impl Command {
     {
       parts.push("-A".to_string());
     }
+    // Request allocation of a pseudo TTY for the run0 session. Without this,
+    // running `run0` changes the user of `/dev/pts/<current-terminal>
+    // to `root`, which we want to avoid since it can cause issues with
+    // subsequent commands.
+    if program_name == "run0" {
+      parts.push("--pty-late".to_string());
+    }
 
     let preserve_env = std::env::var("NH_PRESERVE_ENV")
       .as_deref()
-      .map(|x| !matches!(x, "0"))
-      .unwrap_or(true);
+      .map_or(true, |x| !matches!(x, "0"));
 
     parts.push("env".to_string());
     for env_arg in self.env_vars.iter().filter_map(|(key, action)| {
