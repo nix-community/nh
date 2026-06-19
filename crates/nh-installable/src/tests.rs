@@ -50,34 +50,49 @@ impl Drop for EnvGuard {
   }
 }
 
+fn specified(installable: Installable) -> InstallableArgs {
+  InstallableArgs::Specified(installable)
+}
+
 #[test]
 fn test_resolve_non_unspecified_returns_unchanged() {
-  // Test that non-Unspecified installables are returned as-is
   let flake = Installable::Flake {
     reference: String::from("/path/to/flake"),
     attribute: vec![String::from("host")],
   };
-  let resolved = flake.clone().resolve(CommandContext::Os).unwrap();
+  let resolved = specified(flake.clone())
+    .resolve(CommandContext::Os)
+    .unwrap()
+    .unwrap();
   assert_eq!(flake.to_args(), resolved.to_args());
 
   let file = Installable::File {
     path:      PathBuf::from("/path/to/file.nix"),
     attribute: vec![String::from("config")],
   };
-  let resolved = file.clone().resolve(CommandContext::Home).unwrap();
+  let resolved = specified(file.clone())
+    .resolve(CommandContext::Home)
+    .unwrap()
+    .unwrap();
   assert_eq!(file.to_args(), resolved.to_args());
 
   let store = Installable::Store {
     path: PathBuf::from("/nix/store/abc"),
   };
-  let resolved = store.clone().resolve(CommandContext::Darwin).unwrap();
+  let resolved = specified(store.clone())
+    .resolve(CommandContext::Darwin)
+    .unwrap()
+    .unwrap();
   assert_eq!(store.to_args(), resolved.to_args());
 
   let expr = Installable::Expression {
     expression: String::from("{ pkgs }: pkgs.hello"),
     attribute:  vec![],
   };
-  let resolved = expr.clone().resolve(CommandContext::Os).unwrap();
+  let resolved = specified(expr.clone())
+    .resolve(CommandContext::Os)
+    .unwrap()
+    .unwrap();
   assert_eq!(expr.to_args(), resolved.to_args());
 }
 
@@ -88,8 +103,7 @@ fn test_resolve_or_default_non_unspecified_returns_unchanged() {
     attribute: vec![String::from("host")],
   };
 
-  let resolved = flake
-    .clone()
+  let resolved = specified(flake.clone())
     .resolve_or_default(CommandContext::Os)
     .unwrap();
 
@@ -107,7 +121,7 @@ fn test_resolve_or_default_uses_env_before_default() {
     &format!("{}#myhost", flake_dir.path().display()),
   );
 
-  let resolved = Installable::Unspecified
+  let resolved = InstallableArgs::Unspecified
     .resolve_or_default(CommandContext::Os)
     .unwrap();
 
@@ -133,7 +147,9 @@ fn test_resolve_or_default_accepts_existing_local_flake_path() {
     attribute: vec![],
   };
 
-  let resolved = installable.resolve_or_default(CommandContext::Os).unwrap();
+  let resolved = specified(installable)
+    .resolve_or_default(CommandContext::Os)
+    .unwrap();
 
   assert_eq!(resolved.to_args(), vec![format!(
     "{}#",
@@ -152,7 +168,7 @@ fn test_resolve_or_default_rejects_missing_absolute_path() {
     attribute: vec![],
   };
 
-  let err = installable
+  let err = specified(installable)
     .resolve_or_default(CommandContext::Os)
     .unwrap_err()
     .to_string();
@@ -171,7 +187,7 @@ fn test_resolve_or_default_rejects_existing_dir_without_flake_nix() {
     attribute: vec![],
   };
 
-  let err = installable
+  let err = specified(installable)
     .resolve_or_default(CommandContext::Os)
     .unwrap_err()
     .to_string();
@@ -191,7 +207,7 @@ fn test_resolve_or_default_rejects_subdir_inside_flake() {
     attribute: vec![],
   };
 
-  let err = installable
+  let err = specified(installable)
     .resolve_or_default(CommandContext::Os)
     .unwrap_err()
     .to_string();
@@ -210,7 +226,7 @@ fn test_resolve_or_default_rejects_missing_path_scheme() {
     attribute: vec![],
   };
 
-  let err = installable
+  let err = specified(installable)
     .resolve_or_default(CommandContext::Home)
     .unwrap_err()
     .to_string();
@@ -228,7 +244,9 @@ fn test_resolve_or_default_accepts_path_scheme_with_query() {
     attribute: vec![],
   };
 
-  let resolved = installable.resolve_or_default(CommandContext::Os).unwrap();
+  let resolved = specified(installable)
+    .resolve_or_default(CommandContext::Os)
+    .unwrap();
 
   assert_eq!(resolved.to_args(), vec![format!("{reference}#")]);
 }
@@ -241,7 +259,9 @@ fn test_resolve_or_default_ignores_registry_and_url_refs() {
       attribute: vec![],
     };
 
-    installable.resolve_or_default(CommandContext::Os).unwrap();
+    specified(installable)
+      .resolve_or_default(CommandContext::Os)
+      .unwrap();
   }
 }
 
@@ -251,7 +271,7 @@ fn test_resolve_rejects_empty_nh_flake() {
   let env_guard = EnvGuard::clear();
   env_guard.set("NH_FLAKE", "");
 
-  let err = Installable::Unspecified
+  let err = InstallableArgs::Unspecified
     .resolve(CommandContext::Os)
     .unwrap_err()
     .to_string();
@@ -266,7 +286,7 @@ fn test_resolve_rejects_empty_command_specific_flake() {
   env_guard.set("NH_OS_FLAKE", "");
   env_guard.set("NH_FLAKE", "github:user/repo");
 
-  let err = Installable::Unspecified
+  let err = InstallableArgs::Unspecified
     .resolve(CommandContext::Os)
     .unwrap_err()
     .to_string();
@@ -280,7 +300,7 @@ fn test_resolve_rejects_env_flake_without_reference_before_attribute() {
   let env_guard = EnvGuard::clear();
   env_guard.set("NH_FLAKE", "#fallback");
 
-  let err = Installable::Unspecified
+  let err = InstallableArgs::Unspecified
     .resolve(CommandContext::Os)
     .unwrap_err()
     .to_string();
@@ -290,8 +310,8 @@ fn test_resolve_rejects_env_flake_without_reference_before_attribute() {
 
 #[test]
 fn test_cli_installable_rejects_empty_flake_reference() {
-  let cmd = Installable::augment_args(clap::Command::new("test"));
-  let err = Installable::from_arg_matches(
+  let cmd = InstallableArgs::augment_args(clap::Command::new("test"));
+  let err = InstallableArgs::from_arg_matches(
     &cmd.try_get_matches_from(["test", ""]).unwrap(),
   )
   .unwrap_err()
@@ -302,8 +322,8 @@ fn test_cli_installable_rejects_empty_flake_reference() {
 
 #[test]
 fn test_cli_installable_rejects_attribute_without_reference() {
-  let cmd = Installable::augment_args(clap::Command::new("test"));
-  let err = Installable::from_arg_matches(
+  let cmd = InstallableArgs::augment_args(clap::Command::new("test"));
+  let err = InstallableArgs::from_arg_matches(
     &cmd.try_get_matches_from(["test", "#fallback"]).unwrap(),
   )
   .unwrap_err()
@@ -320,8 +340,9 @@ fn test_resolve_os_context_uses_nh_os_flake() {
   let env_guard = EnvGuard::clear();
   env_guard.set("NH_OS_FLAKE", "/etc/nixos#myhost");
 
-  let resolved = Installable::Unspecified
+  let resolved = InstallableArgs::Unspecified
     .resolve(CommandContext::Os)
+    .unwrap()
     .unwrap();
   match resolved {
     Installable::Flake {
@@ -342,8 +363,9 @@ fn test_resolve_os_context_prefers_os_flake_over_generic() {
   env_guard.set("NH_OS_FLAKE", "/etc/nixos#myhost");
   env_guard.set("NH_FLAKE", "/home/user/flake#other");
 
-  let resolved = Installable::Unspecified
+  let resolved = InstallableArgs::Unspecified
     .resolve(CommandContext::Os)
+    .unwrap()
     .unwrap();
   match resolved {
     Installable::Flake {
@@ -363,8 +385,9 @@ fn test_resolve_os_context_falls_back_to_nh_flake() {
   let env_guard = EnvGuard::clear();
   env_guard.set("NH_FLAKE", "/home/user/flake#fallback");
 
-  let resolved = Installable::Unspecified
+  let resolved = InstallableArgs::Unspecified
     .resolve(CommandContext::Os)
+    .unwrap()
     .unwrap();
   match resolved {
     Installable::Flake {
@@ -384,8 +407,9 @@ fn test_resolve_home_context_uses_nh_home_flake() {
   let env_guard = EnvGuard::clear();
   env_guard.set("NH_HOME_FLAKE", "~/.config/home-manager#myuser");
 
-  let resolved = Installable::Unspecified
+  let resolved = InstallableArgs::Unspecified
     .resolve(CommandContext::Home)
+    .unwrap()
     .unwrap();
   match resolved {
     Installable::Flake {
@@ -406,8 +430,9 @@ fn test_resolve_home_context_prefers_home_flake_over_generic() {
   env_guard.set("NH_HOME_FLAKE", "~/.config/home-manager#myuser");
   env_guard.set("NH_FLAKE", "/other/flake#other");
 
-  let resolved = Installable::Unspecified
+  let resolved = InstallableArgs::Unspecified
     .resolve(CommandContext::Home)
+    .unwrap()
     .unwrap();
   match resolved {
     Installable::Flake {
@@ -427,8 +452,9 @@ fn test_resolve_darwin_context_uses_nh_darwin_flake() {
   let env_guard = EnvGuard::clear();
   env_guard.set("NH_DARWIN_FLAKE", "/etc/nix-darwin#macbook");
 
-  let resolved = Installable::Unspecified
+  let resolved = InstallableArgs::Unspecified
     .resolve(CommandContext::Darwin)
+    .unwrap()
     .unwrap();
   match resolved {
     Installable::Flake {
@@ -449,8 +475,9 @@ fn test_resolve_darwin_context_prefers_darwin_flake_over_generic() {
   env_guard.set("NH_DARWIN_FLAKE", "/etc/nix-darwin#macbook");
   env_guard.set("NH_FLAKE", "/other/flake#other");
 
-  let resolved = Installable::Unspecified
+  let resolved = InstallableArgs::Unspecified
     .resolve(CommandContext::Darwin)
+    .unwrap()
     .unwrap();
   match resolved {
     Installable::Flake {
@@ -469,20 +496,20 @@ fn test_resolve_darwin_context_prefers_darwin_flake_over_generic() {
 fn test_resolve_no_env_vars_returns_unspecified() {
   let _env_guard = EnvGuard::clear();
 
-  let resolved = Installable::Unspecified
+  let resolved = InstallableArgs::Unspecified
     .resolve(CommandContext::Os)
     .unwrap();
-  assert!(matches!(resolved, Installable::Unspecified));
+  assert!(resolved.is_none());
 
-  let resolved = Installable::Unspecified
+  let resolved = InstallableArgs::Unspecified
     .resolve(CommandContext::Home)
     .unwrap();
-  assert!(matches!(resolved, Installable::Unspecified));
+  assert!(resolved.is_none());
 
-  let resolved = Installable::Unspecified
+  let resolved = InstallableArgs::Unspecified
     .resolve(CommandContext::Darwin)
     .unwrap();
-  assert!(matches!(resolved, Installable::Unspecified));
+  assert!(resolved.is_none());
 }
 
 #[test]
@@ -491,8 +518,9 @@ fn test_resolve_with_empty_attribute() {
   let env_guard = EnvGuard::clear();
   env_guard.set("NH_OS_FLAKE", "/etc/nixos");
 
-  let resolved = Installable::Unspecified
+  let resolved = InstallableArgs::Unspecified
     .resolve(CommandContext::Os)
+    .unwrap()
     .unwrap();
   match resolved {
     Installable::Flake {
@@ -515,8 +543,9 @@ fn test_resolve_with_nested_attribute() {
     "~/.config/home-manager#homeConfigurations.user",
   );
 
-  let resolved = Installable::Unspecified
+  let resolved = InstallableArgs::Unspecified
     .resolve(CommandContext::Home)
+    .unwrap()
     .unwrap();
   match resolved {
     Installable::Flake {
@@ -537,14 +566,15 @@ fn test_resolve_command_specific_isolation() {
   env_guard.set("NH_HOME_FLAKE", "~/.config/home-manager#user");
 
   // OS context should not pick up NH_HOME_FLAKE
-  let resolved = Installable::Unspecified
+  let resolved = InstallableArgs::Unspecified
     .resolve(CommandContext::Os)
     .unwrap();
-  assert!(matches!(resolved, Installable::Unspecified));
+  assert!(resolved.is_none());
 
   // But Home context should
-  let resolved = Installable::Unspecified
+  let resolved = InstallableArgs::Unspecified
     .resolve(CommandContext::Home)
+    .unwrap()
     .unwrap();
   match resolved {
     Installable::Flake {

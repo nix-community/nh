@@ -1334,9 +1334,6 @@ fn eval_drv_path(installable: &Installable) -> Result<PathBuf> {
         path.display()
       );
     },
-    Installable::Unspecified => {
-      bail!("Cannot evaluate unspecified installable");
-    },
   };
 
   let args = drv_installable.to_args();

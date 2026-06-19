@@ -426,13 +426,6 @@ where
       }
     },
     Installable::Store { .. } => {},
-    #[allow(clippy::unreachable, reason = "Should never happen")]
-    Installable::Unspecified => {
-      unreachable!(
-        "Unspecified installable should have been resolved before calling \
-         toplevel_for"
-      )
-    },
   }
 
   Ok(res)

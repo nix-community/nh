@@ -10,7 +10,7 @@ use nh_core::{
     OsReplFeatures,
   },
 };
-use nh_installable::Installable;
+use nh_installable::InstallableArgs;
 use nh_remote::RemoteHost;
 
 use crate::{
@@ -208,7 +208,7 @@ impl OsRebuildArgs {
     }
 
     // Check installable type
-    matches!(self.common.installable, Installable::Flake { .. })
+    self.common.installable.is_flake()
   }
 }
 
@@ -255,7 +255,7 @@ pub struct CommonRebuildArgs {
   pub ask: bool,
 
   #[command(flatten)]
-  pub installable: Installable,
+  pub installable: InstallableArgs,
 
   /// Don't use nix-output-monitor for the build process
   #[arg(long)]
@@ -276,7 +276,7 @@ pub struct CommonRebuildArgs {
 #[derive(Debug, Args)]
 pub struct OsReplArgs {
   #[command(flatten)]
-  pub installable: Installable,
+  pub installable: InstallableArgs,
 
   /// When using a flake installable, select this hostname from
   /// nixosConfigurations
@@ -293,7 +293,7 @@ impl OsReplArgs {
     }
 
     // Check installable type
-    matches!(self.installable, Installable::Flake { .. })
+    self.installable.is_flake()
   }
 }
 
