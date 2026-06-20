@@ -39,6 +39,8 @@ functionality, under the "Removed" section.
   `/nix/var/nix/gcroots`.
 - `--no-direnv` passed to `nh clean all` will now preserve `.direnv/` paths as
   well.
+- Quoted attribute paths like `foo."bar.baz"` are now allowed. Malformed quoted
+  attributes return validation errors instead of outright panicking.
 
 ### Changed
 
@@ -62,6 +64,16 @@ functionality, under the "Removed" section.
 - `RESULT_REGEX` (`.*result.*`) matched any path containing the word "result",
   including unrelated files. It is replaced by a structural check that only
   matches direct children of `/nix/store`.
+- Explicit local flake refs are now checked by nh before Nix runs. Local flake
+  refs like `.`, `./foo`, `/path/to/flake` or `path:/some/path` must point at a
+  directory containing a `flake.nix`. Directories where a parent directory
+  contains a flake are no longer valid.
+- Empty/malformed flake refs are now rejected early. Exempli gratia,
+  `NH_FLAKE="" nh os switch`, `nh os repl ''`, and `nh os switch '#attr'` no
+  longer work.
+- `NH_FLAKE` now also does flake feature detection. A command resolving its
+  installable from `NH_FLAKE` now also checks for the required Nix experimental
+  features.
 
 ### Fixed
 
