@@ -38,7 +38,7 @@ jobs:
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - run: nix build -L --no-link
         name: Build
@@ -52,7 +52,7 @@ jobs:
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Build NH with Nix
         run: nix build -L --no-link

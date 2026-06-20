@@ -28,7 +28,7 @@ jobs:
         run: |
           echo "CHANGELOG_REQUIRED=false" >> $GITHUB_ENV
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         if: fromJSON(env.CHANGELOG_REQUIRED)
 
       - name: Get changed files in the docs folder
