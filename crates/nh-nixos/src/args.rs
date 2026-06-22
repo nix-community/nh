@@ -1,4 +1,4 @@
-use std::{env, path::PathBuf};
+use std::path::PathBuf;
 
 use clap::{Args, Subcommand};
 use nh_core::{
@@ -10,7 +10,7 @@ use nh_core::{
     OsReplFeatures,
   },
 };
-use nh_installable::Installable;
+use nh_installable::{CommandContext, InstallableArgs};
 use nh_remote::RemoteHost;
 
 use crate::{
@@ -202,13 +202,7 @@ pub struct OsRebuildActivateArgs {
 impl OsRebuildArgs {
   #[must_use]
   pub fn uses_flakes(&self) -> bool {
-    // Check environment variables first
-    if env::var("NH_OS_FLAKE").is_ok_and(|v| !v.is_empty()) {
-      return true;
-    }
-
-    // Check installable type
-    matches!(self.common.installable, Installable::Flake { .. })
+    self.common.installable.uses_flakes(CommandContext::Os)
   }
 }
 
@@ -255,7 +249,7 @@ pub struct CommonRebuildArgs {
   pub ask: bool,
 
   #[command(flatten)]
-  pub installable: Installable,
+  pub installable: InstallableArgs,
 
   /// Don't use nix-output-monitor for the build process
   #[arg(long)]
@@ -276,7 +270,7 @@ pub struct CommonRebuildArgs {
 #[derive(Debug, Args)]
 pub struct OsReplArgs {
   #[command(flatten)]
-  pub installable: Installable,
+  pub installable: InstallableArgs,
 
   /// When using a flake installable, select this hostname from
   /// nixosConfigurations
@@ -287,13 +281,7 @@ pub struct OsReplArgs {
 impl OsReplArgs {
   #[must_use]
   pub fn uses_flakes(&self) -> bool {
-    // Check environment variables first
-    if env::var("NH_OS_FLAKE").is_ok() {
-      return true;
-    }
-
-    // Check installable type
-    matches!(self.installable, Installable::Flake { .. })
+    self.installable.uses_flakes(CommandContext::Os)
   }
 }
 

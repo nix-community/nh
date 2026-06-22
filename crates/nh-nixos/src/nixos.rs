@@ -1327,13 +1327,6 @@ pub fn toplevel_for<S: AsRef<str>>(
     } => attribute.extend(toplevel),
 
     Installable::Store { .. } => {},
-
-    Installable::Unspecified => {
-      unreachable!(
-        "Unspecified installable should have been resolved before calling \
-         toplevel_for"
-      )
-    },
   }
 
   Ok(res)

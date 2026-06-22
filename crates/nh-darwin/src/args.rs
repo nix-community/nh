@@ -1,5 +1,3 @@
-use std::env;
-
 use clap::{Args, Subcommand};
 use nh_core::{
   args::CommonRebuildArgs,
@@ -11,7 +9,7 @@ use nh_core::{
   },
   update::UpdateArgs,
 };
-use nh_installable::Installable;
+use nh_installable::{CommandContext, InstallableArgs};
 use nh_remote::RemoteHost;
 
 /// Nix-darwin functionality
@@ -85,20 +83,14 @@ pub struct DarwinRebuildArgs {
 impl DarwinRebuildArgs {
   #[must_use]
   pub fn uses_flakes(&self) -> bool {
-    // Check environment variables first
-    if env::var("NH_DARWIN_FLAKE").is_ok_and(|v| !v.is_empty()) {
-      return true;
-    }
-
-    // Check installable type
-    matches!(self.common.installable, Installable::Flake { .. })
+    self.common.installable.uses_flakes(CommandContext::Darwin)
   }
 }
 
 #[derive(Debug, Args)]
 pub struct DarwinReplArgs {
   #[command(flatten)]
-  pub installable: Installable,
+  pub installable: InstallableArgs,
 
   /// When using a flake installable, select this hostname from
   /// darwinConfigurations
@@ -109,12 +101,6 @@ pub struct DarwinReplArgs {
 impl DarwinReplArgs {
   #[must_use]
   pub fn uses_flakes(&self) -> bool {
-    // Check environment variables first
-    if env::var("NH_DARWIN_FLAKE").is_ok_and(|v| !v.is_empty()) {
-      return true;
-    }
-
-    // Check installable type
-    matches!(self.installable, Installable::Flake { .. })
+    self.installable.uses_flakes(CommandContext::Darwin)
   }
 }
