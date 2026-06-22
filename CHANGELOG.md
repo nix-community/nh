@@ -39,6 +39,9 @@ functionality, under the "Removed" section.
   `/nix/var/nix/gcroots`.
 - `--no-direnv` passed to `nh clean all` will now preserve `.direnv/` paths as
   well.
+- `nh os delete` deletes specific generations by generation ID. Runs
+  `nix-store gc` and `switch-to-configuration boot` by default after the
+  generations are removed.
 
 ### Changed
 

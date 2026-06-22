@@ -70,9 +70,9 @@ impl OsArgs {
           Box::new(LegacyFeatures)
         }
       },
-      OsSubcommand::Info(_) | OsSubcommand::Rollback(_) => {
-        Box::new(LegacyFeatures)
-      },
+      OsSubcommand::Info(_)
+      | OsSubcommand::Rollback(_)
+      | OsSubcommand::Delete(_) => Box::new(LegacyFeatures),
 
       OsSubcommand::BuildImage(args) => {
         if args.common.uses_flakes() {
@@ -107,6 +107,9 @@ pub enum OsSubcommand {
 
   /// Rollback to a previous generation
   Rollback(OsRollbackArgs),
+
+  /// Delete specific generations from profile path
+  Delete(OsDeleteArgs),
 
   /// Build a `NixOS` VM image
   BuildVm(OsBuildVmArgs),
@@ -306,4 +309,35 @@ pub struct OsGenerationsArgs {
   /// Comma-delimited list of field(s) to display
   #[arg(long, value_delimiter = ',')]
   pub fields: Option<Vec<Field>>,
+}
+
+#[derive(Debug, Args)]
+pub struct OsDeleteArgs {
+  /// Generations to delete. Run 'nh os info' to list available IDs.
+  #[arg(required = true)]
+  pub generations: Vec<u64>,
+
+  /// Path to Nix' profiles directory
+  #[arg(long, short = 'P', default_value = "/nix/var/nix/profiles/system")]
+  pub profile: Option<String>,
+
+  /// Only print actions, without performing them
+  #[arg(long, short = 'n')]
+  pub dry: bool,
+
+  /// Ask for confirmation
+  #[arg(long, short)]
+  pub ask: bool,
+
+  /// Don't run nix store --gc
+  #[arg(long = "no-gc", alias = "nogc")]
+  pub no_gc: bool,
+
+  /// Don't update the bootloader menu
+  #[arg(long = "no-boot", alias = "noboot")]
+  pub no_boot: bool,
+
+  /// Don't panic if calling nh as root
+  #[arg(short = 'R', long, env = "NH_BYPASS_ROOT_CHECK")]
+  pub bypass_root_check: bool,
 }
