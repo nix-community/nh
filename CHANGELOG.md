@@ -41,6 +41,7 @@ functionality, under the "Removed" section.
   well.
 - Quoted attribute paths like `foo."bar.baz"` are now allowed. Malformed quoted
   attributes return validation errors instead of outright panicking.
+- `nh os {boot,build,switch}` now supports diffing on remote machines.
 
 ### Changed
 
