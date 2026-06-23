@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches-ignore:
+      - "update-*"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Plan CI jobs
+    runs-on: ubuntu-latest
+    outputs:
+      code-changed: ${{ steps.plan.outputs.code_changed }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Plan
+        id: plan
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          FORCE_CI: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          if [[ "$FORCE_CI" == "true" ]]; then
+            echo "code_changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          base_ref="${BASE_SHA:-origin/master}"
+          if [[ "$base_ref" =~ ^0+$ ]]; then
+            base_ref=origin/master
+          fi
+
+          pathspecs=(
+            Justfile
+            Cargo.toml
+            Cargo.lock
+            flake.nix
+            flake.lock
+            package.nix
+            shell.nix
+            xtask/Cargo.toml
+            xtask/src
+            crates
+            .cargo
+            .config/nextest.toml
+            test
+            .github/workflows/ci.yaml
+            .github/workflows/build.yaml
+            .github/workflows/check.yaml
+            .github/workflows/test.yaml
+          )
+
+          if git diff --quiet "$base_ref...HEAD" -- "${pathspecs[@]}"
+          then
+            echo "code_changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "code_changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: plan
+    if: ${{ needs.plan.outputs.code-changed == 'true' }}
+    uses: ./.github/workflows/build.yaml
+
+  check:
+    needs: plan
+    if: ${{ needs.plan.outputs.code-changed == 'true' }}
+    uses: ./.github/workflows/check.yaml
+
+  test:
+    needs: plan
+    if: ${{ needs.plan.outputs.code-changed == 'true' }}
+    uses: ./.github/workflows/test.yaml
+
+  required-checks-passed:
+    name: all required jobs passed
+    if: always()
+    needs:
+      - plan
+      - build
+      - check
+      - test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check required jobs passed
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          failing=$(echo "$NEEDS_JSON" | jq -r 'to_entries[] | select(.value.result != "success" and .value.result != "skipped") | "\(.key): \(.value.result)"')
+          if [ -n "$failing" ]; then
+            echo "$failing"
+            exit 1
+          fi

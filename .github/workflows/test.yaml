@@ -2,32 +2,10 @@ name: "Test NH"
 
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "xtask/Cargo.toml"
-      - "crates/**"
-      - "xtask/src/**"
-      - ".cargo/**"
-      - "flake.nix"
-      - "flake.lock"
-      - "package.nix"
-      - ".github/workflows/build.yaml"
-  push:
-    branches-ignore:
-      - "update-*"
-    paths:
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "xtask/Cargo.toml"
-      - "crates/**"
-      - "xtask/src/**"
-      - ".cargo/**"
-      - "flake.nix"
-      - "flake.lock"
-      - "package.nix"
-      - ".github/workflows/build.yaml"
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
   test-linux:
@@ -36,7 +14,7 @@ jobs:
     steps:
       - uses: cachix/install-nix-action@master
         with:
-          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+          github_access_token: ${{ github.token }}
           nix_path: nixpkgs=channel:nixos-unstable
 
       - uses: actions/checkout@v7
@@ -59,7 +37,7 @@ jobs:
     steps:
       - uses: cachix/install-nix-action@master
         with:
-          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+          github_access_token: ${{ github.token }}
 
       - uses: actions/checkout@v7
 
