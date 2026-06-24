@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use color_eyre::Result;
-use nh_core::command::{ElevationStrategy, ElevationStrategyArg};
+use nh_core::command::{Elevation, ElevationStrategyArg};
 
 pub mod interface;
 pub mod logging;
@@ -23,7 +23,7 @@ pub fn main() -> Result<()> {
     tracing::warn!(
       "NH_ELEVATION_PROGRAM is deprecated, use NH_ELEVATION_STRATEGY instead. \
        Falling back to NH_ELEVATION_PROGRAM for backward compatibility. \
-       Accepted values: none, passwordless, program:<path>"
+       Accepted values: none, passwordless, empty-password, program:<path>"
     );
     match ElevationStrategyArg::from_str(&old_value) {
       Ok(strategy) => args.elevation_strategy = Some(strategy),
@@ -51,20 +51,10 @@ pub fn main() -> Result<()> {
   // added to setup_environment in the future.
   nh_core::checks::verify_variables()?;
 
-  let elevation =
-    args
-      .elevation_strategy
-      .as_ref()
-      .map_or(ElevationStrategy::Auto, |arg| {
-        match arg {
-          ElevationStrategyArg::Auto => ElevationStrategy::Auto,
-          ElevationStrategyArg::None => ElevationStrategy::None,
-          ElevationStrategyArg::Passwordless => ElevationStrategy::Passwordless,
-          ElevationStrategyArg::Program(path) => {
-            ElevationStrategy::Prefer(path.clone())
-          },
-        }
-      });
+  let elevation = args
+    .elevation_strategy
+    .clone()
+    .map_or_else(Elevation::default, Elevation::from);
 
   args.command.run(elevation)
 }

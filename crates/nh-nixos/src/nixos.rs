@@ -7,7 +7,7 @@ use std::{
 use color_eyre::eyre::{Context, Result, bail, eyre};
 use nh_core::{
   args::DiffType,
-  command::{self, Command, ElevationStrategy},
+  command::{self, Command, Elevation, ElevationStrategy},
   update::update,
   util::{
     ensure_ssh_key_login,
@@ -38,6 +38,15 @@ use crate::{
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
 const CURRENT_PROFILE: &str = "/run/current-system";
+
+fn should_forward_ssh_agent_to_control_master(
+  host: &RemoteHost,
+  target_host: Option<&RemoteHost>,
+  target_requires_ssh_agent_forwarding: bool,
+) -> bool {
+  target_requires_ssh_agent_forwarding
+    && target_host.is_some_and(|target| host.is_same_ssh_endpoint(target))
+}
 
 const SPEC_LOCATION: &str = "/etc/specialisation";
 
@@ -71,7 +80,7 @@ impl args::OsArgs {
   /// - Remote operations encounter network or SSH issues
   /// - Nix evaluation or building fails
   /// - File system operations fail
-  pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
+  pub fn run(self, elevation: Elevation) -> Result<()> {
     use OsRebuildVariant::{Boot, Build, Switch, Test};
     match self.subcommand {
       OsSubcommand::Boot(args) => {
@@ -109,7 +118,7 @@ enum OsRebuildVariant {
 }
 
 impl OsBuildVmArgs {
-  fn build_vm(self, elevation: &ElevationStrategy) -> Result<()> {
+  fn build_vm(self, elevation: &Elevation) -> Result<()> {
     let attr = if self.with_bootloader {
       "vmWithBootLoader"
     } else {
@@ -154,7 +163,7 @@ impl OsRebuildActivateArgs {
     self,
     variant: &OsRebuildVariant,
     final_attrs: Option<&[&str]>,
-    elevation: ElevationStrategy,
+    elevation: Elevation,
   ) -> Result<()> {
     use OsRebuildVariant::{Build, BuildVm};
 
@@ -194,14 +203,24 @@ impl OsRebuildActivateArgs {
       // invocations (e.g. `nix copy --to ssh://...`) reuse the already-
       // authenticated socket rather than opening a fresh connection where
       // SSH option ordering may differ.
+      let target_requires_ssh_agent_forwarding =
+        elevation.requires_ssh_agent_forwarding();
       if let Some(build_host) = &self.rebuild.build_host {
-        nh_remote::open_ssh_control_master(build_host)
+        let forward_ssh_agent = should_forward_ssh_agent_to_control_master(
+          build_host,
+          self.rebuild.target_host.as_ref(),
+          target_requires_ssh_agent_forwarding,
+        );
+        nh_remote::open_ssh_control_master(build_host, forward_ssh_agent)
           .context("Failed to establish SSH connection to build host")?;
       }
 
       if let Some(target_host) = &self.rebuild.target_host {
-        nh_remote::open_ssh_control_master(target_host)
-          .context("Failed to establish SSH connection to target host")?;
+        nh_remote::open_ssh_control_master(
+          target_host,
+          target_requires_ssh_agent_forwarding,
+        )
+        .context("Failed to establish SSH connection to target host")?;
       }
 
       Some(guard)
@@ -262,7 +281,7 @@ impl OsRebuildActivateArgs {
     target_profile: &Path,
     actual_store_path: Option<&Path>,
     elevate: bool,
-    elevation: ElevationStrategy,
+    elevation: Elevation,
   ) -> Result<()> {
     use OsRebuildVariant::{Boot, Switch, Test};
 
@@ -480,7 +499,7 @@ impl OsRebuildArgs {
   /// - `String`: The resolved target hostname.
   fn setup_build_context(
     &self,
-    elevation: &ElevationStrategy,
+    elevation: &Elevation,
   ) -> Result<(bool, String)> {
     // Only check SSH key login if remote hosts are involved
     if self.build_host.is_some() || self.target_host.is_some() {
@@ -514,14 +533,11 @@ impl OsRebuildArgs {
   /// `false` when `target_host` is unset (caller should use
   /// [`Self::setup_build_context`] or [`has_elevation_status`] for the
   /// local case) or when the elevation strategy is [`None`].
-  fn determine_remote_elevation(
-    &self,
-    elevation: &ElevationStrategy,
-  ) -> Result<bool> {
+  fn determine_remote_elevation(&self, elevation: &Elevation) -> Result<bool> {
     let Some(target_host) = &self.target_host else {
       return Ok(false);
     };
-    if matches!(elevation, ElevationStrategy::None) {
+    if matches!(elevation.strategy(), ElevationStrategy::None) {
       return Ok(false);
     }
     let uid = nh_remote::probe_remote_uid(target_host)?;
@@ -673,7 +689,7 @@ impl OsRebuildArgs {
     self,
     variant: &OsRebuildVariant,
     final_attrs: Option<&[&str]>,
-    elevation: &ElevationStrategy,
+    elevation: &Elevation,
   ) -> Result<()> {
     use OsRebuildVariant::{Build, BuildIso, BuildVm};
 
@@ -724,7 +740,7 @@ impl OsRebuildArgs {
 
 impl OsRollbackArgs {
   #[expect(clippy::too_many_lines)]
-  fn rollback(&self, elevation: ElevationStrategy) -> Result<()> {
+  fn rollback(&self, elevation: Elevation) -> Result<()> {
     let elevate = has_elevation_status(self.bypass_root_check, &elevation)?;
 
     let generations = list_generations()?;
@@ -883,7 +899,7 @@ impl OsRollbackArgs {
 }
 
 impl OsBuildImageArgs {
-  fn build_image(self, elevation: &ElevationStrategy) -> Result<()> {
+  fn build_image(self, elevation: &Elevation) -> Result<()> {
     let (_, target_hostname) = self.common.setup_build_context(elevation)?;
 
     // Show warning if no hostname was explicitly provided for image builds
@@ -1157,10 +1173,10 @@ fn missing_switch_to_configuration_error() -> color_eyre::eyre::Report {
 /// as `nh os` subcommands should not be run directly as root.
 fn has_elevation_status(
   bypass_root_check: bool,
-  elevation: &command::ElevationStrategy,
+  elevation: &command::Elevation,
 ) -> Result<bool> {
   // If elevation strategy is None, never elevate
-  if matches!(elevation, command::ElevationStrategy::None) {
+  if matches!(elevation.strategy(), command::ElevationStrategy::None) {
     return Ok(false);
   }
 
@@ -1385,5 +1401,48 @@ impl OsGenerationsArgs {
     generations::print_info(descriptions, self.fields.as_deref())?;
 
     Ok(())
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  #![allow(clippy::expect_used, reason = "Fine in tests")]
+
+  use super::*;
+
+  #[test]
+  fn requires_ssh_agent_forwarding_for_build_master_when_build_is_target() {
+    let host = RemoteHost::parse("faukah.com").expect("should parse");
+
+    assert!(should_forward_ssh_agent_to_control_master(
+      &host,
+      Some(&host),
+      true,
+    ));
+  }
+
+  #[test]
+  fn does_not_forward_ssh_agent_to_unrelated_build_master() {
+    let build_host =
+      RemoteHost::parse("builder.example").expect("should parse");
+    let target_host =
+      RemoteHost::parse("target.example").expect("should parse");
+
+    assert!(!should_forward_ssh_agent_to_control_master(
+      &build_host,
+      Some(&target_host),
+      true,
+    ));
+  }
+
+  #[test]
+  fn does_not_forward_ssh_agent_when_target_policy_does_not_need_it() {
+    let host = RemoteHost::parse("faukah.com").expect("should parse");
+
+    assert!(!should_forward_ssh_agent_to_control_master(
+      &host,
+      Some(&host),
+      false,
+    ));
   }
 }

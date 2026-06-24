@@ -15,7 +15,6 @@ dix.workspace            = true
 inquire.workspace        = true
 nh-core.workspace        = true
 nh-installable.workspace = true
-secrecy.workspace        = true
 shlex.workspace          = true
 signal-hook.workspace    = true
 subprocess.workspace     = true
