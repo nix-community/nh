@@ -434,6 +434,12 @@ the common variables that you may encounter or choose to employ are as follows:
   - SSH options for remote operations. Accepts the same format as `NIX_SSHOPTS`,
     which it takes precedence over.
 
+- `NH_ELEVATION_STRATEGY`
+  - Privilege elevation strategy. Accepted values include `auto`, `none`,
+    `passwordless`, `empty-password`, and `program:<path>`. Use `empty-password`
+    for remote sudo setups where PAM authenticates out-of-band, such as
+    `pam_rssh` with a security key, and expects an empty stdin password line.
+
 - `NH_PRESERVE_ENV`
   - Controls whether environment variables marked for preservation are passed to
     elevated commands. Set to `"0"` to disable preservation, `"1"` to force

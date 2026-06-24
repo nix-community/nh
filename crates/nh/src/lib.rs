@@ -39,7 +39,7 @@ pub fn main() -> Result<()> {
     tracing::warn!(
       "NH_ELEVATION_PROGRAM is deprecated, use NH_ELEVATION_STRATEGY instead. \
        Falling back to NH_ELEVATION_PROGRAM for backward compatibility. \
-       Accepted values: none, passwordless, program:<path>"
+       Accepted values: none, passwordless, empty-password, program:<path>"
     );
     match ElevationStrategyArg::from_str(&old_value) {
       Ok(strategy) => args.elevation_strategy = Some(strategy),
@@ -76,6 +76,9 @@ pub fn main() -> Result<()> {
           ElevationStrategyArg::Auto => ElevationStrategy::Auto,
           ElevationStrategyArg::None => ElevationStrategy::None,
           ElevationStrategyArg::Passwordless => ElevationStrategy::Passwordless,
+          ElevationStrategyArg::EmptyPassword => {
+            ElevationStrategy::EmptyPassword
+          },
           ElevationStrategyArg::Program(path) => {
             ElevationStrategy::Prefer(path.clone())
           },

@@ -291,12 +291,22 @@ pub fn init_ssh_control() -> SshControlGuard {
   SshControlGuard { control_dir }
 }
 
-/// `ssh` to `host` with nh's options and without a terminal.
-fn ssh(host: &RemoteHost) -> Exec {
-  Exec::cmd("ssh")
-    .args(get_ssh_opts())
-    .arg("-T")
-    .arg(host.ssh_host())
+/// `ssh` to `host` with nh's options and without a terminal, forwarding the
+/// local SSH agent if `forward_ssh_agent` is set.
+///
+/// A multiplexed session only gets the agent if its master forwards it, and
+/// Nix opens masters on the shared control socket without it. Connections that
+/// forward the agent use a control socket of their own instead.
+fn ssh(host: &RemoteHost, forward_ssh_agent: bool) -> Exec {
+  let mut cmd = Exec::cmd("ssh");
+  if forward_ssh_agent {
+    let control_path = get_ssh_control_dir().join("ssh-agent-%n");
+    cmd = cmd
+      .arg("-A")
+      .arg("-o")
+      .arg(format!("ControlPath={}", control_path.display()));
+  }
+  cmd.args(get_ssh_opts()).arg("-T").arg(host.ssh_host())
 }
 
 /// Pre-establish a `ControlMaster` SSH connection to `host`.
@@ -319,7 +329,7 @@ fn ssh(host: &RemoteHost) -> Exec {
 pub fn open_ssh_control_master(host: &RemoteHost) -> Result<()> {
   debug!("Establishing SSH ControlMaster to '{host}'");
 
-  let capture = ssh(host)
+  let capture = ssh(host, false)
     .arg("true")
     .capture()
     .with_context(|| format!("Failed to connect to remote host '{host}'"))?;
@@ -349,7 +359,7 @@ pub fn open_ssh_control_master(host: &RemoteHost) -> Result<()> {
 /// Returns an error if the SSH connection fails, `id -u` exits non-zero, or
 /// its stdout cannot be parsed as a `u32`.
 pub fn probe_remote_uid(host: &RemoteHost) -> Result<u32> {
-  let capture = ssh(host)
+  let capture = ssh(host, false)
     .arg("id -u")
     .capture()
     .with_context(|| format!("Failed to probe remote uid on '{host}'"))?;
@@ -1103,6 +1113,10 @@ const PASSWORD_ATTEMPTS: usize = 3;
 /// rejects other elevation programs that would need one before anything is
 /// asked.
 ///
+/// [`ElevationStrategy::EmptyPassword`] sends an empty password without asking
+/// or checking it, since PAM on the remote authenticates out-of-band, and a
+/// check would ask for that authentication, e.g. a security key touch, twice.
+///
 /// # Errors
 ///
 /// Returns an error if the password cannot be read, or is rejected
@@ -1121,6 +1135,9 @@ fn remote_sudo_password(
   }) else {
     return Ok(None);
   };
+  if matches!(elevation, ElevationStrategy::EmptyPassword) {
+    return Ok(Some(SecretString::new(String::new().into())));
+  }
 
   let host_str = host.ssh_host();
   if let Some(password) = get_cached_password(&host_str)? {
@@ -1135,10 +1152,14 @@ fn remote_sudo_password(
       .without_confirmation()
       .prompt()
       .context("Failed to read sudo password")?;
-    ensure!(!password.is_empty(), "Password cannot be empty");
+    ensure!(
+      !password.is_empty(),
+      "Password cannot be empty. Use --elevation-strategy=empty-password if \
+       PAM on '{host}' authenticates sudo without one."
+    );
     let password = SecretString::new(password.into());
 
-    let check = ssh(host)
+    let check = ssh(host, false)
       .arg(&check_cmd)
       .stdin(format!("{}\n", password.expose_secret()).into_bytes())
       .capture()
@@ -1226,9 +1247,12 @@ fn run_remote_step(
   info!("{name} on '{host}'");
   let failure = || format!("{name} on '{host}' failed");
 
-  let cmd = ssh(host)
-    .arg(build_remote_command(elevation, base_cmd)?)
-    .stdin(Redirection::Pipe);
+  let cmd = ssh(
+    host,
+    elevation.is_some_and(ElevationStrategy::forwards_ssh_agent),
+  )
+  .arg(build_remote_command(elevation, base_cmd)?)
+  .stdin(Redirection::Pipe);
   debug!(?cmd, "Running remote activation step");
 
   let mut job = cmd.start().with_context(failure)?;
@@ -1836,6 +1860,39 @@ mod tests {
       shell_quote("/nix/store/abc123-foo"),
       "/nix/store/abc123-foo"
     );
+  }
+
+  #[test]
+  fn test_build_remote_command_empty_password_uses_sudo_stdin() {
+    let cmd =
+      build_remote_command(Some(&ElevationStrategy::EmptyPassword), "true")
+        .expect("empty-password should build a remote command");
+    assert!(cmd.starts_with("sudo --prompt= --stdin "));
+    assert!(cmd.ends_with(" true"));
+  }
+
+  #[test]
+  fn test_remote_sudo_password_empty_password_does_not_prompt() {
+    let host = RemoteHost::parse("user@host.example").expect("should parse");
+    let password =
+      remote_sudo_password(&host, Some(&ElevationStrategy::EmptyPassword))
+        .expect("empty-password should not prompt")
+        .expect("empty-password should send a password line");
+    assert_eq!(password.expose_secret(), "");
+  }
+
+  #[test]
+  #[serial]
+  fn test_ssh_forwards_agent_before_host() {
+    let _env_guard = SshOptsEnvGuard::new();
+    SshOptsEnvGuard::clear();
+
+    let host = RemoteHost::parse("user@host.example").expect("should parse");
+    let cmdline = ssh(&host, true).to_cmdline_lossy();
+    assert!(cmdline.starts_with("ssh -A -o "), "{cmdline}");
+    assert!(cmdline.contains("ssh-agent-%n"), "{cmdline}");
+    let cmdline = ssh(&host, false).to_cmdline_lossy();
+    assert!(cmdline.ends_with(" -T 'user@host.example'"), "{cmdline}");
   }
 
   #[test]
