@@ -18,6 +18,8 @@ functionality, under the "Removed" section.
 
 ### Added
 
+- `--elevation-strategy=empty-password` for remote sudo setups where PAM
+  authentication is used and expects an empty stdin password line.
 - `nh search offline <query>` subcommand for offline search using
   [spam-db](https://github.com/feel-co/spam) databases. Requires `-D <path>` (or
   `NH_OFFLINE_DB`) pointing to the database directory.

@@ -1,11 +1,7 @@
 use std::{
   collections::HashMap,
-  convert::Infallible,
   ffi::{OsStr, OsString},
   io::{Read, Write},
-  path::PathBuf,
-  str::FromStr,
-  sync::{Mutex, OnceLock},
 };
 
 use color_eyre::{
@@ -14,13 +10,16 @@ use color_eyre::{
 };
 use nh_installable::Installable;
 pub use nix_command::{CommandKind, NixCommand};
-use secrecy::{ExposeSecret, SecretString};
 use subprocess::{Exec, ExitStatus, Redirection};
 use thiserror::Error;
-use tracing::{debug, info, warn};
-use which::which;
+use tracing::{debug, info};
 
-use crate::args::NixBuildPassthroughArgs;
+pub use crate::elevation::{
+  Elevation,
+  ElevationStrategy,
+  ElevationStrategyArg,
+};
+use crate::{args::NixBuildPassthroughArgs, elevation::RemoteSudoAuth};
 
 /// Execute a command, streaming output to stdout/stderr while optionally
 /// capturing it for error reporting.
@@ -132,73 +131,17 @@ pub fn exec_with_streaming(
   Ok((exit_status, stdout_output, stderr_output))
 }
 
-static PASSWORD_CACHE: OnceLock<Mutex<HashMap<String, SecretString>>> =
-  OnceLock::new();
-
-/// Retrieves a cached password for the specified host.
-///
-/// # Arguments
-///
-/// * `host` - The host identifier (e.g., "user@hostname" or "hostname") to look
-///   up in the cache
-///
-/// # Returns
-///
-/// * `Some(SecretString)` - If a password for the host exists in the cache
-/// * `None` - If no password has been cached for this host
-///
-/// # Errors
-///
-/// Returns an error if the password cache lock is poisoned.
-pub fn get_cached_password(host: &str) -> Result<Option<SecretString>> {
-  let cache = PASSWORD_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-  let guard = cache
-    .lock()
-    .map_err(|_| eyre::eyre!("Password cache lock poisoned"))?;
-  Ok(guard.get(host).cloned())
-}
-
-/// Stores a password in the cache for the specified host.
-///
-/// The password is stored as a `SecretString` to ensure secure memory
-/// handling. Cached passwords persist for the lifetime of the program and can
-/// be retrieved using [`get_cached_password`].
-///
-/// # Arguments
-///
-/// * `host` - The host identifier (e.g., "user@hostname" or "hostname") to
-///   associate with the password
-/// * `password` - The password to cache, wrapped in a `SecretString` for secure
-///   handling
-///
-/// # Errors
-///
-/// Returns an error if the password cache lock is poisoned.
-pub fn cache_password(host: &str, password: SecretString) -> Result<()> {
-  let cache = PASSWORD_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-
-  cache
-    .lock()
-    .map_err(|_| eyre::eyre!("Password cache lock poisoned"))?
-    .insert(host.to_string(), password);
-
-  Ok(())
-}
-
-fn ssh_wrap(
-  cmd: Exec,
-  ssh: Option<&str>,
-  password: Option<&SecretString>,
-) -> Exec {
+fn ssh_wrap(cmd: Exec, ssh: Option<&str>, sudo_auth: &RemoteSudoAuth) -> Exec {
   if let Some(ssh) = ssh {
-    let mut ssh_cmd = Exec::cmd("ssh")
-      .arg("-T")
-      .arg(ssh)
-      .arg(cmd.to_cmdline_lossy());
+    let mut ssh_cmd = Exec::cmd("ssh").arg("-T");
 
-    if let Some(pwd) = password {
-      let stdin_data: Vec<u8> =
-        format!("{}\n", pwd.expose_secret()).into_bytes();
+    if sudo_auth.requires_ssh_agent_forwarding() {
+      ssh_cmd = ssh_cmd.arg("-A");
+    }
+
+    ssh_cmd = ssh_cmd.arg(ssh).arg(cmd.to_cmdline_lossy());
+
+    if let Some(stdin_data) = sudo_auth.stdin_bytes() {
       ssh_cmd = ssh_cmd.stdin(stdin_data);
     }
 
@@ -221,161 +164,6 @@ pub enum EnvAction {
   Remove,
 }
 
-/// Strategy argument for handling privilege elevation when running commands.
-///
-/// Defines how `nh` should handle privilege elevation for commands
-/// that require root access (e.g., `switch-to-configuration`)
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ElevationStrategyArg {
-  /// No elevation - commands run without privilege escalation.
-  None,
-
-  /// Automatically detect and use the first available elevation program
-  /// (tries doas -> sudo -> run0 -> pkexec in order). Uses askpass helper if
-  /// available.
-  Auto,
-
-  /// Use elevation program but skip password prompting for remote hosts with
-  /// NOPASSWD configured.
-  Passwordless,
-
-  /// Use the specified elevation program.
-  Program(PathBuf),
-}
-
-impl FromStr for ElevationStrategyArg {
-  type Err = Infallible;
-
-  fn from_str(s: &str) -> Result<Self, Self::Err> {
-    match s {
-      "none" => Ok(Self::None),
-      "auto" => Ok(Self::Auto),
-      "passwordless" => Ok(Self::Passwordless),
-      _ => {
-        s.strip_prefix("program:").map_or_else(
-          || Ok(Self::Program(PathBuf::from(s))),
-          |rest| Ok(Self::Program(PathBuf::from(rest))),
-        )
-      },
-    }
-  }
-}
-
-/// Strategy for handling privilege elevation at runtime.
-///
-/// This enum defines how `nh` should handle privilege elevation for commands
-/// that require root access (e.g., `switch-to-configuration`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ElevationStrategy {
-  /// Automatically detect and use the first available elevation program
-  /// (tries doas -> sudo -> run0 -> pkexec in order). Uses askpass helper if
-  /// available.
-  Auto,
-
-  /// Try the specified elevation program first, fall back to `Auto` if not
-  /// found. Corresponds to CLI argument that is a path.
-  Prefer(PathBuf),
-
-  /// Use only the specified program name.
-  #[allow(dead_code, reason = "In use")]
-  Force(&'static str),
-
-  /// Do not use any elevation program. Commands run without privilege
-  /// escalation. This will fail for commands requiring root unless the user is
-  /// already root or the system has other privilege mechanisms configured.
-  None,
-
-  /// Use elevation program but skip password prompting. For remote hosts with
-  /// passwordless sudo (NOPASSWD in sudoers) or similar configurations. The
-  /// elevation command runs without `--stdin` or password input.
-  Passwordless,
-}
-
-impl ElevationStrategy {
-  /// Resolves the elevation strategy to an actual program path.
-  ///
-  /// Attempts to find an appropriate privilege elevation program based on the
-  /// strategy variant and system availability.
-  ///
-  /// # Returns
-  ///
-  /// Returns `Ok(PathBuf)` containing the path to the elevation program binary.
-  ///
-  /// # Errors
-  ///
-  /// Returns an error if:
-  ///
-  /// - `None` variant: Always fails (elevation is disabled via
-  ///   `--elevation-strategy=none`)
-  /// - `Force` variant: The specified program is not found in PATH
-  /// - Other variants: No suitable elevation programs are available on the
-  ///   system
-  pub fn resolve(&self) -> Result<PathBuf> {
-    match self {
-      Self::Auto | Self::Passwordless => Self::choice(),
-      Self::Prefer(program) => {
-        which(program).or_else(|_| {
-          warn!(
-            ?program,
-            "Preferred elevation program not found, falling back to \
-             auto-detection"
-          );
-          Self::choice()
-        })
-      },
-      Self::Force(program_name) => {
-        which(program_name).context(format!(
-          "Forced elevation program '{program_name}' not found in PATH"
-        ))
-      },
-      // Only reachable if resolve() is called directly. Safe since callers
-      // check is_some() before invoking resolve().
-      Self::None => bail!("Elevation disabled via --elevation-strategy=none"),
-    }
-  }
-
-  /// Gets a path to a privilege elevation program based on what is available in
-  /// the system.
-  ///
-  /// This funtion checks for the existence of common privilege elevation
-  /// program names in the `PATH` using the `which` crate and returns a Ok
-  /// result with the `OsString` of the path to the binary. In the case none
-  /// of the checked programs are found a Err result is returned.
-  ///
-  /// The search is done in this order:
-  ///
-  /// 1. `doas`
-  /// 2. `sudo`
-  /// 3. `run0`
-  /// 4. `pkexec`
-  ///
-  /// The logic for choosing this order is that a person with `doas` installed
-  /// is more likely to be using it as their main privilege elevation program.
-  /// `run0` and `pkexec` are preinstalled in any `NixOS` system with polkit
-  /// support installed, so they have been placed lower as it's easier to
-  /// deactivate sudo than it is to remove `run0`/`pkexec`
-  ///
-  /// # Returns
-  ///
-  /// * `Result<PathBuf>` - The absolute path to the privilege elevation program
-  ///   binary or an error if a program can't be found.
-  fn choice() -> Result<PathBuf> {
-    const STRATEGIES: [&str; 4] = ["doas", "sudo", "run0", "pkexec"];
-
-    for strategy in STRATEGIES {
-      if let Ok(path) = which(strategy) {
-        debug!(?path, "{strategy} path found");
-        return Ok(path);
-      }
-    }
-
-    Err(eyre::eyre!(
-      "No elevation strategy found. Checked: {}",
-      STRATEGIES.join(", ")
-    ))
-  }
-}
-
 #[derive(Debug)]
 #[allow(clippy::struct_field_names)]
 pub struct Command {
@@ -383,7 +171,7 @@ pub struct Command {
   message:     Option<String>,
   command:     OsString,
   args:        Vec<OsString>,
-  elevate:     Option<ElevationStrategy>,
+  elevate:     Option<Elevation>,
   ssh:         Option<String>,
   show_output: bool,
   env_vars:    HashMap<String, EnvAction>,
@@ -405,8 +193,11 @@ impl Command {
 
   /// Set whether to run the command with elevated privileges.
   #[must_use]
-  pub fn elevate(mut self, elevate: Option<ElevationStrategy>) -> Self {
-    self.elevate = elevate;
+  pub fn elevate<E>(mut self, elevate: Option<E>) -> Self
+  where
+    E: Into<Elevation>,
+  {
+    self.elevate = elevate.map(Into::into);
     self
   }
 
@@ -589,20 +380,20 @@ impl Command {
   ///
   /// Panics: If called when `self.elevate` is `None`
   fn build_sudo_cmd(&self) -> Result<Exec> {
-    let elevation_strategy = self
+    let elevation = self
       .elevate
       .as_ref()
       .ok_or_else(|| eyre::eyre!("Command not found for elevation"))?;
 
-    let elevation_program = elevation_strategy
+    let elevation_program = elevation
+      .strategy()
       .resolve()
       .context("Failed to resolve elevation program")?;
 
     let mut cmd = Exec::cmd(&elevation_program);
 
-    // Use NH_SUDO_ASKPASS program for sudo if present, but NOT for
-    // Passwordless variant (Passwordless expects NOPASSWD config without
-    // password input)
+    // Use NH_SUDO_ASKPASS for sudo unless the selected policy expects
+    // passwordless elevation.
     let program_name = elevation_program
       .file_name()
       .and_then(|name| name.to_str())
@@ -610,7 +401,7 @@ impl Command {
         eyre::eyre!("Failed to determine elevation program name")
       })?;
     if program_name == "sudo"
-      && !matches!(elevation_strategy, ElevationStrategy::Passwordless)
+      && elevation.uses_local_sudo_askpass()
       && let Ok(askpass) = std::env::var("NH_SUDO_ASKPASS")
     {
       cmd = cmd.env("SUDO_ASKPASS", askpass).arg("-A");
@@ -654,6 +445,7 @@ impl Command {
       .elevate
       .as_ref()
       .ok_or_else(|| eyre::eyre!("Command not found for elevation"))?
+      .strategy()
       .resolve()
       .context("Failed to resolve elevation program")?;
 
@@ -706,7 +498,7 @@ impl Command {
   /// Returns an error if the current executable path cannot be determined or
   /// sudo command cannot be built.
   pub fn self_elevate_cmd(
-    strategy: ElevationStrategy,
+    elevation: Elevation,
   ) -> Result<std::process::Command> {
     // Get the current executable path
     let current_exe = std::env::current_exe()
@@ -714,7 +506,7 @@ impl Command {
 
     // Self-elevation with proper environment handling
     let cmd_builder = Self::new(&current_exe)
-      .elevate(Some(strategy))
+      .elevate(Some(elevation))
       .with_required_env();
 
     let mut sudo_parts = cmd_builder.build_sudo_parts()?;
@@ -749,30 +541,16 @@ impl Command {
   ///
   /// Panics if the command result is unexpectedly None.
   pub fn run(&self) -> Result<()> {
-    // Prompt for elevation password if needed for remote deployment.
-    // Note: Only sudo supports stdin password input. For remote deployments
-    // with doas/run0, use --elevation-strategy=passwordless instead.
-    let sudo_password = if self.ssh.is_some() && self.elevate.is_some() {
+    let sudo_auth = if self.ssh.is_some() && self.elevate.is_some() {
       let host = self.ssh.as_ref().ok_or_else(|| {
         eyre::eyre!("SSH host is None but elevation is required")
       })?;
-      if let Some(cached_password) = get_cached_password(host)? {
-        Some(cached_password)
-      } else {
-        let password =
-          inquire::Password::new(&format!("[sudo] password for {host}:"))
-            .without_confirmation()
-            .prompt()
-            .context("Failed to read sudo password")?;
-        if password.is_empty() {
-          bail!("Password cannot be empty");
-        }
-        let secret_password = SecretString::new(password.into());
-        cache_password(host, secret_password.clone())?;
-        Some(secret_password)
-      }
+      let elevation = self.elevate.as_ref().ok_or_else(|| {
+        eyre::eyre!("Elevation program is None but elevation is required")
+      })?;
+      elevation.remote_sudo_auth(host)?
     } else {
-      None
+      RemoteSudoAuth::none()
     };
 
     let cmd = if self.elevate.is_some() && self.ssh.is_none() {
@@ -780,27 +558,20 @@ impl Command {
       self.build_sudo_cmd()?.arg(&self.command).args(&self.args)
     } else if self.elevate.is_some() && self.ssh.is_some() {
       // Build elevation command
-      let elevation_program = self
-        .elevate
-        .as_ref()
-        .ok_or_else(|| {
-          eyre::eyre!("Elevation program is None but elevation is required")
-        })?
-        .resolve()
-        .context("Failed to resolve elevation program")?;
+      let elevation = self.elevate.as_ref().ok_or_else(|| {
+        eyre::eyre!("Elevation program is None but elevation is required")
+      })?;
 
-      let program_name = elevation_program
-        .file_name()
-        .and_then(|name| name.to_str())
+      let remote_elevation = elevation
+        .remote_command()
+        .context("Failed to build remote elevation command")?
         .ok_or_else(|| {
           eyre::eyre!("Failed to determine elevation program name")
         })?;
 
-      let mut elev_cmd = Exec::cmd(&elevation_program);
-
-      // Add program-specific arguments
-      if program_name == "sudo" {
-        elev_cmd = elev_cmd.arg("--prompt=").arg("--stdin");
+      let mut elev_cmd = Exec::cmd(remote_elevation.program());
+      for arg in remote_elevation.args() {
+        elev_cmd = elev_cmd.arg(arg);
       }
 
       // Add env command to handle environment variables
@@ -837,7 +608,7 @@ impl Command {
         cmd.stderr(Redirection::None).stdout(Redirection::None)
       },
       self.ssh.as_deref(),
-      sudo_password.as_ref(),
+      &sudo_auth,
     );
 
     if let Some(m) = &self.message {
@@ -1052,6 +823,7 @@ mod tests {
   use serial_test::serial;
 
   use super::*;
+  use crate::elevation::RemoteSudoStdin;
 
   // Safely manage environment variables in tests
   struct EnvGuard {
@@ -1125,7 +897,10 @@ mod tests {
 
     assert!(cmd.dry);
     assert!(cmd.show_output);
-    assert_eq!(cmd.elevate, Some(ElevationStrategy::Force("sudo")));
+    assert_eq!(
+      cmd.elevate,
+      Some(Elevation::from(ElevationStrategy::Force("sudo")))
+    );
     assert_eq!(cmd.message, Some("test message".to_string()));
     assert_eq!(cmd.args, vec![
       OsString::from("arg1"),
@@ -1374,29 +1149,6 @@ mod tests {
   }
 
   #[test]
-  fn test_elevation_strategy_passwordless_resolves() {
-    let strategy = ElevationStrategy::Passwordless;
-    let result = strategy.resolve();
-
-    // Passwordless should resolve to an elevation program just like Auto
-    assert!(result.is_ok());
-    let program = result.unwrap();
-    assert!(!program.as_os_str().is_empty());
-  }
-
-  #[test]
-  fn test_elevation_strategy_arg_program_prefix_parsing() {
-    let parsed = "program:/path/to/bin".parse::<ElevationStrategyArg>();
-    assert!(parsed.is_ok());
-    match parsed.unwrap() {
-      ElevationStrategyArg::Program(path) => {
-        assert_eq!(path, PathBuf::from("/path/to/bin"));
-      },
-      _ => unreachable!("Expected Program variant"),
-    }
-  }
-
-  #[test]
   fn test_build_sudo_cmd_force_no_stdin() {
     let cmd =
       Command::new("test").elevate(Some(ElevationStrategy::Force("sudo")));
@@ -1562,7 +1314,7 @@ mod tests {
   #[test]
   fn test_ssh_wrap_with_ssh() {
     let cmd = subprocess::Exec::cmd("echo").arg("hello");
-    let wrapped = ssh_wrap(cmd, Some("user@host"), None);
+    let wrapped = ssh_wrap(cmd, Some("user@host"), &RemoteSudoAuth::none());
 
     let cmdline = wrapped.to_cmdline_lossy();
     assert!(cmdline.starts_with("ssh"));
@@ -1574,7 +1326,7 @@ mod tests {
   fn test_ssh_wrap_without_ssh() {
     let cmd = subprocess::Exec::cmd("echo").arg("hello");
     let expected = cmd.to_cmdline_lossy();
-    let wrapped = ssh_wrap(cmd, None, None);
+    let wrapped = ssh_wrap(cmd, None, &RemoteSudoAuth::none());
 
     // Should return the original command unchanged
     assert_eq!(wrapped.to_cmdline_lossy(), expected);
@@ -1583,12 +1335,29 @@ mod tests {
   #[test]
   fn test_ssh_wrap_with_password() {
     let cmd = subprocess::Exec::cmd("echo").arg("hello");
-    let password = SecretString::new("testpass".into());
-    let wrapped = ssh_wrap(cmd, Some("user@host"), Some(&password));
+    let auth = RemoteSudoAuth::with_stdin(RemoteSudoStdin::Line(
+      secrecy::SecretString::new("testpass".into()),
+    ));
+    let wrapped = ssh_wrap(cmd, Some("user@host"), &auth);
 
     let cmdline = wrapped.to_cmdline_lossy();
     assert!(cmdline.starts_with("ssh"));
     assert!(cmdline.contains("-T"));
+    assert!(cmdline.contains("user@host"));
+  }
+
+  #[test]
+  fn test_ssh_wrap_with_empty_password_forwards_agent() {
+    let cmd = subprocess::Exec::cmd("echo").arg("hello");
+    let auth = Elevation::from(ElevationStrategyArg::EmptyPassword)
+      .remote_sudo_auth("user@host")
+      .expect("empty-password auth should not prompt");
+    let wrapped = ssh_wrap(cmd, Some("user@host"), &auth);
+
+    let cmdline = wrapped.to_cmdline_lossy();
+    assert!(cmdline.starts_with("ssh"));
+    assert!(cmdline.contains("-T"));
+    assert!(cmdline.contains("-A"));
     assert!(cmdline.contains("user@host"));
   }
 
