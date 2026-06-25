@@ -11,9 +11,7 @@
 
       pkgsFor = system: nixpkgs.legacyPackages.${system} or (import nixpkgs { inherit system; });
 
-      supportedSystems = builtins.filter (
-        system: (builtins.tryEval (pkgsFor system).stdenv.hostPlatform).success
-      ) (lib.systems.doubles.linux ++ lib.systems.doubles.darwin);
+      supportedSystems = lib.systems.doubles.linux ++ lib.systems.doubles.darwin;
 
       forAllSystems = function: lib.genAttrs supportedSystems (system: function (pkgsFor system));
 
