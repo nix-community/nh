@@ -3,18 +3,15 @@ use std::{
   io,
   path::{Path, PathBuf},
   thread,
-  time::Duration,
 };
 
 use color_eyre::eyre::{Result, eyre};
-use indicatif::{ProgressBar, ProgressStyle};
-use nh_core::args::DiffType;
+use nh_core::{args::DiffType, progress};
 use nh_remote::{RemoteHost, ResolvedRemoteStorePath};
 use tracing::{debug, info, warn};
 use yansi::Paint;
 
 const NIXOS_CURRENT_PROFILE: &str = "/run/current-system";
-const SPINNER_TICK: Duration = Duration::from_millis(80);
 
 struct WriteFmt<W: io::Write>(W);
 impl<W: io::Write> fmt::Write for WriteFmt<W> {
@@ -153,7 +150,7 @@ fn print_nixos_generation_diff(
     )
   };
 
-  let spinner = start_spinner(message);
+  let spinner = progress::spinner(message);
   let diff = query_remote_nixos_diff(
     target_host,
     current_profile,
@@ -213,19 +210,6 @@ fn query_endpoint_diff(
       report:    dix::diff_store_snapshots(&old_snapshot, &new_snapshot),
     })
   })
-}
-
-fn start_spinner(message: String) -> ProgressBar {
-  let spinner = ProgressBar::new_spinner();
-  if let Ok(style) =
-    ProgressStyle::default_spinner().template("{spinner:.green} {msg}")
-  {
-    spinner.set_style(style);
-  }
-  spinner.set_message(message);
-  spinner.enable_steady_tick(SPINNER_TICK);
-
-  spinner
 }
 
 fn remote_profile_path(

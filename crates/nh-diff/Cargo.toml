@@ -9,7 +9,6 @@ rust-version.workspace = true
 [dependencies]
 color-eyre.workspace = true
 dix.workspace        = true
-indicatif.workspace  = true
 nh-core.workspace    = true
 nh-remote.workspace  = true
 tracing.workspace    = true

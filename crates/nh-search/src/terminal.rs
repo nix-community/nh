@@ -1,9 +1,7 @@
-use std::time::Duration;
-
-use indicatif::ProgressBar;
+use nh_core::progress::{self, Spinner};
 
 pub struct SearchProgress {
-  spinner: Option<ProgressBar>,
+  spinner: Option<Spinner>,
 }
 
 impl SearchProgress {
@@ -12,11 +10,8 @@ impl SearchProgress {
       return Self { spinner: None };
     }
 
-    let spinner = ProgressBar::new_spinner();
-    spinner.enable_steady_tick(Duration::from_millis(100));
-    spinner.set_message(message);
     Self {
-      spinner: Some(spinner),
+      spinner: Some(progress::spinner(message)),
     }
   }
 
