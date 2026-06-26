@@ -2,15 +2,16 @@ use std::{
   ffi::OsString,
   io::{BufRead, Read},
   path::Path,
-  time::Duration,
 };
 
 use color_eyre::{
   Result,
   eyre::{Context, eyre},
 };
-use indicatif::{ProgressBar, ProgressStyle};
-use nh_core::command::exec_with_streaming;
+use nh_core::{
+  command::exec_with_streaming,
+  progress::{self, Spinner},
+};
 use subprocess::{Exec, Redirection};
 use tracing::{debug, error, info};
 
@@ -124,7 +125,7 @@ pub fn copy_closure_from(host: &RemoteHost, path: &str) -> Result<()> {
 
 fn spawn_spinner_stream_thread<R>(
   pipe: R,
-  spinner: ProgressBar,
+  spinner: Spinner,
   stream_name: &'static str,
 ) -> std::thread::JoinHandle<Result<String>>
 where
@@ -172,7 +173,7 @@ fn format_copy_failure(
 
 fn exec_with_spinner_streaming(
   cmd: Exec,
-  spinner: &ProgressBar,
+  spinner: &Spinner,
 ) -> Result<(subprocess::ExitStatus, String, String)> {
   let mut job = cmd
     .stdout(Redirection::Pipe)
@@ -240,11 +241,6 @@ fn exec_with_spinner_streaming(
 /// - The `nix copy` command fails (e.g., insufficient disk space on remote,
 ///   network issues, authentication failures)
 /// - The path does not exist in the local store
-///
-/// # Panics
-///
-/// Panics if the spinner template is invalid. This cannot happen in practice
-/// as the template is a hardcoded literal.
 pub fn copy_to_remote(
   host: &RemoteHost,
   path: &Path,
@@ -259,16 +255,8 @@ pub fn copy_to_remote(
   );
   debug!(?cmd, "nix copy --to");
 
-  // Haha spinner go brr
-  let spinner = ProgressBar::new_spinner();
-  #[expect(clippy::expect_used)]
-  spinner.set_style(
-    ProgressStyle::default_spinner()
-      .template("{spinner:.green} {msg}")
-      .expect("hardcoded template is valid"),
-  );
-  spinner.set_message(format!("Copying closure to remote host '{host}'..."));
-  spinner.enable_steady_tick(Duration::from_millis(80));
+  let spinner =
+    progress::spinner(format!("Copying closure to remote host '{host}'..."));
 
   let copy_result = exec_with_spinner_streaming(cmd, &spinner);
 
@@ -448,7 +436,7 @@ mod tests {
 
   #[test]
   fn test_exec_with_spinner_streaming_mixed_output_no_deadlock() {
-    let spinner = ProgressBar::hidden();
+    let spinner = Spinner::hidden();
     // Interleaved stdout and stderr: alternating lines with explicit flush.
     let cmd = Exec::cmd("bash").arg("-c").arg(
       r#"
@@ -470,7 +458,7 @@ done
 
   #[test]
   fn test_spawn_spinner_stream_thread_error_propagation() {
-    let spinner = ProgressBar::hidden();
+    let spinner = Spinner::hidden();
     let handle =
       spawn_spinner_stream_thread(FaultyReader, spinner, "faulty-stream");
     let result = handle
@@ -484,7 +472,7 @@ done
 
   #[test]
   fn test_exec_with_spinner_streaming_command_start_error_propagation() {
-    let spinner = ProgressBar::hidden();
+    let spinner = Spinner::hidden();
     // A nonexistent command triggers `cmd.start()` failure.
     // This should verify that errors propagate out of
     // `exec_with_spinner_streaming` rather than panicking.

@@ -1293,6 +1293,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "color-eyre",
+ "indicatif",
  "inquire",
  "nh-installable",
  "nix",
@@ -1333,7 +1334,6 @@ version = "0.1.0"
 dependencies = [
  "color-eyre",
  "dix",
- "indicatif",
  "nh-core",
  "nh-remote",
  "tracing",
@@ -1391,7 +1391,6 @@ version = "0.1.0"
 dependencies = [
  "color-eyre",
  "dix",
- "indicatif",
  "inquire",
  "nh-core",
  "nh-installable",
@@ -1413,8 +1412,8 @@ dependencies = [
  "clap",
  "color-eyre",
  "elasticsearch-dsl",
- "indicatif",
  "inquire",
+ "nh-core",
  "regex",
  "reqwest",
  "secrecy",

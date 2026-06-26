@@ -9,6 +9,7 @@ rust-version.workspace = true
 [dependencies]
 clap.workspace           = true
 color-eyre.workspace     = true
+indicatif.workspace      = true
 inquire.workspace        = true
 nh-installable.workspace = true
 nix.workspace            = true
