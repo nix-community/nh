@@ -9,7 +9,7 @@ use color_eyre::{
 };
 use nh_core::{
   args::DiffType,
-  command::{Command, ElevationStrategy},
+  command::{Command, CommandKind, ElevationStrategy, NixCommand, StdIo},
   update::update,
   util::get_hostname,
 };
@@ -234,12 +234,13 @@ impl DarwinReplArgs {
       attribute.push(hostname);
     }
 
-    Command::new("nix")
-      .arg("repl")
+    let status = NixCommand::new(CommandKind::Repl)
       .args(target_installable.to_args())
       .with_required_env()
-      .show_output(true)
-      .run()?;
+      .run_with_logs(StdIo)?;
+    if !status.success() {
+      bail!("nix repl failed (exit status {status:?})");
+    }
 
     Ok(())
   }
