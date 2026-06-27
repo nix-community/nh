@@ -46,7 +46,7 @@
           name = "nix3-fmt-wrapper";
 
           runtimeInputs = [
-            pkgs.nixfmt-rfc-style
+            pkgs.nixfmt
             pkgs.taplo
             pkgs.deno
             pkgs.fd
