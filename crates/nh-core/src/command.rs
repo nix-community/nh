@@ -13,7 +13,7 @@ use color_eyre::{
   eyre::{self, Context, bail},
 };
 use nh_installable::Installable;
-pub use nix_command::{CommandKind, NixCommand, StdIo};
+pub use nix_command::{CommandKind, NixCommand};
 use secrecy::{ExposeSecret, SecretString};
 use subprocess::{Exec, ExitStatus, Redirection};
 use thiserror::Error;

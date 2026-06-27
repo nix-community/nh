@@ -12,15 +12,15 @@ wiring.
   mode) via `CommandSpec`.
 - Chain `.arg()`, `.env()`, `.impure()`, `.interactive()`, `.print_build_logs()`
   to configure a `NixCommand` via the builder API.
-- Stdout and stderr are forwarded through a user-provided interceptor as they
-  arrive using streaming execution via `run_with_logs(interceptor)`
+- Stdout and stderr are forwarded as they arrive using streaming execution via
+  `run_with_logs()`
 - Captured execution via `output()`; stdout and stderr are collected into
   buffers.
 
 ## Quick start
 
 ```rust
-use nix_command::{CommandKind, NixCommand, StdIo};
+use nix_command::{CommandKind, NixCommand};
 
 // Build a command
 let cmd = NixCommand::new(CommandKind::Build)
@@ -33,7 +33,7 @@ assert_eq!(cmd.argv(), [
 ]);
 
 // Run with streaming output
-let status = cmd.run_with_logs(StdIo)?;
+let status = cmd.run_with_logs()?;
 assert!(status.success());
 
 // Or capture output

@@ -162,18 +162,6 @@ pub struct UnknownCommand {
   command: String,
 }
 
-pub struct StdIo;
-
-impl StdIo {
-  fn on_stderr(&mut self, chunk: &[u8]) {
-    let _ = io::stderr().write_all(chunk);
-  }
-
-  fn on_stdout(&mut self, chunk: &[u8]) {
-    let _ = io::stdout().write_all(chunk);
-  }
-}
-
 #[derive(Debug)]
 enum PipeEvent {
   Stdout(Vec<u8>),
@@ -183,7 +171,7 @@ enum PipeEvent {
 
 fn read_pipe<R: Read>(
   mut reader: R,
-  tx: mpsc::Sender<PipeEvent>,
+  tx: &mpsc::Sender<PipeEvent>,
   is_stderr: bool,
 ) {
   let mut buf = [0u8; 4096];
@@ -448,7 +436,6 @@ impl NixCommand {
     cmd
   }
 
-  #[must_use]
   pub fn to_exec(&self) -> Exec {
     let argv = self.argv();
     let mut cmd = Exec::cmd(&argv[0]).args(&argv[1..]);
@@ -477,7 +464,7 @@ impl NixCommand {
     Self::raw().binary("nix-instantiate")
   }
 
-  pub fn run_with_logs(&self, mut interceptor: StdIo) -> Result<ExitStatus> {
+  pub fn run_with_logs(&self) -> Result<ExitStatus> {
     let mut cmd = self.to_std_command();
 
     if self.interactive {
@@ -497,22 +484,26 @@ impl NixCommand {
     let (tx, rx) = mpsc::channel();
     let stdout_thread = thread::spawn({
       let tx = tx.clone();
-      move || read_pipe(stdout, tx, false)
+      move || read_pipe(stdout, &tx, false)
     });
-    let stderr_thread = thread::spawn(move || read_pipe(stderr, tx, true));
+    let stderr_thread = thread::spawn(move || read_pipe(stderr, &tx, true));
     let start = Instant::now();
 
     loop {
       if start.elapsed() > DEFAULT_TIMEOUT {
-        self.kill_wait_join(&mut child, stdout_thread, stderr_thread)?;
+        kill_wait_join(&mut child, stdout_thread, stderr_thread)?;
         return Err(self.timeout());
       }
 
       match rx.recv_timeout(Duration::from_millis(100)) {
-        Ok(PipeEvent::Stdout(data)) => interceptor.on_stdout(&data),
-        Ok(PipeEvent::Stderr(data)) => interceptor.on_stderr(&data),
+        Ok(PipeEvent::Stdout(data)) => {
+          let _ = io::stdout().write_all(&data);
+        },
+        Ok(PipeEvent::Stderr(data)) => {
+          let _ = io::stderr().write_all(&data);
+        },
         Ok(PipeEvent::Error(e)) => {
-          self.kill_wait_join(&mut child, stdout_thread, stderr_thread)?;
+          kill_wait_join(&mut child, stdout_thread, stderr_thread)?;
           return Err(Error::Io(e));
         },
         Err(mpsc::RecvTimeoutError::Timeout) => {},
@@ -539,19 +530,6 @@ impl NixCommand {
     Ok(cmd.output()?)
   }
 
-  fn kill_wait_join(
-    &self,
-    child: &mut std::process::Child,
-    stdout_thread: thread::JoinHandle<()>,
-    stderr_thread: thread::JoinHandle<()>,
-  ) -> Result<()> {
-    let _ = child.kill();
-    let _ = stdout_thread.join();
-    let _ = stderr_thread.join();
-    let _ = child.wait()?;
-    Ok(())
-  }
-
   fn command_failed(&self) -> Error {
     Error::CommandFailed {
       command: self.command_name(),
@@ -573,7 +551,20 @@ impl NixCommand {
   }
 }
 
+fn kill_wait_join(
+  child: &mut std::process::Child,
+  stdout_thread: thread::JoinHandle<()>,
+  stderr_thread: thread::JoinHandle<()>,
+) -> Result<()> {
+  let _ = child.kill();
+  let _ = stdout_thread.join();
+  let _ = stderr_thread.join();
+  child.wait()?;
+  Ok(())
+}
+
 #[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "Fine in tests")]
 mod tests {
   use super::*;
 
