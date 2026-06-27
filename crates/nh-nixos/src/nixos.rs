@@ -912,7 +912,9 @@ impl OsBuildImageArgs {
       Installable::File { .. } | Installable::Expression { .. } => {
         get_build_image_variants(&installable, &target_hostname)?
       },
-      _ => bail!("Unsupported installable type for image building"),
+      Installable::Store { .. } => {
+        bail!("Unsupported installable type for image building")
+      },
     };
 
     // Validate that the requested variant exists
