@@ -444,7 +444,7 @@ impl args::CleanMode {
 
     if args.optimise {
       Command::new("nix-store")
-        .args(["--optimise"])
+        .arg("--optimise")
         .dry(args.dry)
         .message("Optimising the nix store")
         .show_output(true)
