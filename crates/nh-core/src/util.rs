@@ -32,10 +32,8 @@ fn format_argv(argv: &[OsString]) -> String {
     .iter()
     .map(|arg| {
       let arg = arg.to_string_lossy().into_owned();
-      match shlex::try_quote(&arg) {
-        Ok(quoted) => quoted.into_owned(),
-        Err(_) => arg,
-      }
+      shlex::try_quote(&arg)
+        .map_or_else(|_| arg.clone(), std::borrow::Cow::into_owned)
     })
     .collect::<Vec<_>>()
     .join(" ")
