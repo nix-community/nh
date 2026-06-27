@@ -74,7 +74,7 @@ fn project_root() -> PathBuf {
       .unwrap_or_else(|_| env!("CARGO_MANIFEST_DIR").to_owned()),
   )
   .ancestors()
-  .nth(1)
+  .nth(2)
   .unwrap()
   .to_path_buf()
 }
