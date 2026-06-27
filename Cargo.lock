@@ -1442,6 +1442,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "nix-command"
+version = "0.2.3"
+dependencies = [
+ "subprocess",
+ "thiserror",
+]
+
+[[package]]
 name = "nu-ansi-term"
 version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
