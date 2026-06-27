@@ -8,6 +8,7 @@ use std::{
 use chrono::{DateTime, Local, TimeZone, Utc};
 use clap::ValueEnum;
 use color_eyre::eyre::Result;
+use nh_core::command::{CommandKind, NixCommand};
 use tracing::{debug, warn};
 
 #[derive(Debug, Clone)]
@@ -148,9 +149,10 @@ pub fn get_closure_sizes_batch(
     .map(|p| p.read_link().unwrap_or_else(|_| p.to_path_buf()))
     .collect();
 
-  let output = match process::Command::new("nix")
-    .args(["path-info", "-Sh", "--json"])
+  let output = match NixCommand::new(CommandKind::PathInfo)
+    .args(["-Sh", "--json"])
     .args(generation_dirs)
+    .to_std_command()
     .output()
   {
     Ok(out) => out,
@@ -193,9 +195,10 @@ pub fn get_closure_size(generation_dir: &Path) -> String {
     .unwrap_or_else(|_| generation_dir.to_path_buf());
   let store_path_str = store_path.to_string_lossy();
 
-  let output = match process::Command::new("nix")
-    .args(["path-info", "-Sh", "--json"])
+  let output = match NixCommand::new(CommandKind::PathInfo)
+    .args(["-Sh", "--json"])
     .arg(generation_dir)
+    .to_std_command()
     .output()
   {
     Ok(out) => out,

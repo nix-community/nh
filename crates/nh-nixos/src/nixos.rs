@@ -7,7 +7,7 @@ use std::{
 use color_eyre::eyre::{Context, Result, bail, eyre};
 use nh_core::{
   args::DiffType,
-  command::{self, Command, ElevationStrategy},
+  command::{self, Command, CommandKind, ElevationStrategy, NixCommand, StdIo},
   update::update,
   util::{
     ensure_ssh_key_login,
@@ -423,9 +423,9 @@ impl OsRebuildActivateArgs {
           .context("Failed to resolve base output path to store path")?;
 
         Command::new("nix")
-          .elevate(elevate.then_some(elevation.clone()))
           .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
           .arg(&base_store_path)
+          .elevate(elevate.then_some(elevation.clone()))
           .with_required_env()
           .run()
           .wrap_err("Failed to set system profile")?;
@@ -1326,12 +1326,13 @@ impl OsReplArgs {
       attribute.push(hostname);
     }
 
-    Command::new("nix")
-      .arg("repl")
+    let status = NixCommand::new(CommandKind::Repl)
       .args(target_installable.to_args())
       .with_required_env()
-      .show_output(true)
-      .run()?;
+      .run_with_logs(StdIo)?;
+    if !status.success() {
+      bail!("nix repl failed (exit status {status:?})");
+    }
 
     Ok(())
   }
