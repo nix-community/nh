@@ -845,7 +845,7 @@ fn convert_extra_args(extra_args: &[OsString]) -> Result<Vec<String>> {
     .collect::<Result<Vec<_>>>()
 }
 
-fn nix_argv_to_strings(command: NixCommand) -> Result<Vec<String>> {
+fn nix_argv_to_strings(command: &NixCommand) -> Result<Vec<String>> {
   command
     .argv()
     .into_iter()
@@ -1578,7 +1578,7 @@ fn build_nix_command(
   let extra_args_strings = convert_extra_args(extra_args)?;
 
   nix_argv_to_strings(
-    NixCommand::new(CommandKind::Build)
+    &NixCommand::new(CommandKind::Build)
       .print_build_logs(false)
       .global_args(get_flake_flags())
       .arg(drv_with_outputs)
