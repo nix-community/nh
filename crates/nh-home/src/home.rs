@@ -17,7 +17,7 @@ use nh_installable::{CommandContext, Installable};
 use nh_remote::{self, RemoteBuildConfig};
 use tracing::{debug, info, warn};
 
-fn capture_nix_stdout(command: NixCommand) -> Result<String> {
+fn capture_nix_stdout(command: &NixCommand) -> Result<String> {
   let output = command.output().wrap_err("Failed to run nix command")?;
   if !output.status.success() {
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -285,7 +285,7 @@ where
                reference without attributes (e.g., '.')\n  2. Specify only \
                the configuration name (e.g., '.#{}')",
               attribute.join("."),
-              attribute.get(1).unwrap_or(&"<unknown>".to_string())
+              attribute.get(1).map_or("<unknown>", String::as_str)
             );
           }
         } else if attribute.len() > 1 {
@@ -299,7 +299,7 @@ where
                reference without attributes (e.g., '.')\n  2. Specify only \
                the configuration name (e.g., '.#{}')",
               attribute.join("."),
-              attribute.get(1).unwrap_or(&"<unknown>".to_string())
+              attribute.get(1).map_or("<unknown>", String::as_str)
             );
           }
         }
@@ -321,7 +321,7 @@ where
         // Verify the provided configuration exists
         let func = format!(r#" x: x ? "{config_name}" "#);
         let check_res = capture_nix_stdout(
-          NixCommand::new(CommandKind::Eval)
+          &NixCommand::new(CommandKind::Eval)
             .with_required_env()
             .args(&extra_args)
             .arg("--apply")
@@ -377,7 +377,7 @@ where
         for attr_name in [format!("{username}@{hostname}"), username] {
           let func = format!(r#" x: x ? "{attr_name}" "#);
           let check_res = capture_nix_stdout(
-            NixCommand::new(CommandKind::Eval)
+            &NixCommand::new(CommandKind::Eval)
               .with_required_env()
               .args(&extra_args)
               .arg("--apply")
