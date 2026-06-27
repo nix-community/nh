@@ -56,6 +56,12 @@ where
   }
 }
 
+/// Configure error reporting and tracing output.
+///
+/// # Errors
+///
+/// Returns an error if installing the error hook fails or if tracing filter
+/// directives cannot be parsed.
 pub fn setup_logging(
   verbosity: clap_verbosity_flag::Verbosity<InfoLevel>,
 ) -> Result<()> {

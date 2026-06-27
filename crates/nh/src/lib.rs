@@ -9,6 +9,12 @@ pub mod logging;
 pub const NH_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const NH_REV: Option<&str> = option_env!("NH_REV");
 
+/// Run nh with arguments parsed from the process environment.
+///
+/// # Errors
+///
+/// Returns an error if logging setup, Nix environment validation, environment
+/// checks, or the selected command fails.
 pub fn main() -> Result<()> {
   let mut args = <crate::interface::Main as clap::Parser>::parse();
 
