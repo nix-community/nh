@@ -464,6 +464,16 @@ impl NixCommand {
     Self::raw().binary("nix-instantiate")
   }
 
+  /// Run the command, streaming stdout and stderr.
+  ///
+  /// Interactive commands inherit stdio directly, while non-interactive
+  /// commands stream stdout and stderr while the process runs.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the command cannot be started, stdout or stderr
+  /// cannot be captured, a pipe read fails, waiting for the process fails, or
+  /// the command exceeds the default timeout.
   pub fn run_with_logs(&self) -> Result<ExitStatus> {
     let mut cmd = self.to_std_command();
 
@@ -516,6 +526,14 @@ impl NixCommand {
     Ok(child.wait()?)
   }
 
+  /// Run the command and collect its output.
+  ///
+  /// Interactive commands inherit stdio directly.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the command cannot be started or its output cannot be
+  /// collected.
   pub fn output(&self) -> Result<Output> {
     let mut cmd = self.to_std_command();
     if self.interactive {
