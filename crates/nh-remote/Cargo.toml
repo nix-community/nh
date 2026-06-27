@@ -1,10 +1,10 @@
 [package]
 name                   = "nh-remote"
 version                = "0.1.0"
-publish                = false
 edition.workspace      = true
-license.workspace      = true
 rust-version.workspace = true
+license.workspace      = true
+publish                = false
 
 [lib]
 path = "src/remote.rs"
@@ -15,6 +15,7 @@ dix.workspace            = true
 inquire.workspace        = true
 nh-core.workspace        = true
 nh-installable.workspace = true
+nix-command.workspace    = true
 secrecy.workspace        = true
 shlex.workspace          = true
 signal-hook.workspace    = true

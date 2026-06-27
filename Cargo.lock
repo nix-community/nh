@@ -1395,6 +1395,7 @@ dependencies = [
  "inquire",
  "nh-core",
  "nh-installable",
+ "nix-command",
  "proptest",
  "secrecy",
  "serial_test",

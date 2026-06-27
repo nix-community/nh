@@ -17,7 +17,13 @@ use color_eyre::{
   eyre::{Context, bail, eyre},
 };
 use nh_core::{
-  command::{ElevationStrategy, cache_password, get_cached_password},
+  command::{
+    CommandKind,
+    ElevationStrategy,
+    NixCommand,
+    cache_password,
+    get_cached_password,
+  },
   util::NixVariant,
 };
 use nh_installable::Installable;
@@ -839,6 +845,18 @@ fn convert_extra_args(extra_args: &[OsString]) -> Result<Vec<String>> {
     .collect::<Result<Vec<_>>>()
 }
 
+fn nix_argv_to_strings(command: NixCommand) -> Result<Vec<String>> {
+  command
+    .argv()
+    .into_iter()
+    .map(|arg| {
+      arg
+        .into_string()
+        .map_err(|arg| eyre!("Nix argument is not valid UTF-8: {:?}", arg))
+    })
+    .collect()
+}
+
 /// Run a command on a remote host via SSH.
 fn run_remote_command(
   host: &RemoteHost,
@@ -1341,12 +1359,11 @@ fn eval_drv_path(installable: &Installable) -> Result<PathBuf> {
   let args = drv_installable.to_args();
   debug!("Evaluating drvPath: nix eval --raw {:?}", args);
 
-  let flake_flags = get_flake_flags();
-  let cmd = Exec::cmd("nix")
-    .args(&flake_flags)
-    .arg("eval")
+  let cmd = NixCommand::new(CommandKind::Eval)
+    .global_args(get_flake_flags())
     .arg("--raw")
     .args(&args)
+    .to_exec()
     .stdout(Redirection::Pipe)
     .stderr(Redirection::Pipe);
 
@@ -1558,17 +1575,16 @@ fn build_nix_command(
   extra_flags: &[&str],
   extra_args: &[OsString],
 ) -> Result<Vec<String>> {
-  let flake_flags = get_flake_flags();
   let extra_args_strings = convert_extra_args(extra_args)?;
 
-  let mut args = vec!["nix".to_string()];
-  args.extend(flake_flags.iter().map(|s| (*s).to_string()));
-  args.push("build".to_string());
-  args.push(drv_with_outputs.to_string());
-  args.extend(extra_flags.iter().map(|s| (*s).to_string()));
-  args.extend(extra_args_strings);
-
-  Ok(args)
+  nix_argv_to_strings(
+    NixCommand::new(CommandKind::Build)
+      .print_build_logs(false)
+      .global_args(get_flake_flags())
+      .arg(drv_with_outputs)
+      .args(extra_flags)
+      .args(extra_args_strings),
+  )
 }
 
 /// Build on remote without nom - just capture output.
