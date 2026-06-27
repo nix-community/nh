@@ -1,5 +1,6 @@
 use std::{
   collections::HashSet,
+  ffi::OsString,
   os::unix::process::CommandExt,
   process::{Command as StdCommand, Stdio},
   sync::{LazyLock, OnceLock},
@@ -7,8 +8,9 @@ use std::{
 
 use color_eyre::{
   Result,
-  eyre::{self, Context, eyre},
+  eyre::{self, Context, bail, eyre},
 };
+use nix_command::{CommandKind, NixCommand};
 use regex::Regex;
 use tracing::{debug, warn};
 
@@ -25,17 +27,48 @@ static NIX_VERSION_OUTPUT: OnceLock<Option<String>> = OnceLock::new();
 static NIX_VARIANT: OnceLock<NixVariant> = OnceLock::new();
 static NIX_EXPERIMENTAL_FEATURES: OnceLock<HashSet<String>> = OnceLock::new();
 
+fn format_argv(argv: &[OsString]) -> String {
+  argv
+    .iter()
+    .map(|arg| {
+      let arg = arg.to_string_lossy().into_owned();
+      match shlex::try_quote(&arg) {
+        Ok(quoted) => quoted.into_owned(),
+        Err(_) => arg,
+      }
+    })
+    .collect::<Vec<_>>()
+    .join(" ")
+}
+
+fn capture_nix_stdout(command: NixCommand) -> Result<String> {
+  let argv = command.argv();
+  let command_text = format_argv(&argv);
+  let output = command
+    .output()
+    .wrap_err_with(|| format!("Failed to run {command_text}"))?;
+
+  if !output.status.success() {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stderr = stderr.trim();
+    if stderr.is_empty() {
+      bail!("{command_text} failed (exit status {:?})", output.status);
+    }
+    bail!(
+      "{command_text} failed (exit status {:?})\nstderr:\n{stderr}",
+      output.status
+    );
+  }
+
+  String::from_utf8(output.stdout)
+    .wrap_err_with(|| format!("{command_text} produced non-UTF-8 stdout"))
+}
+
 /// Fetches and caches the raw output from `nix --version` command.
 /// This is called once and shared by both variant and version detection.
 fn get_nix_version_output() -> Option<&'static String> {
   NIX_VERSION_OUTPUT
-    .get_or_init(|| {
-      Command::new("nix")
-        .arg("--version")
-        .run_capture()
-        .ok()
-        .flatten()
-    })
+    .get_or_init(|| capture_nix_stdout(NixCommand::raw().arg("--version")).ok())
     .as_ref()
 }
 
@@ -297,14 +330,13 @@ pub fn get_nix_experimental_features() -> Result<HashSet<String>> {
   }
 
   // Not cached, fetch them
-  let output = Command::new("nix")
-    .args(["config", "show", "experimental-features"])
-    .run_capture()?;
+  let output = capture_nix_stdout(
+    NixCommand::new(CommandKind::Config)
+      .args(["show", "experimental-features"]),
+  )?;
 
-  // If running with dry=true, output might be None
-  let enabled_features = output.map_or_else(HashSet::new, |output| {
-    output.split_whitespace().map(String::from).collect()
-  });
+  let enabled_features: HashSet<String> =
+    output.split_whitespace().map(String::from).collect();
 
   // Cache the result and return
   let _ = NIX_EXPERIMENTAL_FEATURES.set(enabled_features.clone());
@@ -424,14 +456,14 @@ in
     },
   };
 
-  let result = Command::new("nix-instantiate")
-    .arg("--eval")
-    .arg("--strict")
-    .arg("--json")
-    .arg("--expr")
-    .arg(expr)
-    .run_capture()?
-    .ok_or_else(|| eyre!("No output from nix-instantiate"))?;
+  let result = capture_nix_stdout(
+    NixCommand::nix_instantiate()
+      .arg("--eval")
+      .arg("--strict")
+      .arg("--json")
+      .arg("--expr")
+      .arg(expr),
+  )?;
 
   let variants: Vec<String> = serde_json::from_str(&result)
     .wrap_err("Failed to parse image variants JSON")?;
@@ -461,14 +493,13 @@ in
 pub fn get_build_image_variants_flake(
   installable: &nh_installable::Installable,
 ) -> Result<Vec<String>> {
-  let result = Command::new("nix")
-    .arg("eval")
-    .arg("--json")
-    .args(installable.to_args())
-    .arg("--apply")
-    .arg("builtins.attrNames")
-    .run_capture()?
-    .ok_or_else(|| eyre!("No output from nix eval"))?;
+  let result = capture_nix_stdout(
+    NixCommand::new(CommandKind::Eval)
+      .arg("--json")
+      .args(installable.to_args())
+      .arg("--apply")
+      .arg("builtins.attrNames"),
+  )?;
 
   let variants: Vec<String> = serde_json::from_str(&result)
     .wrap_err("Failed to parse image variants JSON")?;

@@ -13,6 +13,7 @@ indicatif.workspace      = true
 inquire.workspace        = true
 nh-installable.workspace = true
 nix.workspace            = true
+nix-command.workspace    = true
 regex.workspace          = true
 secrecy.workspace        = true
 semver.workspace         = true

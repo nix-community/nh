@@ -1297,6 +1297,7 @@ dependencies = [
  "inquire",
  "nh-installable",
  "nix",
+ "nix-command",
  "proptest",
  "regex",
  "secrecy",
