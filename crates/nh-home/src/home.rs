@@ -8,7 +8,7 @@ use color_eyre::{
   eyre::{Context, bail, eyre},
 };
 use nh_core::{
-  command::{self, Command, CommandKind, NixCommand, StdIo},
+  command::{self, Command, CommandKind, NixCommand},
   update::update,
   util::get_hostname,
 };
@@ -465,7 +465,7 @@ impl HomeReplArgs {
     let status = NixCommand::new(CommandKind::Repl)
       .args(toplevel.to_args())
       .with_required_env()
-      .run_with_logs(StdIo)?;
+      .run_with_logs()?;
     if !status.success() {
       bail!("nix repl failed (exit status {status:?})");
     }

@@ -1,7 +1,7 @@
 use clap::Args;
 use color_eyre::{Result, eyre::bail};
 use nh_installable::Installable;
-use nix_command::{CommandKind, NixCommand, StdIo};
+use nix_command::{CommandKind, NixCommand};
 use tracing::{info, warn};
 
 #[derive(Debug, Args)]
@@ -51,7 +51,7 @@ pub fn update(
 
   info!("{message}");
 
-  let status = cmd.arg("--flake").arg(reference).run_with_logs(StdIo)?;
+  let status = cmd.arg("--flake").arg(reference).run_with_logs()?;
 
   if !status.success() {
     bail!("{message} (exit status {status:?})");

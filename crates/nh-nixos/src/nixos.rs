@@ -7,7 +7,7 @@ use std::{
 use color_eyre::eyre::{Context, Result, bail, eyre};
 use nh_core::{
   args::DiffType,
-  command::{self, Command, CommandKind, ElevationStrategy, NixCommand, StdIo},
+  command::{self, Command, CommandKind, ElevationStrategy, NixCommand},
   update::update,
   util::{
     ensure_ssh_key_login,
@@ -1329,7 +1329,7 @@ impl OsReplArgs {
     let status = NixCommand::new(CommandKind::Repl)
       .args(target_installable.to_args())
       .with_required_env()
-      .run_with_logs(StdIo)?;
+      .run_with_logs()?;
     if !status.success() {
       bail!("nix repl failed (exit status {status:?})");
     }
