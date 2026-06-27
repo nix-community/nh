@@ -41,7 +41,7 @@ fn format_argv(argv: &[OsString]) -> String {
     .join(" ")
 }
 
-fn capture_nix_stdout(command: NixCommand) -> Result<String> {
+fn capture_nix_stdout(command: &NixCommand) -> Result<String> {
   let argv = command.argv();
   let command_text = format_argv(&argv);
   let output = command
@@ -68,7 +68,9 @@ fn capture_nix_stdout(command: NixCommand) -> Result<String> {
 /// This is called once and shared by both variant and version detection.
 fn get_nix_version_output() -> Option<&'static String> {
   NIX_VERSION_OUTPUT
-    .get_or_init(|| capture_nix_stdout(NixCommand::raw().arg("--version")).ok())
+    .get_or_init(|| {
+      capture_nix_stdout(&NixCommand::raw().arg("--version")).ok()
+    })
     .as_ref()
 }
 
@@ -331,7 +333,7 @@ pub fn get_nix_experimental_features() -> Result<HashSet<String>> {
 
   // Not cached, fetch them
   let output = capture_nix_stdout(
-    NixCommand::new(CommandKind::Config)
+    &NixCommand::new(CommandKind::Config)
       .args(["show", "experimental-features"]),
   )?;
 
@@ -457,7 +459,7 @@ in
   };
 
   let result = capture_nix_stdout(
-    NixCommand::nix_instantiate()
+    &NixCommand::nix_instantiate()
       .arg("--eval")
       .arg("--strict")
       .arg("--json")
@@ -494,7 +496,7 @@ pub fn get_build_image_variants_flake(
   installable: &nh_installable::Installable,
 ) -> Result<Vec<String>> {
   let result = capture_nix_stdout(
-    NixCommand::new(CommandKind::Eval)
+    &NixCommand::new(CommandKind::Eval)
       .arg("--json")
       .args(installable.to_args())
       .arg("--apply")
