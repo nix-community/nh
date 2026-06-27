@@ -42,6 +42,9 @@ functionality, under the "Removed" section.
 - Quoted attribute paths like `foo."bar.baz"` are now allowed. Malformed quoted
   attributes return validation errors instead of outright panicking.
 - `nh os {boot,build,switch}` now supports diffing on remote machines.
+- nh now has an in-house `nix-command` crate, which is used for building typed
+  nixos commands. `nix-command` is also
+  [published](https://crates.io/crates/nix-command) to crates.io.
 
 ### Changed
 
