@@ -246,6 +246,12 @@ impl DarwinReplArgs {
   }
 }
 
+/// Resolve a nix-darwin installable to the requested system build attribute.
+///
+/// # Errors
+///
+/// Returns an error if the installable is a store path or if the flake
+/// attribute path is too specific to infer the requested build attribute.
 pub fn toplevel_for<S: AsRef<str>>(
   hostname: S,
   installable: Installable,

@@ -1251,6 +1251,12 @@ fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
   Ok(generations)
 }
 
+/// Resolve a NixOS installable to the requested system build attributes.
+///
+/// # Errors
+///
+/// Returns an error if the flake attribute path is too specific to infer the
+/// requested build attributes.
 pub fn toplevel_for<S: AsRef<str>>(
   hostname: S,
   installable: Installable,

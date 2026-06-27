@@ -81,6 +81,11 @@ fn query_local_dix_diff(
 }
 
 /// Handles NixOS system diffing for local and remote rebuilds.
+///
+/// # Errors
+///
+/// Returns an error if local or remote store snapshot queries fail, or if the
+/// diff report cannot be written.
 pub fn handle_nixos_diff(
   diff: &DiffType,
   target_host: Option<&RemoteHost>,
