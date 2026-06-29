@@ -82,8 +82,9 @@ Hosts can be specified in several formats:
 
 > [!NOTE]
 > Due to restrictions of Nix's SSH remote handling, ports cannot be specified in
-> the host string. Use `NIX_SSHOPTS="-p 2222"` or configure ports in
-> `~/.ssh/config` for the host you are building on/deploying to.
+> the host string. Use `NH_SSHOPTS="-p 2222"` (`NIX_SSHOPTS` is also supported
+> for nixos-rebuild compatibility) or configure ports in `~/.ssh/config` for the
+> host you are building on/deploying to.
 
 ## SSH Configuration
 
@@ -118,14 +119,16 @@ ensuring no lingering SSH processes remain.
 
 ### Custom SSH Options
 
-Use the `NIX_SSHOPTS` environment variable to pass additional SSH options:
+Use `NH_SSHOPTS` to pass additional SSH options (or `NIX_SSHOPTS` for
+compatibility with nixos-rebuild):
 
 ```bash
-NIX_SSHOPTS="-p 2222 -i ~/.ssh/custom_key" nh os switch --build-host user@host
+NH_SSHOPTS="-p 2222 -i ~/.ssh/custom_key" nh os switch --build-host user@host
 ```
 
-Options in `NIX_SSHOPTS` are merged with the default options. For persistent
-configuration, use `~/.ssh/config`:
+`NH_SSHOPTS` takes precedence over `NIX_SSHOPTS` when both are set. Options are
+merged with the default options. For persistent configuration, use
+`~/.ssh/config`:
 
 ```plaintext
 Host buildserver
