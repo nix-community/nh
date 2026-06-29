@@ -18,6 +18,18 @@ functionality, under the "Removed" section.
 
 ### Added
 
+- `--option NAME VALUE` passthrough flag (repeatable) for setting arbitrary Nix
+  configuration options per-invocation, e.g. `--option sandbox false`. Forwarded
+  to all underlying `nix` commands.
+- `--override-input INPUT FLAKE_URL` passthrough flag (repeatable) for
+  overriding specific flake inputs without editing `flake.lock`.
+- `NH_SSHOPTS` environment variable as the NH-native alias for `NIX_SSHOPTS`.
+  `NH_SSHOPTS` takes precedence when both are set.
+- `NH_SUDOOPTS` environment variable for passing extra arguments to the `sudo`
+  invocation when NH elevates privileges. `NIX_SUDOOPTS` is also accepted for
+  nixos-rebuild compatibility, with `NH_SUDOOPTS` taking precedence.
+- `NIXOS_NO_CHECK` is now forwarded to `switch-to-configuration` during
+  activation, matching nixos-rebuild behaviour.
 - `nh search offline <query>` subcommand for offline search using
   [spam-db](https://github.com/feel-co/spam) databases. Requires `-D <path>` (or
   `NH_OFFLINE_DB`) pointing to the database directory.
