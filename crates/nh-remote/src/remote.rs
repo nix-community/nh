@@ -23,6 +23,7 @@ use nh_core::{
     NixCommand,
     cache_password,
     get_cached_password,
+    get_sudo_opts,
   },
   util::NixVariant,
 };
@@ -88,9 +89,9 @@ fn build_remote_command(
     match (program_name, strategy) {
       // sudo passwordless: use --non-interactive to fail if password required
       ("sudo", ElevationStrategy::Passwordless) => {
-        Ok(format!("sudo --non-interactive {base_cmd}"))
+        Ok(remote_sudo_command("--non-interactive", base_cmd))
       },
-      ("sudo", _) => Ok(format!("sudo --prompt= --stdin {base_cmd}")),
+      ("sudo", _) => Ok(remote_sudo_command("--prompt= --stdin", base_cmd)),
       // doas passwordless: use -n flag (non-interactive)
       ("doas", ElevationStrategy::Passwordless) => {
         Ok(format!("doas -n {base_cmd}"))
@@ -144,6 +145,39 @@ fn build_remote_command(
   } else {
     Ok(base_cmd.to_string())
   }
+}
+
+fn remote_sudo_command(prefix: &str, base_cmd: &str) -> String {
+  let sudo_opts = get_sudo_opts()
+    .iter()
+    .map(|opt| shell_quote(opt))
+    .collect::<Vec<_>>()
+    .join(" ");
+
+  if sudo_opts.is_empty() {
+    format!("sudo {prefix} {base_cmd}")
+  } else {
+    format!("sudo {prefix} {sudo_opts} {base_cmd}")
+  }
+}
+
+fn nixos_activation_command(
+  switch_to_config: &str,
+  action: &str,
+  install_bootloader: bool,
+) -> String {
+  let mut parts = Vec::new();
+
+  if install_bootloader {
+    parts.push("NIXOS_INSTALL_BOOTLOADER=1".to_string());
+  }
+
+  if let Ok(no_check) = env::var("NIXOS_NO_CHECK") {
+    parts.push(format!("NIXOS_NO_CHECK={}", shell_quote(&no_check)));
+  }
+
+  parts.push(format!("{} {action}", shell_quote(switch_to_config)));
+  parts.join(" ")
 }
 
 /// Register a SIGINT handler that sets the global interrupt flag.
@@ -646,26 +680,35 @@ fn shell_quote(s: &str) -> String {
   )
 }
 
-/// Get SSH options from `NIX_SSHOPTS` plus our defaults. This includes
-/// connection multiplexing options (`ControlMaster`, `ControlPath`,
-/// `ControlPersist`) which enable efficient reuse of SSH connections.
+/// Get SSH options from `NH_SSHOPTS` (or `NIX_SSHOPTS` for compatibility)
+/// plus our defaults. This includes connection multiplexing options
+/// (`ControlMaster`, `ControlPath`, `ControlPersist`) which enable efficient
+/// reuse of SSH connections.
 pub fn get_ssh_opts() -> Vec<String> {
   let mut opts: Vec<String> = Vec::new();
 
-  // User options first (from NIX_SSHOPTS)
-  if let Ok(sshopts) = env::var("NIX_SSHOPTS") {
-    if let Some(parsed) = shlex::split(&sshopts) {
+  // NH_SSHOPTS takes precedence; NIX_SSHOPTS is the compatibility fallback.
+  let (sshopts_var, sshopts_val) = env::var("NH_SSHOPTS").map_or_else(
+    |_| {
+      env::var("NIX_SSHOPTS")
+        .map_or_else(|_| ("", String::new()), |v| ("NIX_SSHOPTS", v))
+    },
+    |v| ("NH_SSHOPTS", v),
+  );
+
+  if !sshopts_val.is_empty() {
+    if let Some(parsed) = shlex::split(&sshopts_val) {
       opts.extend(parsed);
     } else {
-      let truncated = sshopts.chars().take(60).collect::<String>();
-      let sshopts_display = if sshopts.len() > 60 {
+      let truncated = sshopts_val.chars().take(60).collect::<String>();
+      let sshopts_display = if sshopts_val.len() > 60 {
         format!("{truncated}...")
       } else {
         truncated
       };
       warn!(
-        "Failed to parse NIX_SSHOPTS, ignoring. Provide valid options or use \
-         ~/.ssh/config. Value: {sshopts_display}",
+        "Failed to parse {sshopts_var}, ignoring. Provide valid options or \
+         use ~/.ssh/config. Value: {sshopts_display}",
       );
     }
   }
@@ -676,15 +719,19 @@ pub fn get_ssh_opts() -> Vec<String> {
   opts
 }
 
-/// Get `NIX_SSHOPTS` environment value with our defaults appended.
-/// Used for Nix SSH store commands which read `NIX_SSHOPTS`.
+/// Get SSH options as a string suitable for the `NIX_SSHOPTS` environment
+/// variable passed to Nix store commands. Reads `NH_SSHOPTS` (preferred) or
+/// `NIX_SSHOPTS` (compatibility) and appends our defaults.
 ///
 /// Note: Nix SSH store commands do not provide a structured argv channel for
 /// these options, so values containing spaces cannot be reliably passed through
 /// this mechanism. Users needing complex SSH options should use
 /// `~/.ssh/config` instead.
 fn get_nix_sshopts_env() -> String {
-  let user_opts = env::var("NIX_SSHOPTS").unwrap_or_default();
+  // NH_SSHOPTS takes precedence; NIX_SSHOPTS is the compatibility fallback.
+  let user_opts = env::var("NH_SSHOPTS")
+    .or_else(|_| env::var("NIX_SSHOPTS"))
+    .unwrap_or_default();
   let default_opts = get_default_ssh_opts();
 
   if user_opts.is_empty() {
@@ -1189,7 +1236,7 @@ fn activate_nixos_remote(
       ssh_cmd = ssh_cmd.arg(host.ssh_host());
 
       // Build the remote command using helper function
-      let base_cmd = format!("{} {}", shell_quote(switch_path_str), action);
+      let base_cmd = nixos_activation_command(switch_path_str, action, false);
       let remote_cmd =
         build_remote_command(config.elevation.as_ref(), &base_cmd)?;
 
@@ -1270,16 +1317,13 @@ fn activate_nixos_remote(
       boot_ssh_cmd = boot_ssh_cmd.arg(host.ssh_host());
 
       // Build the remote command using helper function
-      let boot_remote_cmd = if config.install_bootloader {
-        let base_cmd = format!(
-          "NIXOS_INSTALL_BOOTLOADER=1 {} boot",
-          shell_quote(switch_path_str)
-        );
-        build_remote_command(config.elevation.as_ref(), &base_cmd)?
-      } else {
-        let base_cmd = format!("{} boot", shell_quote(switch_path_str));
-        build_remote_command(config.elevation.as_ref(), &base_cmd)?
-      };
+      let base_cmd = nixos_activation_command(
+        switch_path_str,
+        "boot",
+        config.install_bootloader,
+      );
+      let boot_remote_cmd =
+        build_remote_command(config.elevation.as_ref(), &base_cmd)?;
 
       boot_ssh_cmd = boot_ssh_cmd.arg(boot_remote_cmd);
 
@@ -1823,6 +1867,42 @@ mod tests {
   use proptest::prelude::*;
   use serial_test::serial;
 
+  struct SshOptsEnvGuard {
+    nh_sshopts:  Option<OsString>,
+    nix_sshopts: Option<OsString>,
+  }
+
+  impl SshOptsEnvGuard {
+    fn new() -> Self {
+      Self {
+        nh_sshopts:  env::var_os("NH_SSHOPTS"),
+        nix_sshopts: env::var_os("NIX_SSHOPTS"),
+      }
+    }
+
+    fn clear(&self) {
+      unsafe {
+        env::remove_var("NH_SSHOPTS");
+        env::remove_var("NIX_SSHOPTS");
+      }
+    }
+  }
+
+  impl Drop for SshOptsEnvGuard {
+    fn drop(&mut self) {
+      unsafe {
+        match &self.nh_sshopts {
+          Some(value) => env::set_var("NH_SSHOPTS", value),
+          None => env::remove_var("NH_SSHOPTS"),
+        }
+        match &self.nix_sshopts {
+          Some(value) => env::set_var("NIX_SSHOPTS", value),
+          None => env::remove_var("NIX_SSHOPTS"),
+        }
+      }
+    }
+  }
+
   use super::*;
 
   proptest! {
@@ -2160,10 +2240,9 @@ mod tests {
   #[test]
   #[serial]
   fn test_get_ssh_opts_default() {
-    // Clear env var for test
-    unsafe {
-      std::env::remove_var("NIX_SSHOPTS");
-    }
+    let env_guard = SshOptsEnvGuard::new();
+    env_guard.clear();
+
     let opts = get_ssh_opts();
     assert!(opts.contains(&"-o".to_string()));
     assert!(opts.contains(&"ControlMaster=auto".to_string()));
@@ -2175,8 +2254,11 @@ mod tests {
   #[test]
   #[serial]
   fn test_get_ssh_opts_with_simple_nix_sshopts() {
+    let env_guard = SshOptsEnvGuard::new();
+    env_guard.clear();
+
     unsafe {
-      std::env::set_var("NIX_SSHOPTS", "-p 2222 -i /path/to/key");
+      env::set_var("NIX_SSHOPTS", "-p 2222 -i /path/to/key");
     }
     let opts = get_ssh_opts();
     // User options should be included
@@ -2186,17 +2268,17 @@ mod tests {
     assert!(opts.contains(&"/path/to/key".to_string()));
     // Default options should still be present
     assert!(opts.contains(&"ControlMaster=auto".to_string()));
-    unsafe {
-      std::env::remove_var("NIX_SSHOPTS");
-    }
   }
 
   #[test]
   #[serial]
   fn test_get_ssh_opts_with_quoted_nix_sshopts() {
+    let env_guard = SshOptsEnvGuard::new();
+    env_guard.clear();
+
     // Test that quoted paths with spaces are handled correctly
     unsafe {
-      std::env::set_var("NIX_SSHOPTS", r#"-i "/path/with spaces/key""#);
+      env::set_var("NIX_SSHOPTS", r#"-i "/path/with spaces/key""#);
     }
     let opts = get_ssh_opts();
     // The path should be parsed as a single argument without quotes
@@ -2204,27 +2286,53 @@ mod tests {
     assert!(opts.contains(&"/path/with spaces/key".to_string()));
     // Default options should still be present
     assert!(opts.contains(&"ControlMaster=auto".to_string()));
-    unsafe {
-      std::env::remove_var("NIX_SSHOPTS");
-    }
   }
 
   #[test]
   #[serial]
   fn test_get_ssh_opts_with_option_value_nix_sshopts() {
+    let env_guard = SshOptsEnvGuard::new();
+    env_guard.clear();
+
     // Test -o with quoted value containing spaces
     unsafe {
-      std::env::set_var(
-        "NIX_SSHOPTS",
-        r#"-o "ProxyCommand=ssh -W %h:%p jump""#,
-      );
+      env::set_var("NIX_SSHOPTS", r#"-o "ProxyCommand=ssh -W %h:%p jump""#);
     }
     let opts = get_ssh_opts();
     assert!(opts.contains(&"-o".to_string()));
     assert!(opts.contains(&"ProxyCommand=ssh -W %h:%p jump".to_string()));
+  }
+
+  #[test]
+  #[serial]
+  fn test_get_ssh_opts_with_nh_sshopts() {
+    let env_guard = SshOptsEnvGuard::new();
+    env_guard.clear();
+
     unsafe {
-      std::env::remove_var("NIX_SSHOPTS");
+      env::set_var("NH_SSHOPTS", "-p 2222 -i /path/to/key");
     }
+    let opts = get_ssh_opts();
+    assert!(opts.contains(&"-p".to_string()));
+    assert!(opts.contains(&"2222".to_string()));
+    assert!(opts.contains(&"-i".to_string()));
+    assert!(opts.contains(&"/path/to/key".to_string()));
+    assert!(opts.contains(&"ControlMaster=auto".to_string()));
+  }
+
+  #[test]
+  #[serial]
+  fn test_get_ssh_opts_nh_sshopts_takes_precedence() {
+    let env_guard = SshOptsEnvGuard::new();
+    env_guard.clear();
+
+    unsafe {
+      env::set_var("NH_SSHOPTS", "-p 2222");
+      env::set_var("NIX_SSHOPTS", "-p 9999");
+    }
+    let opts = get_ssh_opts();
+    assert!(opts.contains(&"2222".to_string()));
+    assert!(!opts.contains(&"9999".to_string()));
   }
 
   #[test]
@@ -2301,9 +2409,9 @@ mod tests {
   #[test]
   #[serial]
   fn test_get_nix_sshopts_env_empty() {
-    unsafe {
-      std::env::remove_var("NIX_SSHOPTS");
-    }
+    let env_guard = SshOptsEnvGuard::new();
+    env_guard.clear();
+
     let result = get_nix_sshopts_env();
     // Should contain our defaults as space-separated values
     assert!(result.contains("-o"));
@@ -2316,49 +2424,78 @@ mod tests {
   #[test]
   #[serial]
   fn test_get_nix_sshopts_env_simple() {
+    let env_guard = SshOptsEnvGuard::new();
+    env_guard.clear();
+
     unsafe {
-      std::env::set_var("NIX_SSHOPTS", "-p 2222");
+      env::set_var("NIX_SSHOPTS", "-p 2222");
     }
     let result = get_nix_sshopts_env();
     // User options should come first
     assert!(result.starts_with("-p 2222"));
     // Defaults should be appended
     assert!(result.contains("ControlMaster=auto"));
-    unsafe {
-      std::env::remove_var("NIX_SSHOPTS");
-    }
   }
 
   #[test]
   #[serial]
   fn test_get_nix_sshopts_env_preserves_user_opts() {
+    let env_guard = SshOptsEnvGuard::new();
+    env_guard.clear();
+
     // User options are preserved as-is.
     unsafe {
-      std::env::set_var("NIX_SSHOPTS", "-i /path/to/key -p 22");
+      env::set_var("NIX_SSHOPTS", "-i /path/to/key -p 22");
     }
     let result = get_nix_sshopts_env();
     // User options preserved at start
     assert!(result.starts_with("-i /path/to/key -p 22"));
     // Our defaults appended
     assert!(result.contains("ControlMaster=auto"));
-    unsafe {
-      std::env::remove_var("NIX_SSHOPTS");
-    }
   }
 
   #[test]
   #[serial]
   fn test_get_nix_sshopts_env_no_extra_quoting() {
+    let env_guard = SshOptsEnvGuard::new();
+    env_guard.clear();
+
     // Verify we don't add shell quotes around NIX_SSHOPTS.
-    unsafe {
-      std::env::remove_var("NIX_SSHOPTS");
-    }
     let result = get_nix_sshopts_env();
     // Should NOT contain shell quote characters around our options
     assert!(!result.contains("'ControlMaster"));
     assert!(!result.contains("\"ControlMaster"));
     // Values should be bare
     assert!(result.contains("-o ControlMaster=auto"));
+  }
+
+  #[test]
+  #[serial]
+  fn test_get_nix_sshopts_env_nh_sshopts() {
+    let env_guard = SshOptsEnvGuard::new();
+    env_guard.clear();
+
+    unsafe {
+      env::set_var("NH_SSHOPTS", "-p 2222");
+    }
+    let result = get_nix_sshopts_env();
+    assert!(result.starts_with("-p 2222"));
+    assert!(result.contains("ControlMaster=auto"));
+  }
+
+  #[test]
+  #[serial]
+  fn test_get_nix_sshopts_env_nh_sshopts_takes_precedence() {
+    let env_guard = SshOptsEnvGuard::new();
+    env_guard.clear();
+
+    unsafe {
+      env::set_var("NH_SSHOPTS", "-p 2222");
+      env::set_var("NIX_SSHOPTS", "-p 9999");
+    }
+    let result = get_nix_sshopts_env();
+    assert!(result.contains("2222"));
+    assert!(!result.contains("9999"));
   }
 
   #[test]
