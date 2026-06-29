@@ -146,6 +146,14 @@ pub struct NixBuildPassthroughArgs {
   /// Output results in JSON format
   #[arg(long)]
   pub json: bool,
+
+  /// Set a Nix configuration option (may be given multiple times)
+  #[arg(long, number_of_values = 2, value_names = ["NAME", "VALUE"])]
+  pub option: Vec<String>,
+
+  /// Override a specific flake input (may be given multiple times)
+  #[arg(long, number_of_values = 2, value_names = ["INPUT", "FLAKE_URL"])]
+  pub override_input: Vec<String>,
 }
 
 impl NixBuildPassthroughArgs {
@@ -228,6 +236,16 @@ impl NixBuildPassthroughArgs {
     if self.json {
       args.push("--json".into());
     }
+    for pair in self.option.chunks(2) {
+      args.push("--option".into());
+      args.push(pair[0].clone());
+      args.push(pair[1].clone());
+    }
+    for pair in self.override_input.chunks(2) {
+      args.push("--override-input".into());
+      args.push(pair[0].clone());
+      args.push(pair[1].clone());
+    }
 
     args
   }
@@ -245,5 +263,39 @@ mod tests {
     };
 
     assert_eq!(args.generate_passthrough_args(), ["--quiet"]);
+  }
+
+  #[test]
+  fn option_pairs_are_emitted() {
+    let args = NixBuildPassthroughArgs {
+      option: vec![
+        "sandbox".into(),
+        "false".into(),
+        "cores".into(),
+        "4".into(),
+      ],
+      ..Default::default()
+    };
+
+    assert_eq!(args.generate_passthrough_args(), [
+      "--option", "sandbox", "false", "--option", "cores", "4"
+    ]);
+  }
+
+  #[test]
+  fn override_input_pairs_are_emitted() {
+    let args = NixBuildPassthroughArgs {
+      override_input: vec![
+        "nixpkgs".into(),
+        "github:NixOS/nixpkgs/nixos-unstable".into(),
+      ],
+      ..Default::default()
+    };
+
+    assert_eq!(args.generate_passthrough_args(), [
+      "--override-input",
+      "nixpkgs",
+      "github:NixOS/nixpkgs/nixos-unstable"
+    ]);
   }
 }
