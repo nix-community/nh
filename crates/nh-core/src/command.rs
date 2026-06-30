@@ -1,6 +1,7 @@
 use std::{
   collections::HashMap,
   convert::Infallible,
+  env,
   ffi::{OsStr, OsString},
   io::{Read, Write},
   path::PathBuf,
@@ -506,7 +507,7 @@ impl Command {
     ];
 
     // Always explicitly set USER if present
-    if let Ok(user) = std::env::var("USER") {
+    if let Ok(user) = env::var("USER") {
       self
         .env_vars
         .insert("USER".to_string(), EnvAction::Set(user));
@@ -514,7 +515,7 @@ impl Command {
 
     // Only propagate HOME for non-elevated commands
     if self.elevate.is_none()
-      && let Ok(home) = std::env::var("HOME")
+      && let Ok(home) = env::var("HOME")
     {
       self
         .env_vars
@@ -531,13 +532,13 @@ impl Command {
 
     // Preserve all variables in PRESERVE_ENV if present
     for &key in PRESERVE_ENV {
-      if std::env::var(key).is_ok() {
+      if env::var(key).is_ok() {
         self.env_vars.insert(key.to_string(), EnvAction::Preserve);
       }
     }
 
     // Explicitly set NH_* variables
-    for (key, value) in std::env::vars() {
+    for (key, value) in env::vars() {
       if key.starts_with("NH_") {
         self.env_vars.insert(key, EnvAction::Set(value));
       }
@@ -570,7 +571,7 @@ impl Command {
         },
         EnvAction::Preserve => {
           // Only preserve if present in current environment
-          if let Ok(value) = std::env::var(key) {
+          if let Ok(value) = env::var(key) {
             cmd = cmd.env(key, value);
           }
         },
@@ -610,7 +611,7 @@ impl Command {
       })?;
     if program_name == "sudo"
       && !matches!(elevation_strategy, ElevationStrategy::Passwordless)
-      && let Ok(askpass) = std::env::var("NH_SUDO_ASKPASS")
+      && let Ok(askpass) = env::var("NH_SUDO_ASKPASS")
     {
       cmd = cmd.env("SUDO_ASKPASS", askpass).arg("-A");
     }
@@ -622,9 +623,33 @@ impl Command {
       cmd = cmd.arg("--pty-late");
     }
 
+    // Support both NH_SUDOOPTS (preferred) or NIX_SUDOOPTS for nixos-rebuild
+    // compatibility. Extra arguments are inserted into the sudo invocation
+    // before `env`.
+    if program_name == "sudo" {
+      let sudoopts = env::var("NH_SUDOOPTS")
+        .or_else(|_| env::var("NIX_SUDOOPTS"))
+        .unwrap_or_default();
+      if !sudoopts.is_empty() {
+        match shlex::split(&sudoopts) {
+          Some(parsed) => {
+            for opt in parsed {
+              cmd = cmd.arg(opt);
+            }
+          },
+          None => {
+            warn!(
+              "Failed to parse sudo opts from NH_SUDOOPTS/NIX_SUDOOPTS, \
+               ignoring. Value: {sudoopts}"
+            );
+          },
+        }
+      }
+    }
+
     // NH_PRESERVE_ENV: set to "0" to disable preserving environment variables,
     // "1" to force, unset defaults to force
-    let preserve_env = std::env::var("NH_PRESERVE_ENV")
+    let preserve_env = env::var("NH_PRESERVE_ENV")
       .as_deref()
       .map_or(true, |x| !matches!(x, "0"));
 
@@ -635,9 +660,7 @@ impl Command {
       match action {
         EnvAction::Set(value) => Some(format!("{key}={value}")),
         EnvAction::Preserve if preserve_env => {
-          std::env::var(key)
-            .ok()
-            .map(|value| format!("{key}={value}"))
+          env::var(key).ok().map(|value| format!("{key}={value}"))
         },
         _ => None,
       }
@@ -665,7 +688,7 @@ impl Command {
         eyre::eyre!("Failed to determine elevation program name")
       })?;
     if program_name == "sudo"
-      && let Ok(_askpass) = std::env::var("NH_SUDO_ASKPASS")
+      && let Ok(_askpass) = env::var("NH_SUDO_ASKPASS")
     {
       parts.push("-A".to_string());
     }
@@ -677,7 +700,26 @@ impl Command {
       parts.push("--pty-late".to_string());
     }
 
-    let preserve_env = std::env::var("NH_PRESERVE_ENV")
+    // NH_SUDOOPTS (preferred) or NIX_SUDOOPTS (nixos-rebuild compatibility):
+    // extra arguments inserted into the sudo invocation before `env`.
+    if program_name == "sudo" {
+      let sudoopts = env::var("NH_SUDOOPTS")
+        .or_else(|_| env::var("NIX_SUDOOPTS"))
+        .unwrap_or_default();
+      if !sudoopts.is_empty() {
+        match shlex::split(&sudoopts) {
+          Some(parsed) => parts.extend(parsed),
+          None => {
+            warn!(
+              "Failed to parse sudo opts from NH_SUDOOPTS/NIX_SUDOOPTS, \
+               ignoring. Value: {sudoopts}"
+            );
+          },
+        }
+      }
+    }
+
+    let preserve_env = env::var("NH_PRESERVE_ENV")
       .as_deref()
       .map_or(true, |x| !matches!(x, "0"));
 
@@ -686,8 +728,7 @@ impl Command {
       match action {
         EnvAction::Set(value) => Some(format!("{key}={value}")),
         EnvAction::Preserve if preserve_env => {
-          std::env::var(key)
-            .map_or(None, |value| Some(format!("{key}={value}")))
+          env::var(key).map_or(None, |value| Some(format!("{key}={value}")))
         },
         _ => None,
       }
@@ -708,8 +749,8 @@ impl Command {
     strategy: ElevationStrategy,
   ) -> Result<std::process::Command> {
     // Get the current executable path
-    let current_exe = std::env::current_exe()
-      .context("Failed to get current executable path")?;
+    let current_exe =
+      env::current_exe().context("Failed to get current executable path")?;
 
     // Self-elevation with proper environment handling
     let cmd_builder = Self::new(&current_exe)
@@ -720,7 +761,7 @@ impl Command {
 
     // Add the target executable and arguments
     sudo_parts.push(current_exe.to_string_lossy().to_string());
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let args: Vec<String> = env::args().skip(1).collect();
     sudo_parts.extend(args);
 
     let mut std_cmd = std::process::Command::new(&sudo_parts[0]);
@@ -730,7 +771,7 @@ impl Command {
 
     // check if using SUDO_ASKPASS
     if sudo_parts[1] == "-A"
-      && let Ok(askpass) = std::env::var("NH_SUDO_ASKPASS")
+      && let Ok(askpass) = env::var("NH_SUDO_ASKPASS")
     {
       std_cmd.env("SUDO_ASKPASS", askpass);
     }
@@ -800,6 +841,29 @@ impl Command {
       // Add program-specific arguments
       if program_name == "sudo" {
         elev_cmd = elev_cmd.arg("--prompt=").arg("--stdin");
+
+        // NH_SUDOOPTS (preferred) or NIX_SUDOOPTS (nixos-rebuild
+        // compatibility): extra arguments inserted into the sudo
+        // invocation before `env`. nixos-rebuild-ng applies these in
+        // both local and remote paths; match that behaviour here.
+        let sudoopts = env::var("NH_SUDOOPTS")
+          .or_else(|_| env::var("NIX_SUDOOPTS"))
+          .unwrap_or_default();
+        if !sudoopts.is_empty() {
+          match shlex::split(&sudoopts) {
+            Some(parsed) => {
+              for opt in parsed {
+                elev_cmd = elev_cmd.arg(opt);
+              }
+            },
+            None => {
+              warn!(
+                "Failed to parse sudo opts from NH_SUDOOPTS/NIX_SUDOOPTS, \
+                 ignoring. Value: {sudoopts}"
+              );
+            },
+          }
+        }
       }
 
       // Add env command to handle environment variables
@@ -812,7 +876,7 @@ impl Command {
             elev_cmd = elev_cmd.arg(format!("{key}={quoted_value}"));
           },
           EnvAction::Preserve => {
-            if let Ok(value) = std::env::var(key) {
+            if let Ok(value) = env::var(key) {
               let quoted_value = shlex::try_quote(&value)
                 .unwrap_or_else(|_| value.clone().into());
               elev_cmd = elev_cmd.arg(format!("{key}={quoted_value}"));

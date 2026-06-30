@@ -363,13 +363,18 @@ the common variables that you may encounter or choose to employ are as follows:
 
 - `NIX_SSHOPTS`, `NIX_CONFIG`, `NIX_REMOTE`, `NIX_SSL_CERT_FILE` and
   `NIX_USER_CONF_FILES` are forwarded in all Nix commands with environment
-  isolation.
+  isolation. `NH_SSHOPTS` takes precedence over `NIX_SSHOPTS` when both are set.
+- `NIX_SUDOOPTS` - Extra sudo arguments forwarded to the `sudo` invocation;
+  supported for nixos-rebuild compatibility. `NH_SUDOOPTS` takes precedence when
+  both are set.
 - `NIXOS_INSTALL_BOOTLOADER`
   - This is a variable accepted by `switch-to-configuration`, which handles the
     system switching behind the scenes. If `true`, `switch-to-configuration`
-    will call the necessary script to force and installation of your bootloader.
+    will call the necessary script to force installation of your bootloader.
     This behaviour can also be replicated by passing `--install-bootloader` to
     `nh os switch` and `nh os boot` commands.
+- `NIXOS_NO_CHECK` - Forwarded to `switch-to-configuration` during activation.
+  Inhibits certain NixOS service checks.
 
 ### NH Specific
 
@@ -394,6 +399,15 @@ the common variables that you may encounter or choose to employ are as follows:
   - Path to a program used as `SUDO_ASKPASS` when NH self-elevates with `sudo`.
     If set and `sudo` is used for elevation, NH will pass `-A` to `sudo` and set
     `SUDO_ASKPASS` accordingly.
+
+- `NH_SUDOOPTS`
+  - Extra arguments inserted into the `sudo` invocation when NH elevates
+    privileges. Accepts the same shell-quoted format as `NIX_SUDOOPTS`, which it
+    takes precedence over.
+
+- `NH_SSHOPTS`
+  - SSH options for remote operations. Accepts the same format as `NIX_SSHOPTS`,
+    which it takes precedence over.
 
 - `NH_PRESERVE_ENV`
   - Controls whether environment variables marked for preservation are passed to

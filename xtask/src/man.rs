@@ -116,13 +116,34 @@ pub fn generate(out_dir: &str) -> Result<(), String> {
        due to fragile behavior.",
     ),
     (
+      "NH_SSHOPTS",
+      "SSH options for remote operations. Takes precedence over NIX_SSHOPTS. \
+       Accepts the same format as NIX_SSHOPTS.",
+    ),
+    (
+      "NH_SUDOOPTS",
+      "Extra arguments inserted into the sudo invocation when NH elevates \
+       privileges. Takes precedence over NIX_SUDOOPTS.",
+    ),
+    (
       "NIXOS_INSTALL_BOOTLOADER",
       "Forwarded to switch-to-configuration. If true, forces bootloader \
        installation. Also available via --install-bootloader.",
     ),
     (
+      "NIXOS_NO_CHECK",
+      "Forwarded to switch-to-configuration during activation. Inhibits \
+       certain NixOS service checks.",
+    ),
+    (
       "NIX_SSHOPTS",
-      "SSH options passed to Nix commands for remote builds.",
+      "SSH options passed to Nix commands for remote builds. NH_SSHOPTS takes \
+       precedence when both are set.",
+    ),
+    (
+      "NIX_SUDOOPTS",
+      "Extra arguments inserted into the sudo invocation. Supported for \
+       nixos-rebuild compatibility; NH_SUDOOPTS takes precedence.",
     ),
     (
       "NIX_CONFIG",

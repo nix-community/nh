@@ -381,7 +381,7 @@ impl OsRebuildActivateArgs {
           .arg("test")
           .message("Activating configuration")
           .elevate(elevate.then_some(elevation.clone()))
-          .preserve_envs(["NIXOS_INSTALL_BOOTLOADER"])
+          .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
           .with_required_env()
           .show_output(self.show_activation_logs)
           .run()
@@ -434,7 +434,7 @@ impl OsRebuildActivateArgs {
           .arg("boot")
           .elevate(elevate.then_some(elevation))
           .message("Adding configuration to bootloader")
-          .preserve_envs(["NIXOS_INSTALL_BOOTLOADER"]);
+          .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"]);
 
         if self.rebuild.install_bootloader {
           cmd = cmd.set_env("NIXOS_INSTALL_BOOTLOADER", "1");
@@ -846,7 +846,7 @@ impl OsRollbackArgs {
     match Command::new(&switch_to_configuration)
       .arg("switch")
       .elevate(elevate.then_some(elevation.clone()))
-      .preserve_envs(["NIXOS_INSTALL_BOOTLOADER"])
+      .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
       .with_required_env()
       .run()
     {
