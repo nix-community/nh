@@ -118,14 +118,16 @@ ensuring no lingering SSH processes remain.
 
 ### Custom SSH Options
 
-Use the `NIX_SSHOPTS` environment variable to pass additional SSH options:
+Use `NH_SSHOPTS` to pass additional SSH options (or `NIX_SSHOPTS` for
+compatibility with nixos-rebuild):
 
 ```bash
-NIX_SSHOPTS="-p 2222 -i ~/.ssh/custom_key" nh os switch --build-host user@host
+NH_SSHOPTS="-p 2222 -i ~/.ssh/custom_key" nh os switch --build-host user@host
 ```
 
-Options in `NIX_SSHOPTS` are merged with the default options. For persistent
-configuration, use `~/.ssh/config`:
+`NH_SSHOPTS` takes precedence over `NIX_SSHOPTS` when both are set. Options are
+merged with the default options. For persistent configuration, use
+`~/.ssh/config`:
 
 ```plaintext
 Host buildserver
