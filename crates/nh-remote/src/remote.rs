@@ -17,11 +17,11 @@ use color_eyre::{
   eyre::{Context, bail, eyre},
 };
 use nh_core::{
-  command::{ElevationStrategy, cache_password, get_cached_password},
+  command::Elevation,
+  elevation::RemoteSudoAuth,
   util::NixVariant,
 };
 use nh_installable::Installable;
-use secrecy::{ExposeSecret, SecretString};
 use subprocess::{Exec, Redirection};
 use tracing::{debug, error, info, warn};
 
@@ -52,7 +52,7 @@ static HANDLER_REGISTERED: OnceLock<()> = OnceLock::new();
 /// the appropriate elevation program (sudo/doas/etc) based on the strategy.
 ///
 /// # Arguments
-/// * `strategy` - Optional elevation strategy to use
+/// * `elevation` - Optional elevation policy to use
 /// * `base_cmd` - The base command to execute
 ///
 /// # Returns
@@ -63,81 +63,38 @@ static HANDLER_REGISTERED: OnceLock<()> = OnceLock::new();
 /// - Elevation program cannot be resolved
 /// - Elevation program name cannot be determined
 fn build_remote_command(
-  strategy: Option<&ElevationStrategy>,
+  elevation: Option<&Elevation>,
   base_cmd: &str,
 ) -> Result<String> {
-  if let Some(strategy) = strategy {
-    if matches!(strategy, ElevationStrategy::None) {
-      return Ok(base_cmd.to_string());
-    }
+  let Some(elevation) = elevation else {
+    return Ok(base_cmd.to_string());
+  };
 
-    let program = strategy.resolve()?;
-    let program_name = program
-      .file_name()
-      .and_then(|name| name.to_str())
-      .ok_or_else(|| eyre!("Failed to determine elevation program name"))?;
+  let Some(remote_elevation) = elevation.remote_command()? else {
+    return Ok(base_cmd.to_string());
+  };
 
-    // Use just the program name on the remote host
-    // so that the remote system resolves it via its own PATH
-    match (program_name, strategy) {
-      // sudo passwordless: use --non-interactive to fail if password required
-      ("sudo", ElevationStrategy::Passwordless) => {
-        Ok(format!("sudo --non-interactive {base_cmd}"))
-      },
-      ("sudo", _) => Ok(format!("sudo --prompt= --stdin {base_cmd}")),
-      // doas passwordless: use -n flag (non-interactive)
-      ("doas", ElevationStrategy::Passwordless) => {
-        Ok(format!("doas -n {base_cmd}"))
-      },
-      ("doas", _) => {
-        bail!(
-          "doas does not support stdin password input for remote deployment. \
-           Use --elevation-strategy=passwordless if remote has NOPASSWD \
-           configured."
-        )
-      },
-      // run0 passwordless: use --no-ask-password flag
-      ("run0", ElevationStrategy::Passwordless) => {
-        Ok(format!("run0 --no-ask-password {base_cmd}"))
-      },
-      ("run0", _) => {
-        bail!(
-          "run0 does not support stdin password input for remote deployment. \
-           Use --elevation-strategy=passwordless if authentication is not \
-           required."
-        )
-      },
-      // pkexec: no passwordless support
-      ("pkexec", _) => {
-        bail!(
-          "pkexec does not support non-interactive password input for remote \
-           deployment. pkexec requires a polkit agent which is not available \
-           over SSH."
-        )
-      },
-      // Unknown program: bail instead of guessing
-      (_, ElevationStrategy::Passwordless) => {
-        bail!(
-          "Unknown elevation program '{}' does not have known passwordless \
-           support. Only sudo, doas, and run0 are supported with \
-           --elevation-strategy=passwordless",
-          program_name
-        )
-      },
-      (..) => {
-        bail!(
-          "Unknown elevation program '{}' does not support stdin password \
-           input for remote deployment. Only sudo supports password input \
-           over SSH. Use --elevation-strategy=passwordless if remote has \
-           passwordless elevation configured, or use a known elevation \
-           program (sudo/doas/run0).",
-          program_name
-        )
-      },
-    }
-  } else {
-    Ok(base_cmd.to_string())
+  Ok(format!("{} {base_cmd}", remote_elevation.prefix()))
+}
+
+fn build_activation_ssh_command(
+  host: &RemoteHost,
+  ssh_opts: &[String],
+  sudo_auth: &RemoteSudoAuth,
+) -> Exec {
+  let mut ssh_cmd = Exec::cmd("ssh");
+  for opt in ssh_opts {
+    ssh_cmd = ssh_cmd.arg(opt);
   }
+
+  // Disable pseudo-terminal allocation so sudo can read its stdin payload.
+  ssh_cmd = ssh_cmd.arg("-T");
+
+  if sudo_auth.requires_ssh_agent_forwarding() {
+    ssh_cmd = ssh_cmd.arg("-A");
+  }
+
+  ssh_cmd.arg(host.ssh_host())
 }
 
 /// Register a SIGINT handler that sets the global interrupt flag.
@@ -259,7 +216,7 @@ pub fn init_ssh_control() -> SshControlGuard {
 /// Pre-establish a `ControlMaster` SSH connection to `host`.
 ///
 /// This runs `ssh -T <opts> <host> true` using nh's own SSH argument
-/// construction (options strictly before the hostname),  and thus creating a
+/// construction (options strictly before the hostname), thus creating a
 /// multiplexed master connection in the control socket directory.
 ///
 /// Subsequent SSH invocations that delegate to Nix internals (e.g. `nix copy`
@@ -273,7 +230,10 @@ pub fn init_ssh_control() -> SshControlGuard {
 /// # Errors
 ///
 /// Returns an error if the SSH connection cannot be established.
-pub fn open_ssh_control_master(host: &RemoteHost) -> Result<()> {
+pub fn open_ssh_control_master(
+  host: &RemoteHost,
+  forward_ssh_agent: bool,
+) -> Result<()> {
   let ssh_opts = get_ssh_opts();
   debug!("Establishing SSH ControlMaster to '{host}'");
 
@@ -281,7 +241,11 @@ pub fn open_ssh_control_master(host: &RemoteHost) -> Result<()> {
   for opt in &ssh_opts {
     cmd = cmd.arg(opt);
   }
-  cmd = cmd.arg("-T").arg(host.ssh_host()).arg("true");
+  cmd = cmd.arg("-T");
+  if forward_ssh_agent {
+    cmd = cmd.arg("-A");
+  }
+  cmd = cmd.arg(host.ssh_host()).arg("true");
 
   let capture = cmd
     .capture()
@@ -591,6 +555,11 @@ impl RemoteHost {
 
     // Not IPv6 or not bracketed, return as-is
     self.host.clone()
+  }
+
+  #[must_use]
+  pub fn is_same_ssh_endpoint(&self, other: &Self) -> bool {
+    self.ssh_host() == other.ssh_host()
   }
 
   /// Get the SSH store URI used by Nix store commands.
@@ -1062,12 +1031,12 @@ pub struct ActivateRemoteConfig {
   /// Whether to show output logs during activation
   pub show_logs: bool,
 
-  /// Elevation strategy for remote activation commands.
+  /// Elevation policy for remote activation commands.
   ///
   /// - `None`: No elevation, run commands as the remote user
-  /// - `Some(strategy)`: Use the specified elevation strategy (sudo, doas,
-  ///   etc.)
-  pub elevation: Option<ElevationStrategy>,
+  /// - `Some(elevation)`: Use the specified elevation program and remote sudo
+  ///   authentication policy.
+  pub elevation: Option<Elevation>,
 }
 
 /// Activate a system configuration on a remote host.
@@ -1119,37 +1088,10 @@ fn activate_nixos_remote(
 ) -> Result<()> {
   let ssh_opts = get_ssh_opts();
 
-  // Prompt for password if elevation is needed
-  // Skip for None (no elevation) and Passwordless (remote has NOPASSWD
-  // configured)
-  let sudo_password = if let Some(ref strategy) = config.elevation {
-    if matches!(
-      strategy,
-      ElevationStrategy::None | ElevationStrategy::Passwordless
-    ) {
-      // None: no elevation program used
-      // Passwordless: elevation program used but no password needed
-      None
-    } else {
-      let host_str = host.ssh_host();
-      if let Some(cached_password) = get_cached_password(&host_str)? {
-        Some(cached_password)
-      } else {
-        let password =
-          inquire::Password::new(&format!("[sudo] password for {host_str}:"))
-            .without_confirmation()
-            .prompt()
-            .context("Failed to read sudo password")?;
-        if password.is_empty() {
-          bail!("Password cannot be empty");
-        }
-        let secret_password = SecretString::new(password.into());
-        cache_password(&host_str, secret_password.clone())?;
-        Some(secret_password)
-      }
-    }
+  let sudo_auth = if let Some(ref elevation) = config.elevation {
+    elevation.remote_sudo_auth(&host.ssh_host())?
   } else {
-    None
+    RemoteSudoAuth::none()
   };
 
   let switch_to_config = system_profile.join("bin/switch-to-configuration");
@@ -1162,13 +1104,8 @@ fn activate_nixos_remote(
     ActivationType::Test | ActivationType::Switch => {
       let action = config.activation_type.as_str();
 
-      let mut ssh_cmd = Exec::cmd("ssh");
-      for opt in &ssh_opts {
-        ssh_cmd = ssh_cmd.arg(opt);
-      }
-      // Add -T flag to disable pseudo-terminal allocation (needed for stdin)
-      ssh_cmd = ssh_cmd.arg("-T");
-      ssh_cmd = ssh_cmd.arg(host.ssh_host());
+      let mut ssh_cmd =
+        build_activation_ssh_command(host, &ssh_opts, &sudo_auth);
 
       // Build the remote command using helper function
       let base_cmd = format!("{} {}", shell_quote(switch_path_str), action);
@@ -1177,10 +1114,8 @@ fn activate_nixos_remote(
 
       ssh_cmd = ssh_cmd.arg(remote_cmd);
 
-      // Pass password via stdin if elevation is needed
-      if let Some(ref password) = sudo_password {
-        ssh_cmd =
-          ssh_cmd.stdin(format!("{}\n", password.expose_secret()).into_bytes());
+      if let Some(stdin_data) = sudo_auth.stdin_bytes() {
+        ssh_cmd = ssh_cmd.stdin(stdin_data);
       }
 
       debug!(?ssh_cmd, "Activating NixOS configuration");
@@ -1204,13 +1139,8 @@ fn activate_nixos_remote(
     },
 
     ActivationType::Boot => {
-      let mut profile_ssh_cmd = Exec::cmd("ssh");
-      for opt in &ssh_opts {
-        profile_ssh_cmd = profile_ssh_cmd.arg(opt);
-      }
-      // Add -T flag to disable pseudo-terminal allocation (needed for stdin)
-      profile_ssh_cmd = profile_ssh_cmd.arg("-T");
-      profile_ssh_cmd = profile_ssh_cmd.arg(host.ssh_host());
+      let mut profile_ssh_cmd =
+        build_activation_ssh_command(host, &ssh_opts, &sudo_auth);
 
       // Build the remote command using helper function
       let base_cmd = format!(
@@ -1223,10 +1153,8 @@ fn activate_nixos_remote(
 
       profile_ssh_cmd = profile_ssh_cmd.arg(profile_remote_cmd);
 
-      // Pass password via stdin if elevation is needed
-      if let Some(ref password) = sudo_password {
-        profile_ssh_cmd = profile_ssh_cmd
-          .stdin(format!("{}\n", password.expose_secret()).into_bytes());
+      if let Some(stdin_data) = sudo_auth.stdin_bytes() {
+        profile_ssh_cmd = profile_ssh_cmd.stdin(stdin_data);
       }
 
       debug!(?profile_ssh_cmd, "Setting NixOS profile");
@@ -1243,13 +1171,8 @@ fn activate_nixos_remote(
         );
       }
 
-      let mut boot_ssh_cmd = Exec::cmd("ssh");
-      for opt in &ssh_opts {
-        boot_ssh_cmd = boot_ssh_cmd.arg(opt);
-      }
-      // Add -T flag to disable pseudo-terminal allocation (needed for stdin)
-      boot_ssh_cmd = boot_ssh_cmd.arg("-T");
-      boot_ssh_cmd = boot_ssh_cmd.arg(host.ssh_host());
+      let mut boot_ssh_cmd =
+        build_activation_ssh_command(host, &ssh_opts, &sudo_auth);
 
       // Build the remote command using helper function
       let boot_remote_cmd = if config.install_bootloader {
@@ -1265,10 +1188,8 @@ fn activate_nixos_remote(
 
       boot_ssh_cmd = boot_ssh_cmd.arg(boot_remote_cmd);
 
-      // Pass password via stdin if elevation is needed
-      if let Some(ref password) = sudo_password {
-        boot_ssh_cmd = boot_ssh_cmd
-          .stdin(format!("{}\n", password.expose_secret()).into_bytes());
+      if let Some(stdin_data) = sudo_auth.stdin_bytes() {
+        boot_ssh_cmd = boot_ssh_cmd.stdin(stdin_data);
       }
 
       debug!(?boot_ssh_cmd, "Bootloader activation");
@@ -1804,10 +1725,43 @@ mod tests {
     clippy::panic,
     reason = "Fine in tests"
   )]
+  use nh_core::command::ElevationStrategyArg;
   use proptest::prelude::*;
   use serial_test::serial;
 
   use super::*;
+
+  #[test]
+  fn test_build_remote_command_empty_password_uses_sudo_stdin() {
+    let elevation = Elevation::from(ElevationStrategyArg::EmptyPassword);
+    let command = build_remote_command(
+      Some(&elevation),
+      "/run/current-system/bin/switch-to-configuration switch",
+    )
+    .expect("empty-password should build a remote sudo command");
+
+    assert_eq!(
+      command,
+      "sudo --prompt= --stdin /run/current-system/bin/switch-to-configuration \
+       switch"
+    );
+  }
+
+  #[test]
+  fn test_build_activation_ssh_command_empty_password_forwards_agent() {
+    let host = RemoteHost::parse("user@host.example").expect("should parse");
+    let ssh_opts = vec!["-o".to_string(), "ControlMaster=auto".to_string()];
+    let auth = Elevation::from(ElevationStrategyArg::EmptyPassword)
+      .remote_sudo_auth("user@host.example")
+      .expect("empty-password auth should not prompt");
+    let command = build_activation_ssh_command(&host, &ssh_opts, &auth);
+
+    let cmdline = command.to_cmdline_lossy();
+    assert!(cmdline.starts_with("ssh"));
+    assert!(cmdline.contains("-T"));
+    assert!(cmdline.contains("-A"));
+    assert!(cmdline.contains("user@host.example"));
+  }
 
   proptest! {
     #[test]

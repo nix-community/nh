@@ -1395,7 +1395,6 @@ dependencies = [
  "nh-core",
  "nh-installable",
  "proptest",
- "secrecy",
  "serial_test",
  "shlex",
  "signal-hook 0.4.4",

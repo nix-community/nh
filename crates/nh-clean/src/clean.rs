@@ -13,7 +13,7 @@ use color_eyre::{
   eyre::{Context, ContextCompat, bail, eyre},
 };
 use inquire::Confirm;
-use nh_core::command::{Command, ElevationStrategy};
+use nh_core::command::{Command, Elevation};
 use nix::{
   errno::Errno,
   fcntl::AtFlags,
@@ -86,7 +86,7 @@ impl args::CleanMode {
   ///
   /// Panics if the current user's UID cannot be resolved to a user. For
   /// example, if  `User::from_uid(uid)` returns `None`.
-  pub fn run(&self, elevate: ElevationStrategy) -> Result<()> {
+  pub fn run(&self, elevate: Elevation) -> Result<()> {
     let mut profiles = Vec::new();
     let mut gcroots_tagged = Vec::new();
     let now = SystemTime::now();
