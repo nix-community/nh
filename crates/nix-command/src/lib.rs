@@ -10,8 +10,6 @@ use std::{
 use subprocess::Exec;
 use thiserror::Error;
 
-const DEFAULT_TIMEOUT: Duration = Duration::from_mins(5);
-
 #[derive(Debug, Error)]
 pub enum Error {
   #[error("io: {0}")]
@@ -205,6 +203,7 @@ pub struct NixCommand {
   impure:                  bool,
   print_build_logs:        bool,
   interactive:             bool,
+  timeout:                 Option<Duration>,
   eval_profiler_mode:      Option<String>,
   eval_profiler_frequency: Option<u32>,
   eval_profile_file:       Option<String>,
@@ -223,6 +222,7 @@ impl NixCommand {
       impure:                  false,
       print_build_logs:        spec.print_build_logs,
       interactive:             spec.interactive,
+      timeout:                 None,
       eval_profiler_mode:      None,
       eval_profiler_frequency: None,
       eval_profile_file:       None,
@@ -240,6 +240,7 @@ impl NixCommand {
       impure:                  false,
       print_build_logs:        false,
       interactive:             false,
+      timeout:                 None,
       eval_profiler_mode:      None,
       eval_profiler_frequency: None,
       eval_profile_file:       None,
@@ -334,6 +335,12 @@ impl NixCommand {
   #[must_use]
   pub const fn print_build_logs(mut self, yes: bool) -> Self {
     self.print_build_logs = yes;
+    self
+  }
+
+  #[must_use]
+  pub const fn with_timeout(mut self, timeout: Duration) -> Self {
+    self.timeout = Some(timeout);
     self
   }
 
@@ -473,7 +480,7 @@ impl NixCommand {
   ///
   /// Returns an error if the command cannot be started, stdout or stderr
   /// cannot be captured, a pipe read fails, waiting for the process fails, or
-  /// the command exceeds the default timeout.
+  /// the configured timeout expires.
   pub fn run_with_logs(&self) -> Result<ExitStatus> {
     let mut cmd = self.to_std_command();
 
@@ -500,9 +507,11 @@ impl NixCommand {
     let start = Instant::now();
 
     loop {
-      if start.elapsed() > DEFAULT_TIMEOUT {
+      if let Some(timeout) = self.timeout
+        && start.elapsed() > timeout
+      {
         kill_wait_join(&mut child, stdout_thread, stderr_thread)?;
-        return Err(self.timeout());
+        return Err(self.timeout_error(timeout));
       }
 
       match rx.recv_timeout(Duration::from_millis(100)) {
@@ -554,10 +563,10 @@ impl NixCommand {
     }
   }
 
-  fn timeout(&self) -> Error {
+  fn timeout_error(&self, duration: Duration) -> Error {
     Error::Timeout {
-      command:  self.command_name(),
-      duration: DEFAULT_TIMEOUT,
+      command: self.command_name(),
+      duration,
     }
   }
 
@@ -638,6 +647,22 @@ mod tests {
     assert!(NixCommand::new(CommandKind::Shell).interactive);
     assert!(NixCommand::new(CommandKind::Develop).interactive);
     assert!(!NixCommand::new(CommandKind::Build).interactive);
+  }
+
+  #[test]
+  fn commands_default_to_no_timeout() {
+    assert_eq!(NixCommand::new(CommandKind::Build).timeout, None);
+    assert_eq!(NixCommand::raw().timeout, None);
+  }
+
+  #[test]
+  fn with_timeout_sets_command_timeout() {
+    assert_eq!(
+      NixCommand::new(CommandKind::Build)
+        .with_timeout(Duration::from_secs(30))
+        .timeout,
+      Some(Duration::from_secs(30))
+    );
   }
 
   #[test]

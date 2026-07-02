@@ -10,8 +10,9 @@ wiring.
 
 - Each `CommandKind` carries default flags (`--print-build-logs`, interactive
   mode) via `CommandSpec`.
-- Chain `.arg()`, `.env()`, `.impure()`, `.interactive()`, `.print_build_logs()`
-  to configure a `NixCommand` via the builder API.
+- Chain `.arg()`, `.env()`, `.impure()`, `.interactive()`,
+  `.print_build_logs()`, `.with_timeout()` to configure a `NixCommand` via the
+  builder API.
 - Stdout and stderr are forwarded as they arrive using streaming execution via
   `run_with_logs()`
 - Captured execution via `output()`; stdout and stderr are collected into
