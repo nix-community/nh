@@ -7,7 +7,7 @@ use std::{
 use color_eyre::eyre::{Context, Result, bail, eyre};
 use nh_core::{
   args::DiffType,
-  command::{self, Command, ElevationStrategy},
+  command::{self, Command, CommandKind, ElevationStrategy, NixCommand},
   update::update,
   util::{
     ensure_ssh_key_login,
@@ -423,9 +423,9 @@ impl OsRebuildActivateArgs {
           .context("Failed to resolve base output path to store path")?;
 
         Command::new("nix")
-          .elevate(elevate.then_some(elevation.clone()))
           .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
           .arg(&base_store_path)
+          .elevate(elevate.then_some(elevation.clone()))
           .with_required_env()
           .run()
           .wrap_err("Failed to set system profile")?;
@@ -912,7 +912,9 @@ impl OsBuildImageArgs {
       Installable::File { .. } | Installable::Expression { .. } => {
         get_build_image_variants(&installable, &target_hostname)?
       },
-      _ => bail!("Unsupported installable type for image building"),
+      Installable::Store { .. } => {
+        bail!("Unsupported installable type for image building")
+      },
     };
 
     // Validate that the requested variant exists
@@ -1249,6 +1251,12 @@ fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
   Ok(generations)
 }
 
+/// Resolve a NixOS installable to the requested system build attributes.
+///
+/// # Errors
+///
+/// Returns an error if the flake attribute path is too specific to infer the
+/// requested build attributes.
 pub fn toplevel_for<S: AsRef<str>>(
   hostname: S,
   installable: Installable,
@@ -1326,12 +1334,13 @@ impl OsReplArgs {
       attribute.push(hostname);
     }
 
-    Command::new("nix")
-      .arg("repl")
+    let status = NixCommand::new(CommandKind::Repl)
       .args(target_installable.to_args())
       .with_required_env()
-      .show_output(true)
-      .run()?;
+      .run_with_logs()?;
+    if !status.success() {
+      bail!("nix repl failed (exit status {status:?})");
+    }
 
     Ok(())
   }

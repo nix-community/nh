@@ -81,6 +81,11 @@ fn query_local_dix_diff(
 }
 
 /// Handles NixOS system diffing for local and remote rebuilds.
+///
+/// # Errors
+///
+/// Returns an error if local or remote store snapshot queries fail, or if the
+/// diff report cannot be written.
 pub fn handle_nixos_diff(
   diff: &DiffType,
   target_host: Option<&RemoteHost>,
@@ -168,25 +173,18 @@ fn query_remote_nixos_diff(
   target_profile: &Path,
   remote_profile: Option<PathBuf>,
 ) -> Result<QueriedDiff> {
-  let (old, new) = if let Some(remote_profile) = remote_profile {
-    let old_root =
-      ResolvedRemoteStorePath::resolve(target_host, current_profile)?;
-    let new_root =
-      ResolvedRemoteStorePath::resolve(target_host, &remote_profile)?;
-    (
-      DiffEndpoint::Remote(old_root),
-      DiffEndpoint::Remote(new_root),
-    )
-  } else {
-    let old_root =
-      ResolvedRemoteStorePath::resolve(target_host, current_profile)?;
-    (
-      DiffEndpoint::Remote(old_root),
-      DiffEndpoint::Local(target_profile.to_path_buf()),
-    )
-  };
+  let old_root =
+    ResolvedRemoteStorePath::resolve(target_host, current_profile)?;
 
-  query_endpoint_diff(&old, &new)
+  let new = remote_profile
+    .map(|path| {
+      ResolvedRemoteStorePath::resolve(target_host, &path)
+        .map(DiffEndpoint::Remote)
+    })
+    .transpose()?
+    .unwrap_or_else(|| DiffEndpoint::Local(target_profile.to_path_buf()));
+
+  query_endpoint_diff(&DiffEndpoint::Remote(old_root), &new)
 }
 
 fn query_endpoint_diff(

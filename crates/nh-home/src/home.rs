@@ -8,7 +8,7 @@ use color_eyre::{
   eyre::{Context, bail, eyre},
 };
 use nh_core::{
-  command::{self, Command},
+  command::{self, Command, CommandKind, NixCommand},
   update::update,
   util::get_hostname,
 };
@@ -16,6 +16,24 @@ use nh_diff::print_dix_diff;
 use nh_installable::{CommandContext, Installable};
 use nh_remote::{self, RemoteBuildConfig};
 use tracing::{debug, info, warn};
+
+fn capture_nix_stdout(command: &NixCommand) -> Result<String> {
+  let output = command.output().wrap_err("Failed to run nix command")?;
+  if !output.status.success() {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stderr = stderr.trim();
+    if stderr.is_empty() {
+      bail!("nix command failed (exit status {:?})", output.status);
+    }
+    bail!(
+      "nix command failed (exit status {:?})\nstderr:\n{stderr}",
+      output.status
+    );
+  }
+
+  String::from_utf8(output.stdout)
+    .wrap_err("nix command emitted non-UTF-8 stdout")
+}
 
 impl args::HomeArgs {
   /// Run the `home` subcommand.
@@ -267,7 +285,7 @@ where
                reference without attributes (e.g., '.')\n  2. Specify only \
                the configuration name (e.g., '.#{}')",
               attribute.join("."),
-              attribute.get(1).unwrap_or(&"<unknown>".to_string())
+              attribute.get(1).map_or("<unknown>", String::as_str)
             );
           }
         } else if attribute.len() > 1 {
@@ -281,7 +299,7 @@ where
                reference without attributes (e.g., '.')\n  2. Specify only \
                the configuration name (e.g., '.#{}')",
               attribute.join("."),
-              attribute.get(1).unwrap_or(&"<unknown>".to_string())
+              attribute.get(1).map_or("<unknown>", String::as_str)
             );
           }
         }
@@ -302,26 +320,26 @@ where
       if let Some(config_name) = configuration_name {
         // Verify the provided configuration exists
         let func = format!(r#" x: x ? "{config_name}" "#);
-        let check_res = Command::new("nix")
-          .with_required_env()
-          .arg("eval")
-          .args(&extra_args)
-          .arg("--apply")
-          .arg(func)
-          .args(
-            (Installable::Flake {
-              reference: flake_reference.clone(),
-              attribute: attribute.clone(),
-            })
-            .to_args(),
-          )
-          .run_capture()
-          .wrap_err(format!(
-            "Failed running nix eval to check for explicit configuration \
-             '{config_name}'"
-          ))?;
+        let check_res = capture_nix_stdout(
+          &NixCommand::new(CommandKind::Eval)
+            .with_required_env()
+            .args(&extra_args)
+            .arg("--apply")
+            .arg(func)
+            .args(
+              (Installable::Flake {
+                reference: flake_reference.clone(),
+                attribute: attribute.clone(),
+              })
+              .to_args(),
+            ),
+        )
+        .wrap_err(format!(
+          "Failed running nix eval to check for explicit configuration \
+           '{config_name}'"
+        ))?;
 
-        if check_res.map(|s| s.trim().to_owned()).as_deref() == Some("true") {
+        if check_res.trim() == "true" {
           debug!("Using explicit configuration from flag: {config_name:?}");
 
           attribute.push(config_name);
@@ -358,24 +376,24 @@ where
 
         for attr_name in [format!("{username}@{hostname}"), username] {
           let func = format!(r#" x: x ? "{attr_name}" "#);
-          let check_res = Command::new("nix")
-            .with_required_env()
-            .arg("eval")
-            .args(&extra_args)
-            .arg("--apply")
-            .arg(func)
-            .args(
-              (Installable::Flake {
-                reference: flake_reference.clone(),
-                attribute: attribute.clone(),
-              })
-              .to_args(),
-            )
-            .run_capture()
-            .wrap_err(format!(
-              "Failed running nix eval to check for automatic configuration \
-               '{attr_name}'"
-            ))?;
+          let check_res = capture_nix_stdout(
+            &NixCommand::new(CommandKind::Eval)
+              .with_required_env()
+              .args(&extra_args)
+              .arg("--apply")
+              .arg(func)
+              .args(
+                (Installable::Flake {
+                  reference: flake_reference.clone(),
+                  attribute: attribute.clone(),
+                })
+                .to_args(),
+              ),
+          )
+          .wrap_err(format!(
+            "Failed running nix eval to check for automatic configuration \
+             '{attr_name}'"
+          ))?;
 
           let current_try_attr = {
             let mut attr_path = attribute.clone();
@@ -384,7 +402,7 @@ where
           };
           tried.push(current_try_attr.clone());
 
-          if check_res.map(|s| s.trim().to_owned()).as_deref() == Some("true") {
+          if check_res.trim() == "true" {
             debug!("Using automatically detected configuration: {}", attr_name);
             attribute.push(attr_name);
             if push_drv {
@@ -444,12 +462,13 @@ impl HomeReplArgs {
       self.configuration.clone(),
     )?;
 
-    Command::new("nix")
-      .with_required_env()
-      .arg("repl")
+    let status = NixCommand::new(CommandKind::Repl)
       .args(toplevel.to_args())
-      .show_output(true)
-      .run()?;
+      .with_required_env()
+      .run_with_logs()?;
+    if !status.success() {
+      bail!("nix repl failed (exit status {status:?})");
+    }
 
     Ok(())
   }

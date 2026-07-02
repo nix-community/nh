@@ -1297,6 +1297,7 @@ dependencies = [
  "inquire",
  "nh-installable",
  "nix",
+ "nix-command",
  "proptest",
  "regex",
  "secrecy",
@@ -1394,6 +1395,7 @@ dependencies = [
  "inquire",
  "nh-core",
  "nh-installable",
+ "nix-command",
  "proptest",
  "secrecy",
  "serial_test",
@@ -1439,6 +1441,14 @@ dependencies = [
  "cfg-if",
  "cfg_aliases",
  "libc",
+]
+
+[[package]]
+name = "nix-command"
+version = "0.2.3"
+dependencies = [
+ "subprocess",
+ "thiserror",
 ]
 
 [[package]]

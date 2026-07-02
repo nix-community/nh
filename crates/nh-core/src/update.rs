@@ -1,9 +1,8 @@
 use clap::Args;
-use color_eyre::Result;
+use color_eyre::{Result, eyre::bail};
 use nh_installable::Installable;
-use tracing::warn;
-
-use crate::command::Command;
+use nix_command::{CommandKind, NixCommand};
+use tracing::{info, warn};
 
 #[derive(Debug, Args)]
 pub struct UpdateArgs {
@@ -34,26 +33,29 @@ pub fn update(
     return Ok(());
   };
 
-  let mut cmd = Command::new("nix").args(["flake", "update"]);
+  let mut cmd = NixCommand::new(CommandKind::Flake).arg("update");
 
   if commit_lock_file {
     cmd = cmd.arg("--commit-lock-file");
   }
 
-  if let Some(inputs) = inputs {
-    for input in &inputs {
-      cmd = cmd.arg(input);
-    }
-    cmd = cmd.message(format!(
-      "Updating flake input{maybe_plural} {inputs}",
-      maybe_plural = if inputs.len() > 1 { "s" } else { "" },
-      inputs = inputs.join(", ")
-    ));
-  } else {
-    cmd = cmd.message("Updating all flake inputs");
-  }
+  let message = match inputs {
+    Some(inputs) if !inputs.is_empty() => {
+      cmd = cmd.args(&inputs);
 
-  cmd.arg("--flake").arg(reference).run()?;
+      let maybe_plural = if inputs.len() > 1 { "s" } else { "" };
+      format!("Updating flake input{maybe_plural} {}", inputs.join(", "))
+    },
+    _ => "Updating all flake inputs".to_string(),
+  };
+
+  info!("{message}");
+
+  let status = cmd.arg("--flake").arg(reference).run_with_logs()?;
+
+  if !status.success() {
+    bail!("{message} (exit status {status:?})");
+  }
 
   Ok(())
 }

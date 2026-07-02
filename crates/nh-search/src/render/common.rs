@@ -1,7 +1,8 @@
 use std::sync::OnceLock;
 
+use nh_core::command::{CommandKind, NixCommand};
 use regex::Regex;
-use subprocess::{Exec, Redirection};
+use subprocess::Redirection;
 use tracing::warn;
 
 static HYPERLINKS_SUPPORTED: OnceLock<bool> = OnceLock::new();
@@ -74,14 +75,15 @@ pub(super) fn resolve_nixpkgs_path(channel: &str) -> String {
   };
 
   let flake_path = format!("{flake_ref}#path");
-  capture_nix_path(&["eval", "--raw", &flake_path])
-    .or_else(|| capture_nix_path(&["eval", "-f", "<nixpkgs>", "path"]))
+  capture_nix_eval(&["--raw", &flake_path])
+    .or_else(|| capture_nix_eval(&["-f", "<nixpkgs>", "path"]))
     .unwrap_or_default()
 }
 
-fn capture_nix_path(args: &[&str]) -> Option<String> {
-  let capture = Exec::cmd("nix")
+fn capture_nix_eval(args: &[&str]) -> Option<String> {
+  let capture = NixCommand::new(CommandKind::Eval)
     .args(args)
+    .to_exec()
     .stderr(Redirection::None)
     .stdout(Redirection::Pipe)
     .capture()

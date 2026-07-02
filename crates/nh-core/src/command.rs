@@ -13,6 +13,7 @@ use color_eyre::{
   eyre::{self, Context, bail},
 };
 use nh_installable::Installable;
+pub use nix_command::{CommandKind, NixCommand};
 use secrecy::{ExposeSecret, SecretString};
 use subprocess::{Exec, ExitStatus, Redirection};
 use thiserror::Error;
@@ -980,10 +981,11 @@ impl Build {
 
     let installable_args = self.installable.to_args();
 
-    let base_command = Exec::cmd("nix")
-      .arg("build")
+    let base_command = NixCommand::new(CommandKind::Build)
+      .print_build_logs(false)
       .args(&installable_args)
-      .args(&self.extra_args);
+      .args(&self.extra_args)
+      .to_exec();
 
     if self.nom {
       let pipeline = {

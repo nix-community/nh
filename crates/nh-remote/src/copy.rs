@@ -9,7 +9,7 @@ use color_eyre::{
   eyre::{Context, eyre},
 };
 use nh_core::{
-  command::exec_with_streaming,
+  command::{CommandKind, NixCommand, exec_with_streaming},
   progress::{self, Spinner},
 };
 use subprocess::{Exec, Redirection};
@@ -36,7 +36,6 @@ impl CopyDirection<'_> {
     match self {
       Self::FromRemote(host) => {
         vec![
-          "copy".to_string(),
           "--no-check-sigs".to_string(),
           "--from".to_string(),
           store_uri(host),
@@ -47,7 +46,6 @@ impl CopyDirection<'_> {
         use_substitutes,
       } => {
         let mut args = vec![
-          "copy".to_string(),
           "--no-check-sigs".to_string(),
           "--to".to_string(),
           store_uri(host),
@@ -61,7 +59,6 @@ impl CopyDirection<'_> {
         use_substitutes,
       } => {
         let mut args = vec![
-          "copy".to_string(),
           "--no-check-sigs".to_string(),
           "--from".to_string(),
           store_uri(from_host),
@@ -92,14 +89,12 @@ fn build_nix_copy_command<P: Into<OsString>>(
   direction: CopyDirection<'_>,
   path: P,
 ) -> Exec {
-  let flake_flags = get_flake_flags();
-  let mut cmd = Exec::cmd("nix").args(&flake_flags);
-
-  for arg in direction.args() {
-    cmd = cmd.arg(arg);
-  }
-
-  cmd.arg(path).env("NIX_SSHOPTS", get_nix_sshopts_env())
+  NixCommand::new(CommandKind::Copy)
+    .global_args(get_flake_flags())
+    .args(direction.args())
+    .arg(path.into())
+    .env("NIX_SSHOPTS", get_nix_sshopts_env())
+    .to_exec()
 }
 
 /// Copy a Nix closure from a remote host to localhost.
@@ -337,7 +332,6 @@ mod tests {
       }
       .args(),
       vec![
-        "copy",
         "--no-check-sigs",
         "--to",
         "ssh-ng://build.example",
@@ -357,7 +351,6 @@ mod tests {
       }
       .args(),
       vec![
-        "copy",
         "--no-check-sigs",
         "--to",
         "ssh://build.example",
@@ -371,7 +364,6 @@ mod tests {
     let host = RemoteHost::parse("build.example").unwrap();
 
     assert_eq!(CopyDirection::FromRemote(&host).args(), vec![
-      "copy",
       "--no-check-sigs",
       "--from",
       "ssh-ng://build.example"
@@ -391,7 +383,6 @@ mod tests {
       }
       .args(),
       vec![
-        "copy",
         "--no-check-sigs",
         "--from",
         "ssh-ng://build.example",
@@ -412,12 +403,7 @@ mod tests {
         use_substitutes: false,
       }
       .args(),
-      vec![
-        "copy",
-        "--no-check-sigs",
-        "--to",
-        "ssh-ng://user@[2001:db8::1]"
-      ]
+      vec!["--no-check-sigs", "--to", "ssh-ng://user@[2001:db8::1]"]
     );
   }
 

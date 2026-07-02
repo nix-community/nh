@@ -9,7 +9,7 @@ use color_eyre::{
 };
 use nh_core::{
   args::DiffType,
-  command::{Command, ElevationStrategy},
+  command::{Command, CommandKind, ElevationStrategy, NixCommand},
   update::update,
   util::get_hostname,
 };
@@ -234,17 +234,24 @@ impl DarwinReplArgs {
       attribute.push(hostname);
     }
 
-    Command::new("nix")
-      .arg("repl")
+    let status = NixCommand::new(CommandKind::Repl)
       .args(target_installable.to_args())
       .with_required_env()
-      .show_output(true)
-      .run()?;
+      .run_with_logs()?;
+    if !status.success() {
+      bail!("nix repl failed (exit status {status:?})");
+    }
 
     Ok(())
   }
 }
 
+/// Resolve a nix-darwin installable to the requested system build attribute.
+///
+/// # Errors
+///
+/// Returns an error if the installable is a store path or if the flake
+/// attribute path is too specific to infer the requested build attribute.
 pub fn toplevel_for<S: AsRef<str>>(
   hostname: S,
   installable: Installable,

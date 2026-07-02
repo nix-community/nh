@@ -81,6 +81,12 @@ impl NHCommand {
     }
   }
 
+  /// Run the selected subcommand.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if required Nix features are unavailable or if the
+  /// selected subcommand fails.
   pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
     // Check features specific to this command
     let requirements = self.get_feature_requirements();

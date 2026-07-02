@@ -1,5 +1,5 @@
 [workspace]
-members  = [ "xtask", "crates/*" ]
+members  = [ "crates/*" ]
 resolver = "3"
 
 [workspace.package]
@@ -20,6 +20,7 @@ nh-installable = { path = "crates/nh-installable" }
 nh-nixos       = { path = "crates/nh-nixos" }
 nh-remote      = { path = "crates/nh-remote" }
 nh-search      = { path = "crates/nh-search" }
+nix-command    = { path = "crates/nix-command" }
 
 anstyle               = "1.0.13"
 chrono                = "0.4.42"
