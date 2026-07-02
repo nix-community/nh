@@ -9,7 +9,7 @@ use color_eyre::{
 };
 use nh_core::{
   args::DiffType,
-  command::{Command, CommandKind, ElevationStrategy, NixCommand},
+  command::{Command, CommandKind, Elevation, NixCommand},
   update::update,
   util::get_hostname,
 };
@@ -41,7 +41,7 @@ impl DarwinArgs {
   /// - Remote operations encounter network or SSH issues
   /// - Nix evaluation or building fails
   /// - File system operations fail
-  pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
+  pub fn run(self, elevation: Elevation) -> Result<()> {
     use DarwinRebuildVariant::{Build, Switch};
     match self.subcommand {
       DarwinSubcommand::Switch(args) => args.rebuild(&Switch, elevation),
@@ -65,7 +65,7 @@ impl DarwinRebuildArgs {
   fn rebuild(
     self,
     variant: &DarwinRebuildVariant,
-    elevation: ElevationStrategy,
+    elevation: Elevation,
   ) -> Result<()> {
     use DarwinRebuildVariant::{Build, Switch};
 

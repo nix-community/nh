@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand, builder::Styles};
 use clap_verbosity_flag::InfoLevel;
 use nh_core::{
   checks::{FeatureRequirements, NoFeatures},
-  command::ElevationStrategy,
+  command::Elevation,
 };
 use nh_nixos;
 
@@ -52,8 +52,9 @@ pub struct Main {
   /// Can be a path to an elevation program (e.g., /usr/bin/sudo),
   /// or one of: 'none' (no elevation),
   /// 'passwordless' (use elevation without password prompt for remote hosts
-  /// with NOPASSWD configured), or 'auto' (automatically detect available
-  /// elevation programs in order: doas, sudo, run0, pkexec)
+  /// with NOPASSWD configured), 'empty-password' (use remote sudo stdin
+  /// authentication with an empty password line), or 'auto' (automatically
+  /// detect available elevation programs in order: doas, sudo, run0, pkexec)
   pub elevation_strategy: Option<nh_core::command::ElevationStrategyArg>,
 
   #[command(subcommand)]
@@ -87,7 +88,7 @@ impl NHCommand {
   ///
   /// Returns an error if required Nix features are unavailable or if the
   /// selected subcommand fails.
-  pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
+  pub fn run(self, elevation: Elevation) -> Result<()> {
     // Check features specific to this command
     let requirements = self.get_feature_requirements();
     requirements.check_features()?;

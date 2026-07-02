@@ -14,7 +14,7 @@ use nix_command::{CommandKind, NixCommand};
 use regex::Regex;
 use tracing::{debug, warn};
 
-use crate::command::{Command, ElevationStrategy};
+use crate::command::{Command, Elevation};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NixVariant {
@@ -382,14 +382,14 @@ pub fn get_missing_experimental_features(
 /// # Examples
 ///
 /// ```rust
-/// use nh_core::command::ElevationStrategy;
+/// use nh_core::command::Elevation;
 ///
 /// // Elevate the current process to run as root
-/// let elevate: fn(ElevationStrategy) -> ! = nh_core::util::self_elevate;
+/// let elevate: fn(Elevation) -> ! = nh_core::util::self_elevate;
 /// ```
 #[allow(clippy::panic, clippy::expect_used)]
-pub fn self_elevate(strategy: ElevationStrategy) -> ! {
-  let mut cmd = Command::self_elevate_cmd(strategy)
+pub fn self_elevate(elevation: Elevation) -> ! {
+  let mut cmd = Command::self_elevate_cmd(elevation)
     .expect("Failed to create self-elevation command");
   debug!("{:?}", cmd);
 
