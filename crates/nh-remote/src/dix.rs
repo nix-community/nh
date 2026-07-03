@@ -5,7 +5,7 @@ use color_eyre::{
   eyre::{bail, eyre},
 };
 
-use super::{RemoteHost, run_remote_command};
+use super::{RemoteHost, get_nix_sshopts_env, run_remote_command};
 
 /// A remote store path after resolving symlinks such as
 /// `/run/current-system`.
@@ -64,8 +64,9 @@ impl ResolvedRemoteStorePath {
   /// Returns an error if Nix cannot query the remote store or returns invalid
   /// JSON/path data.
   pub fn query_snapshot(&self) -> Result<dix::StoreSnapshot> {
-    let backend =
-      dix::CommandBackend::default().store_url(self.host.nix_store_uri());
+    let backend = dix::CommandBackend::default()
+      .store_url(self.host.nix_store_uri())
+      .env("NIX_SSHOPTS", get_nix_sshopts_env());
     dix::query_store_snapshot_with_backend(&backend, self.path())
   }
 
