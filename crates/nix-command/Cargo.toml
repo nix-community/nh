@@ -1,10 +1,11 @@
 [package]
 name                   = "nix-command"
+description            = "Schema-driven builder API for constructing and running Nix subcommands"
 version                = "0.2.3"
 edition.workspace      = true
 rust-version.workspace = true
 license.workspace      = true
-publish                = false
+publish                = true
 
 [dependencies]
 subprocess.workspace = true
