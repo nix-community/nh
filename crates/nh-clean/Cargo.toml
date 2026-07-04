@@ -1,10 +1,10 @@
 [package]
 name                   = "nh-clean"
-version                = "0.1.0"
-publish                = false
+version.workspace      = true
 edition.workspace      = true
-license.workspace      = true
 rust-version.workspace = true
+license.workspace      = true
+publish                = false
 
 [lib]
 path = "src/clean.rs"

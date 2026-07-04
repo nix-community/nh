@@ -1253,7 +1253,7 @@ dependencies = [
 
 [[package]]
 name = "nh-clean"
-version = "0.1.0"
+version = "4.4.0"
 dependencies = [
  "clap",
  "color-eyre",
@@ -1280,7 +1280,7 @@ dependencies = [
 
 [[package]]
 name = "nh-core"
-version = "0.1.0"
+version = "4.4.0"
 dependencies = [
  "clap",
  "color-eyre",
@@ -1306,7 +1306,7 @@ dependencies = [
 
 [[package]]
 name = "nh-darwin"
-version = "0.1.0"
+version = "4.4.0"
 dependencies = [
  "clap",
  "color-eyre",
@@ -1322,7 +1322,7 @@ dependencies = [
 
 [[package]]
 name = "nh-diff"
-version = "0.1.0"
+version = "4.4.0"
 dependencies = [
  "color-eyre",
  "dix",
@@ -1334,7 +1334,7 @@ dependencies = [
 
 [[package]]
 name = "nh-home"
-version = "0.1.0"
+version = "4.4.0"
 dependencies = [
  "clap",
  "color-eyre",
@@ -1349,7 +1349,7 @@ dependencies = [
 
 [[package]]
 name = "nh-installable"
-version = "0.1.0"
+version = "4.4.0"
 dependencies = [
  "clap",
  "color-eyre",
@@ -1361,7 +1361,7 @@ dependencies = [
 
 [[package]]
 name = "nh-nixos"
-version = "0.1.0"
+version = "4.4.0"
 dependencies = [
  "chrono",
  "clap",
@@ -1379,7 +1379,7 @@ dependencies = [
 
 [[package]]
 name = "nh-remote"
-version = "0.1.0"
+version = "4.4.0"
 dependencies = [
  "color-eyre",
  "dix",
@@ -1399,7 +1399,7 @@ dependencies = [
 
 [[package]]
 name = "nh-search"
-version = "0.1.0"
+version = "4.4.0"
 dependencies = [
  "chrono",
  "clap",
