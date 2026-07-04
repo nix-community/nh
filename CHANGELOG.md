@@ -18,6 +18,16 @@ functionality, under the "Removed" section.
 
 ### Added
 
+### Changed
+
+### Fixed
+
+### Removed
+
+## 4.4.0
+
+### Added
+
 - `--option NAME VALUE` passthrough flag (repeatable) for setting arbitrary Nix
   configuration options per-invocation, e.g. `--option sandbox false`. Forwarded
   to all underlying `nix` commands.
