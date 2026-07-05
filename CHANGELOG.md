@@ -22,7 +22,12 @@ functionality, under the "Removed" section.
 
 ### Fixed
 
-### 4.4.1
+- `nh` now properly errors when the provided or stored GitHub token is invalid
+  or malformed.
+
+### Removed
+
+## 4.4.1
 
 ### Fixed
 
@@ -39,8 +44,6 @@ functionality, under the "Removed" section.
   - `nh clean` no longer aborts entirely when a gcroot target lives on a
     read-only-mounted Nix store or otherwise can't be write-checked for a known,
     expected reason (`EACCES`, `EROFS`, `EPERM`)..
-
-### Removed
 
 ## 4.4.0
 
