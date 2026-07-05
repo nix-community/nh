@@ -21,11 +21,8 @@ const TOKEN_FILE: &str = "github-token";
 
 pub fn token() -> Result<SecretString> {
   // If GH_TOKEN is set, use that.
-  if let Some(token) = env::var(TOKEN_ENV)
-    .ok()
-    .map(|t| t.trim().to_owned())
-    .filter(|t| !t.is_empty())
-    .map(SecretString::from)
+  if let Ok(raw) = env::var(TOKEN_ENV)
+    && let Some(token) = token_from_str(&raw, TokenSource::Env)?
   {
     return Ok(token);
   }
@@ -61,6 +58,7 @@ The token will be saved to {} with user-only permissions.
   if token.is_empty() {
     bail!("empty GitHub token");
   }
+  ensure_single_line_token(token, TokenSource::Prompt)?;
 
   let token = SecretString::new(token.to_string().into());
   write_token_file(&token_path, &token)?;
@@ -103,6 +101,31 @@ fn token_store_path() -> Result<PathBuf> {
   )
 }
 
+pub(super) fn token_recovery_hint() -> String {
+  let token_path = token_store_path().ok();
+  let saved_token_hint = token_path.map_or_else(
+    || {
+      format!(
+        "set {TOKEN_ENV} to a valid token, or set {TOKEN_FILE_ENV} to a token \
+         file"
+      )
+    },
+    |path| {
+      format!(
+        "set {TOKEN_ENV} to a valid token, or replace/delete the saved token \
+         at {}",
+        path.display()
+      )
+    },
+  );
+
+  format!(
+    "Create a new GitHub token at {TOKEN_CREATION_URL}, then \
+     {saved_token_hint}. If {TOKEN_ENV} is set, it takes precedence over the \
+     saved token."
+  )
+}
+
 fn read_token_file(path: &Path) -> Result<Option<SecretString>> {
   let raw = match fs::read_to_string(path) {
     Ok(raw) => raw,
@@ -112,8 +135,75 @@ fn read_token_file(path: &Path) -> Result<Option<SecretString>> {
         .with_context(|| format!("failed to read {}", path.display()));
     },
   };
+  token_from_str(&raw, TokenSource::File(path))
+}
+
+#[derive(Clone, Copy)]
+enum TokenSource<'a> {
+  Env,
+  File(&'a Path),
+  Prompt,
+}
+
+fn token_from_str(
+  raw: &str,
+  source: TokenSource<'_>,
+) -> Result<Option<SecretString>> {
   let token = raw.trim();
-  Ok((!token.is_empty()).then(|| SecretString::new(token.to_string().into())))
+  if token.is_empty() {
+    return Ok(None);
+  }
+
+  ensure_single_line_token(token, source)?;
+  Ok(Some(SecretString::new(token.to_string().into())))
+}
+
+fn ensure_single_line_token(
+  token: &str,
+  source: TokenSource<'_>,
+) -> Result<()> {
+  if token
+    .chars()
+    .any(|character| character.is_control() || character.is_whitespace())
+  {
+    bail!("{}", invalid_token_message(source));
+  }
+
+  Ok(())
+}
+
+fn invalid_token_message(source: TokenSource<'_>) -> String {
+  let source_message = match source {
+    TokenSource::Env => format!("{TOKEN_ENV} contains"),
+    TokenSource::File(path) => {
+      format!("stored GitHub token at {} contains", path.display())
+    },
+    TokenSource::Prompt => "GitHub token contains".to_string(),
+  };
+
+  let fix_message = match source {
+    TokenSource::Env => {
+      format!(
+        "Set {TOKEN_ENV} to a single-line token, or unset it to use the saved \
+         token."
+      )
+    },
+    TokenSource::File(path) => {
+      format!(
+        "Replace it with a single-line token, delete {} to be prompted again, \
+         or set {TOKEN_ENV} to override the saved token.",
+        path.display()
+      )
+    },
+    TokenSource::Prompt => {
+      "Paste a single-line token without embedded whitespace.".to_string()
+    },
+  };
+
+  format!(
+    "{source_message} whitespace or control characters and cannot be used as \
+     a GitHub token. {fix_message}"
+  )
 }
 
 /// Writes a token atomically to a specified path.
@@ -175,7 +265,10 @@ fn write_token_file(path: &Path, token: &SecretString) -> Result<()> {
 mod tests {
   use std::{env, fs, os::unix::fs::PermissionsExt};
 
-  use color_eyre::{Result, eyre::ContextCompat};
+  use color_eyre::{
+    Result,
+    eyre::{ContextCompat, bail},
+  };
   use secrecy::ExposeSecret;
   use serial_test::serial;
   use tempfile::tempdir;
@@ -240,6 +333,24 @@ mod tests {
 
   #[test]
   #[serial]
+  fn gh_token_rejects_embedded_newline() -> Result<()> {
+    let dir = tempdir()?;
+    let path = dir.path().join(TOKEN_FILE);
+    let _token = EnvGuard::set(TOKEN_ENV, "abc\ndef");
+    let _token_file = EnvGuard::set(TOKEN_FILE_ENV, &path);
+
+    let Err(err) = token() else {
+      bail!("embedded newline should fail");
+    };
+
+    let message = err.to_string();
+    assert!(message.contains(TOKEN_ENV));
+    assert!(message.contains("single-line token"));
+    Ok(())
+  }
+
+  #[test]
+  #[serial]
   fn token_file_env_overrides_default_path() -> Result<()> {
     let dir = tempdir()?;
     let state = tempdir()?;
@@ -248,6 +359,40 @@ mod tests {
     let _token = EnvGuard::remove(TOKEN_ENV);
     let _token_file = EnvGuard::set(TOKEN_FILE_ENV, &path);
     let _state = EnvGuard::set("XDG_STATE_HOME", state.path());
+
+    let token = token()?;
+
+    assert_eq!("from-file", token.expose_secret());
+    Ok(())
+  }
+
+  #[test]
+  #[serial]
+  fn token_file_rejects_embedded_newline_with_path() -> Result<()> {
+    let dir = tempdir()?;
+    let path = dir.path().join(TOKEN_FILE);
+    fs::write(&path, "abc\ndef")?;
+    let _token = EnvGuard::remove(TOKEN_ENV);
+    let _token_file = EnvGuard::set(TOKEN_FILE_ENV, &path);
+
+    let Err(err) = token() else {
+      bail!("embedded newline should fail");
+    };
+
+    let message = err.to_string();
+    assert!(message.contains(&path.display().to_string()));
+    assert!(message.contains("delete"));
+    Ok(())
+  }
+
+  #[test]
+  #[serial]
+  fn token_file_accepts_trailing_newline() -> Result<()> {
+    let dir = tempdir()?;
+    let path = dir.path().join(TOKEN_FILE);
+    fs::write(&path, "from-file\n")?;
+    let _token = EnvGuard::remove(TOKEN_ENV);
+    let _token_file = EnvGuard::set(TOKEN_FILE_ENV, &path);
 
     let token = token()?;
 
