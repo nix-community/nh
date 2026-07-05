@@ -4,10 +4,12 @@ use color_eyre::{
   Result,
   eyre::{Context, ContextCompat, bail},
 };
-use reqwest::blocking::Client;
+use reqwest::{StatusCode, blocking::Client};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Value, json};
+
+use super::auth;
 
 const API_URL: &str = "https://api.github.com/graphql";
 const SEND_ATTEMPTS: u32 = 3;
@@ -52,10 +54,7 @@ impl GraphqlClient {
       .context("failed to read GitHub GraphQL response")?;
 
     if !status.is_success() {
-      bail!(
-        "GitHub GraphQL request failed ({status}): {}",
-        truncate_body(&body)
-      );
+      handle_http_error(status, &body)?;
     }
 
     let payload = serde_json::from_str::<GraphqlResponse<T>>(&body)
@@ -117,6 +116,20 @@ impl GraphqlClient {
   }
 }
 
+fn handle_http_error(status: StatusCode, body: &str) -> Result<()> {
+  if status == StatusCode::UNAUTHORIZED {
+    bail!(
+      "GitHub rejected the configured token ({status}). {}",
+      auth::token_recovery_hint()
+    );
+  }
+
+  bail!(
+    "GitHub GraphQL request failed ({status}): {}",
+    truncate_body(body)
+  );
+}
+
 fn truncate_body(body: &str) -> String {
   const LIMIT: usize = 512;
   let body = body.trim();
@@ -125,5 +138,83 @@ fn truncate_body(body: &str) -> String {
     format!("{truncated}...")
   } else {
     truncated
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use std::env;
+
+  use color_eyre::eyre::bail;
+  use serial_test::serial;
+  use tempfile::tempdir;
+
+  use super::*;
+
+  struct EnvGuard {
+    key:   &'static str,
+    value: Option<std::ffi::OsString>,
+  }
+
+  impl EnvGuard {
+    fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+      let guard = Self {
+        key,
+        value: env::var_os(key),
+      };
+      unsafe {
+        env::set_var(key, value);
+      }
+      guard
+    }
+  }
+
+  impl Drop for EnvGuard {
+    fn drop(&mut self) {
+      unsafe {
+        if let Some(value) = &self.value {
+          env::set_var(self.key, value);
+        } else {
+          env::remove_var(self.key);
+        }
+      }
+    }
+  }
+
+  #[test]
+  #[serial]
+  fn unauthorized_error_includes_token_recovery_hint() -> Result<()> {
+    let dir = tempdir()?;
+    let token_path = dir.path().join("github-token");
+    let _token_file = EnvGuard::set("NH_GITHUB_TOKEN_FILE", &token_path);
+
+    let err = match handle_http_error(StatusCode::UNAUTHORIZED, "") {
+      Ok(()) => bail!("unauthorized response should fail"),
+      Err(err) => err,
+    };
+
+    let message = err.to_string();
+    assert!(message.contains("GitHub rejected the configured token"));
+    assert!(
+      message
+        .contains("https://github.com/settings/personal-access-tokens/new")
+    );
+    assert!(message.contains("GH_TOKEN"));
+    assert!(message.contains(&token_path.display().to_string()));
+    Ok(())
+  }
+
+  #[test]
+  fn forbidden_response_stays_generic() -> Result<()> {
+    let Err(err) =
+      handle_http_error(StatusCode::FORBIDDEN, r#"{"message":"forbidden"}"#)
+    else {
+      bail!("forbidden response should fail");
+    };
+
+    let message = err.to_string();
+    assert!(message.contains("GitHub GraphQL request failed"));
+    assert!(!message.contains("GitHub rejected the configured token"));
+    Ok(())
   }
 }
