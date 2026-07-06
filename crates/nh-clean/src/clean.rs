@@ -38,6 +38,11 @@ static GENERATION_REGEX: LazyLock<Regex> = LazyLock::new(|| {
   Regex::new(r"^(.*)-(\d+)-link$").expect("Failed to compile generation regex")
 });
 
+static RESULT_LINK_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+  #[allow(clippy::expect_used)]
+  Regex::new(r"^result(-.*)?$").expect("Failed to compile result link regex")
+});
+
 const AUTO_GCROOTS_DIR: &str = "/nix/var/nix/gcroots/auto";
 
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -236,11 +241,6 @@ impl args::CleanMode {
           continue;
         }
 
-        if !gcroot_matches_filter(&src, &dst, regexes) {
-          debug!("dst doesn't match any gcroot filter, skipping");
-          continue;
-        }
-
         match faccessat(
           &dirfd,
           &dst,
@@ -249,15 +249,25 @@ impl args::CleanMode {
         ) {
           Ok(()) => {
             if dst.metadata().is_err() {
+              // A live root's target is never aged out. It's only removed once
+              // it is provably dead (which is how Nix's own indirect-gcroot
+              // semantics work.) This check must run for every gcroot, not just
+              // ones matching the age-based cleanup filter below.
               debug!(?dst, "gcroot target already GC'd, tagging for removal");
               gcroots_tagged.push(GcRootTagged {
                 src,
                 dst,
                 tbr: true,
               });
-            } else if args.keep_one
-              && DIRENV_REGEX.is_match(&dst.to_string_lossy())
-            {
+              continue;
+            }
+
+            if !gcroot_matches_filter(&src, &dst, regexes) {
+              debug!("dst doesn't match any gcroot filter, skipping");
+              continue;
+            }
+
+            if args.keep_one && DIRENV_REGEX.is_match(&dst.to_string_lossy()) {
               gcroots_tagged.push(GcRootTagged {
                 src,
                 dst,
@@ -589,11 +599,26 @@ fn gcroot_matches_filter(src: &Path, dst: &Path, regexes: &[&Regex]) -> bool {
   regexes
     .iter()
     .any(|next| next.is_match(&dst.to_string_lossy()))
-    || (is_auto_gcroot_entry(src) && is_nix_store_direct_child(&resolved_dst))
+    || (is_auto_gcroot_entry(src)
+      && is_nix_store_direct_child(&resolved_dst)
+      && is_build_result_link(dst))
 }
 
 fn is_auto_gcroot_entry(path: &Path) -> bool {
   path.starts_with(AUTO_GCROOTS_DIR)
+}
+
+/// Whether `path`'s basename looks like an ephemeral `nix build` result
+/// symlink (`result`, `result-dev`, etc.), as opposed to a live indirect
+/// gcroot such as home-manager's `current-home` or `current-system`. Only
+/// paths matching this are subject to age-based (`--keep-since`) cleanup;
+/// anything else that resolves straight into `/nix/store` is left alone
+/// unless it becomes orphaned.
+fn is_build_result_link(path: &Path) -> bool {
+  path
+    .file_name()
+    .and_then(|name| name.to_str())
+    .is_some_and(|name| RESULT_LINK_REGEX.is_match(name))
 }
 
 fn gcroot_path_to_remove(gcroot: &GcRootTagged) -> &Path {
@@ -667,11 +692,51 @@ mod tests {
   }
 
   #[test]
-  fn gcroot_filter_passes_auto_store_direct_child() {
+  fn gcroot_filter_rejects_auto_store_direct_child_without_result_name() {
+    // A direct-store-child target that isn't reached through a
+    // `result`-shaped path (e.g., a raw store path registered as an
+    // indirect root) is not eligible for age-based cleanup.
     let src = Path::new("/nix/var/nix/gcroots/auto/example");
     let dst = Path::new("/nix/store/abc123zzz-foo-1.0");
     let regexes = [&*DIRENV_REGEX];
-    assert!(gcroot_matches_filter(src, dst, &regexes));
+    assert!(!gcroot_matches_filter(src, dst, &regexes));
+  }
+
+  #[test]
+  fn gcroot_filter_rejects_current_home_shaped_auto_root() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let link = dir.path().join("current-home");
+    std::os::unix::fs::symlink("/nix/store/abc123zzz-foo-1.0", &link)
+      .expect("symlink");
+
+    let src = Path::new("/nix/var/nix/gcroots/auto/example");
+    let regexes = [&*DIRENV_REGEX];
+    assert!(
+      !gcroot_matches_filter(src, &link, &regexes),
+      "current-home-shaped roots must not be subject to age-based cleanup"
+    );
+  }
+
+  #[test]
+  fn build_result_link_matches_result_and_variants() {
+    assert!(is_build_result_link(Path::new("/home/user/project/result")));
+    assert!(is_build_result_link(Path::new(
+      "/home/user/project/result-dev"
+    )));
+    assert!(is_build_result_link(Path::new(
+      "/home/user/project/result-bin"
+    )));
+  }
+
+  #[test]
+  fn build_result_link_rejects_current_home_and_system() {
+    assert!(!is_build_result_link(Path::new(
+      "/var/lib/foo/current-home"
+    )));
+    assert!(!is_build_result_link(Path::new("/run/current-system")));
+    assert!(!is_build_result_link(Path::new(
+      "/nix/store/abc123zzz-foo-1.0"
+    )));
   }
 
   #[test]
@@ -777,6 +842,25 @@ mod tests {
     assert!(
       link.metadata().is_err(),
       "following broken symlink should fail"
+    );
+  }
+
+  #[test]
+  fn orphaned_current_home_shaped_root_is_still_removable() {
+    // Even though a current-home-shaped root is exempt from age-based cleanup
+    // (also see: gcroot_filter_rejects_current_home_shaped_auto_root), once
+    // its target is actually gone it must still be detected as
+    // broken. This is sorta universal, and filter independent.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let target = dir.path().join("gone-home");
+    let link = dir.path().join("current-home");
+    std::os::unix::fs::symlink(&target, &link).expect("symlink");
+
+    assert!(!is_build_result_link(&link));
+    assert!(
+      link.metadata().is_err(),
+      "broken current-home-shaped symlink must be detected as orphaned \
+       regardless of its name"
     );
   }
 

@@ -22,6 +22,17 @@ functionality, under the "Removed" section.
 
 ### Fixed
 
+- `nh clean`'s auto-gcroot handling no longer subjects arbitrary indirect
+  gcroots (e.g., home-manager's `current-home`, or any other tool's "current
+  generation" symlink) to `--keep-since` age-based cleanup. Only roots that
+  structurally look like ephemeral `nix build` result symlinks (`result`,
+  `result-<name>`) are aged out; anything else resolving into `/nix/store` is
+  left untouched unless it becomes orphaned (its target no longer exists),
+  matching real Nix's indirect-gcroot semantics. Previously,
+  `nh clean all --ask` could delete a live, in-use gcroot on confirmation,
+  causing the next `nix store gc` to silently collect an active generation
+  ([#722](https://github.com/nix-community/nh/issues/722)).
+
 ### Removed
 
 ## 4.4.0
