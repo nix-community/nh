@@ -32,6 +32,9 @@ functionality, under the "Removed" section.
   `nh clean all --ask` could delete a live, in-use gcroot on confirmation,
   causing the next `nix store gc` to silently collect an active generation
   ([#722](https://github.com/nix-community/nh/issues/722)).
+  - `nh clean` no longer aborts entirely when a gcroot target lives on a
+    read-only-mounted Nix store or otherwise can't be write-checked for a known,
+    expected reason (`EACCES`, `EROFS`, `EPERM`)..
 
 ### Removed
 

@@ -309,8 +309,8 @@ impl args::CleanMode {
             );
             orphan_gcroots.push(src);
           },
-          Err(Errno::EACCES) => {
-            debug!("dst not writable, skipping");
+          Err(errno @ (Errno::EACCES | Errno::EROFS | Errno::EPERM)) => {
+            debug!(?errno, ?dst, "gcroot target not writable, skipping");
           },
           Err(errno) => {
             bail!(
