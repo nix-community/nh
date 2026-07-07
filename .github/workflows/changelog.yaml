@@ -9,6 +9,10 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled, edited]
 
+permissions:
+  contents: read
+  pull-requests: read
+
 env:
   CHANGELOG_REQUIRED: true
   IGNORE_CHECK_LABEL: allow-no-changelog
@@ -21,15 +25,17 @@ jobs:
       - name: Override variable if PR is labeled ${{ env.IGNORE_CHECK_LABEL }}
         if: ${{ contains(github.event.pull_request.labels.*.name, env.IGNORE_CHECK_LABEL) }}
         run: |
-          echo "CHANGELOG_REQUIRED=false" >> $GITHUB_ENV
+          echo "CHANGELOG_REQUIRED=false" >> "$GITHUB_ENV"
 
       - name: Override variable if PR is from Dependabot
-        if: ${{ github.actor == 'dependabot[bot]' }}
+        if: ${{ github.event.pull_request.user.login == 'dependabot[bot]' }}
         run: |
-          echo "CHANGELOG_REQUIRED=false" >> $GITHUB_ENV
+          echo "CHANGELOG_REQUIRED=false" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         if: fromJSON(env.CHANGELOG_REQUIRED)
+        with:
+          persist-credentials: false
 
       - name: Get changed files in the docs folder
         if: fromJSON(env.CHANGELOG_REQUIRED)

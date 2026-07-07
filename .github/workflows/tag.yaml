@@ -10,6 +10,9 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: read
+
 jobs:
   tag:
     runs-on: ubuntu-latest
@@ -23,7 +26,7 @@ jobs:
         name: Checkout
         with:
           fetch-depth: 0
-          token: ${{ secrets.PAT }}
+          persist-credentials: false
 
       - name: Read version
         run: |
@@ -37,6 +40,8 @@ jobs:
           echo "Read version: $VERSION"
 
       - name: Tag
+        env:
+          PUSH_TOKEN: ${{ secrets.PAT }}
         run: |
           set -e
           if git rev-parse "$nh_version" >/dev/null 2>&1; then
@@ -44,7 +49,7 @@ jobs:
             exit 0
           fi
           git tag "$nh_version"
-          git push --tags
+          git push "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" --tags
 
   build:
     name: Build ${{ matrix.platform }}
@@ -66,6 +71,8 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         name: Checkout
+        with:
+          persist-credentials: false
 
       - name: Install cross
         if: matrix.platform == 'aarch64-linux'
@@ -97,11 +104,14 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         name: Checkout
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Check release exists
         env:
