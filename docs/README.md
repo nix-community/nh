@@ -3,7 +3,7 @@
   <h1 id="header">nh</h1>
   <a alt="CI" href="https://github.com/nix-community/nh/actions">
     <img
-      src="https://github.com/nix-community/nh/actions/workflows/build.yaml/badge.svg"
+      src="https://github.com/nix-community/nh/actions/workflows/ci.yaml/badge.svg"
       alt="Build Status"
     />
   </a>
