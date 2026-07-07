@@ -22,6 +22,10 @@ functionality, under the "Removed" section.
 
 ### Fixed
 
+### 4.4.1
+
+### Fixed
+
 - `nh clean`'s auto-gcroot handling no longer subjects arbitrary indirect
   gcroots (e.g., home-manager's `current-home`, or any other tool's "current
   generation" symlink) to `--keep-since` age-based cleanup. Only roots that
