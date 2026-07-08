@@ -68,11 +68,9 @@ pub(super) fn search(
   query: &str,
   days: u32,
 ) -> Result<Vec<Issue>> {
-  let date = (Utc::now() - ChronoDuration::days(i64::from(days)))
+  let updated_since = (Utc::now() - ChronoDuration::days(i64::from(days)))
     .to_rfc3339_opts(SecondsFormat::Secs, true);
-  let github_query = format!(
-    "repo:NixOS/nixpkgs {query} type:issue created:>{date} sort:created-desc"
-  );
+  let github_query = search_query(query, &updated_since);
   let data = client.query::<SearchIssuesData>(
     SEARCH_ISSUES_QUERY,
     &json!({
@@ -88,6 +86,13 @@ pub(super) fn search(
     .flatten()
     .map(IssueNode::try_into_issue)
     .collect()
+}
+
+fn search_query(query: &str, updated_since: &str) -> String {
+  format!(
+    "repo:NixOS/nixpkgs {query} type:issue updated:>{updated_since} \
+     sort:updated-desc"
+  )
 }
 
 impl IssueNode {
@@ -114,7 +119,16 @@ mod tests {
   use color_eyre::Result;
   use serde_json::json;
 
-  use super::{IssueNode, IssueState};
+  use super::{IssueNode, IssueState, search_query};
+
+  #[test]
+  fn search_query_uses_recently_updated_issues() {
+    assert_eq!(
+      "repo:NixOS/nixpkgs bug type:issue updated:>2026-07-01T12:00:00Z \
+       sort:updated-desc",
+      search_query("bug", "2026-07-01T12:00:00Z")
+    );
+  }
 
   #[test]
   fn parses_open_issue() -> Result<()> {

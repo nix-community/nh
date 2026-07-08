@@ -89,11 +89,9 @@ pub(super) fn search(
   query: &str,
   days: u32,
 ) -> Result<Vec<PullRequest>> {
-  let date = (Utc::now() - ChronoDuration::days(i64::from(days)))
+  let updated_since = (Utc::now() - ChronoDuration::days(i64::from(days)))
     .to_rfc3339_opts(SecondsFormat::Secs, true);
-  let github_query = format!(
-    "repo:NixOS/nixpkgs {query} type:pr created:>{date} sort:created-desc"
-  );
+  let github_query = search_query(query, &updated_since);
   let data = client.query::<SearchPullRequestsData>(
     SEARCH_PULL_REQUESTS_QUERY,
     &json!({
@@ -137,6 +135,13 @@ pub fn parse_direct_pr_number(query: &str) -> Option<u64> {
     .flatten()
 }
 
+fn search_query(query: &str, updated_since: &str) -> String {
+  format!(
+    "repo:NixOS/nixpkgs {query} type:pr updated:>{updated_since} \
+     sort:updated-desc"
+  )
+}
+
 impl PullRequestNode {
   fn try_into_pull_request(self) -> Result<PullRequest> {
     let state = parse_state(self.merged, &self.state)?;
@@ -170,7 +175,12 @@ mod tests {
   use color_eyre::Result;
   use serde_json::json;
 
-  use super::{PullRequestNode, PullRequestState, parse_direct_pr_number};
+  use super::{
+    PullRequestNode,
+    PullRequestState,
+    parse_direct_pr_number,
+    search_query,
+  };
 
   #[test]
   fn parses_direct_pr_numbers() {
@@ -178,6 +188,15 @@ mod tests {
     assert_eq!(Some(123), parse_direct_pr_number("#123"));
     assert_eq!(None, parse_direct_pr_number("foo 123"));
     assert_eq!(None, parse_direct_pr_number("#"));
+  }
+
+  #[test]
+  fn search_query_uses_recently_updated_pull_requests() {
+    assert_eq!(
+      "repo:NixOS/nixpkgs hello type:pr updated:>2026-07-01T12:00:00Z \
+       sort:updated-desc",
+      search_query("hello", "2026-07-01T12:00:00Z")
+    );
   }
 
   #[test]

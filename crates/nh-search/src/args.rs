@@ -182,7 +182,7 @@ pub struct PlatformsArg {
 
 #[derive(Args, Debug, Clone, Copy)]
 pub struct DaysArg {
-  /// Search GitHub results from the last n days (default: 15).
+  /// Search GitHub results updated in the last n days (default: 15).
   #[arg(
     id = "days",
     short = 'd',

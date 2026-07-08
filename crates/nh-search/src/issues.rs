@@ -31,7 +31,7 @@ pub fn run(json: bool, args: &args::IssuesArgs) -> Result<()> {
   }
 
   if issues.is_empty() {
-    println!("No issues found for '{query}' in the last {days} days.");
+    println!("No issues found for '{query}' updated in the last {days} days.");
     return Ok(());
   }
 

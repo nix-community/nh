@@ -230,20 +230,20 @@ options (powered by an Elasticsearch client against search.nixos.org), offline
 search against local [SPAM] databases, and Nixpkgs pull request and issue
 search. All available as `nh search`!
 
-The command exposes three explicit subcommands and a convenient shorthand:
+The command exposes several explicit subcommands and a convenient shorthand:
 
 <!--markdownlint-disable MD013 -->
 
 [found here]: https://github.com/feel-co/spam/actions/workflows/auto-index.yml
 
-| Invocation                                    | What it does                                                                                   |
-| --------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `nh search <query>`                           | Shorthand; searches packages by default (see `NH_DEFAULT_SEARCH`)                              |
-| `nh search packages <query>`                  | Search Nixpkgs packages via search.nixos.org                                                   |
-| `nh search options [--scope=<SCOPE>] <query>` | Search NixOS/Home Manager options (`--scope`: `nixpkgs`, `home-manager`, `all`)                |
-| `nh search offline --db <PATH> <query>`       | Search a local SPAM database without network access. Generated DBs can be [found here].        |
-| `nh search prs [--days <DAYS>] <query>`       | Search Nixpkgs pull requests and show branch reachability for merged PRs. Defaults to 15 days. |
-| `nh search issues [--days <DAYS>] <query>`    | Search Nixpkgs issues, excluding pull requests. Defaults to 15 days.                           |
+| Invocation                                    | What it does                                                                                                       |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `nh search <query>`                           | Shorthand; searches packages by default (see `NH_DEFAULT_SEARCH`)                                                  |
+| `nh search packages <query>`                  | Search Nixpkgs packages via search.nixos.org                                                                       |
+| `nh search options [--scope=<SCOPE>] <query>` | Search NixOS/Home Manager options (`--scope`: `nixpkgs`, `home-manager`, `all`)                                    |
+| `nh search offline --db <PATH> <query>`       | Search a local SPAM database without network access. Generated DBs can be [found here].                            |
+| `nh search prs [--days <DAYS>] <query>`       | Search Nixpkgs pull requests and show branch reachability for merged PRs. Defaults to updates in the last 15 days. |
+| `nh search issues [--days <DAYS>] <query>`    | Search Nixpkgs issues, excluding pull requests. Defaults to updates in the last 15 days.                           |
 
 <!--markdownlint-enable MD013 -->
 
