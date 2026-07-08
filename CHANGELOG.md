@@ -22,6 +22,9 @@ functionality, under the "Removed" section.
 
 ### Fixed
 
+- `nh search prs` and `nh search issues` now search pull requests and issues
+  updated in the requested `--days` window instead of only items created in that
+  window.
 - `nh` now properly errors when the provided or stored GitHub token is invalid
   or malformed.
 
