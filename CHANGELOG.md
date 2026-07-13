@@ -22,6 +22,11 @@ functionality, under the "Removed" section.
 
 ### Fixed
 
+- `nh search` now renders package and option results immediately after the
+  search backend responds instead of blocking while fetching and evaluating a
+  mutable nixpkgs channel. Local `Defined at` links now resolve the ambient
+  nixpkgs lookup path offline
+  ([#732](https://github.com/nix-community/nh/issues/732)).
 - `nh search prs` and `nh search issues` now search pull requests and issues
   updated in the requested `--days` window instead of only items created in that
   window.
