@@ -10,7 +10,7 @@ use color_eyre::{
 use nh_core::{
   command::{self, Command, CommandKind, NixCommand},
   update::update,
-  util::get_hostname,
+  util::get_hostname_candidates,
 };
 use nh_diff::print_dix_diff;
 use nh_installable::{CommandContext, Installable};
@@ -371,10 +371,15 @@ where
       if !found_config {
         let username =
           std::env::var("USER").map_err(|_| eyre!("Couldn't get username"))?;
-        let hostname = get_hostname(None)?;
+        let hostnames = get_hostname_candidates()?;
         let mut tried = vec![];
 
-        for attr_name in [format!("{username}@{hostname}"), username] {
+        let attr_candidates = hostnames
+          .iter()
+          .map(|hostname| format!("{username}@{hostname}"))
+          .chain(std::iter::once(username.clone()));
+
+        for attr_name in attr_candidates {
           let func = format!(r#" x: x ? "{attr_name}" "#);
           let check_res = capture_nix_stdout(
             &NixCommand::new(CommandKind::Eval)

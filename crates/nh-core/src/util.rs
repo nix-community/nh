@@ -308,6 +308,58 @@ pub fn get_hostname(supplied_hostname: Option<String>) -> Result<String> {
   }
 }
 
+/// Gets the list of candidate hostnames for matching home-manager
+/// configuration attribute names.
+///
+/// Unlike [`get_hostname`], which returns nix-darwin's convention (the
+/// Bonjour `LocalHostName`, dots stripped) so that `nh os` stays aligned
+/// with `darwin-rebuild`, home-manager itself resolves its hostname via the
+/// POSIX `hostname(1)` / `gethostname(2)` call, which preserves dots (e.g.
+/// `joao.palharini`). On macOS these two can differ, so callers that probe
+/// home-manager configuration attribute names (e.g. `nh home`) should try
+/// both.
+///
+/// # Returns
+///
+/// * `Ok(Vec<String>)` with a deduped, ordered list of hostname candidates.
+///
+/// # Errors
+///
+/// Returns an error if the POSIX hostname cannot be retrieved or contains
+/// invalid UTF-8.
+pub fn get_hostname_candidates() -> Result<Vec<String>> {
+  use color_eyre::eyre::Context;
+
+  let mut candidates = Vec::new();
+
+  #[cfg(target_os = "macos")]
+  {
+    use color_eyre::eyre::bail;
+    use system_configuration::{
+      core_foundation::{base::TCFType, string::CFString},
+      sys::dynamic_store_copy_specific::SCDynamicStoreCopyLocalHostName,
+    };
+
+    let ptr = unsafe { SCDynamicStoreCopyLocalHostName(std::ptr::null()) };
+    if ptr.is_null() {
+      bail!("Failed to get hostname, and no hostname supplied");
+    }
+    let name = unsafe { CFString::wrap_under_get_rule(ptr) };
+    candidates.push(name.to_string());
+  }
+
+  let posix_hostname = nix::unistd::gethostname()
+    .context("Failed to get hostname, and no hostname supplied")?
+    .into_string()
+    .map_err(|_| eyre::eyre!("Hostname contains invalid UTF-8"))?;
+
+  if !candidates.contains(&posix_hostname) {
+    candidates.push(posix_hostname);
+  }
+
+  Ok(candidates)
+}
+
 /// Retrieves all enabled experimental features in Nix (cached).
 ///
 /// This function executes the `nix config show experimental-features` command
@@ -513,6 +565,21 @@ mod tests {
   use nh_installable::Installable;
 
   use super::*;
+
+  #[test]
+  fn test_get_hostname_candidates_non_empty_and_deduped() {
+    let candidates =
+      get_hostname_candidates().expect("Failed to get hostname candidates");
+
+    assert!(!candidates.is_empty());
+
+    let unique: HashSet<_> = candidates.iter().collect();
+    assert_eq!(
+      unique.len(),
+      candidates.len(),
+      "hostname candidates should be deduped"
+    );
+  }
 
   #[test]
   fn test_get_build_image_variants_expression() {
