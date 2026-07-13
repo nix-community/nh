@@ -5,7 +5,7 @@ use super::common;
 use crate::types::OptionSearchResult;
 
 pub fn print(channel: &str, documents: &[OptionSearchResult]) {
-  let nixpkgs_path = common::resolve_nixpkgs_path(channel);
+  let nixpkgs_path = common::resolve_nixpkgs_path();
   debug!("nixpkgs_path: {:?}", nixpkgs_path);
 
   for elem in documents.iter().rev() {
@@ -38,11 +38,11 @@ pub fn print(channel: &str, documents: &[OptionSearchResult]) {
       let is_home_manager = elem.r#type == "home-manager-option";
       let filepath = source.split(':').next().unwrap_or(source);
 
-      if !is_home_manager && !nixpkgs_path.is_empty() {
+      if !is_home_manager && let Some(nixpkgs_path) = &nixpkgs_path {
         common::print_field_hyperlink(
           "Defined at",
           filepath,
-          &format!("file://{nixpkgs_path}/{filepath}"),
+          &format!("file://{}/{filepath}", nixpkgs_path.display()),
         );
       }
 

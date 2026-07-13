@@ -9,7 +9,7 @@ pub fn print(
   platforms: bool,
   documents: &[PackageSearchResult],
 ) {
-  let nixpkgs_path = common::resolve_nixpkgs_path(channel);
+  let nixpkgs_path = common::resolve_nixpkgs_path();
   debug!("nixpkgs_path: {:?}", nixpkgs_path);
 
   for elem in documents.iter().rev() {
@@ -39,11 +39,11 @@ pub fn print(
     if let Some(package_position) = &elem.package_position {
       match package_position.split(':').next() {
         Some(position) => {
-          if !nixpkgs_path.is_empty() {
+          if let Some(nixpkgs_path) = &nixpkgs_path {
             common::print_field_hyperlink(
               "Defined at",
               position,
-              &format!("file://{nixpkgs_path}/{position}"),
+              &format!("file://{}/{position}", nixpkgs_path.display()),
             );
           }
 

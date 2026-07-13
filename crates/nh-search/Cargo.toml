@@ -20,7 +20,6 @@ secrecy.workspace             = true
 serde.workspace               = true
 serde_json.workspace          = true
 spam-db.workspace             = true
-subprocess.workspace          = true
 supports-hyperlinks.workspace = true
 tempfile.workspace            = true
 textwrap.workspace            = true
