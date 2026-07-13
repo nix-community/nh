@@ -1,8 +1,7 @@
-use std::sync::OnceLock;
+use std::{path::PathBuf, sync::OnceLock};
 
 use nh_core::command::{CommandKind, NixCommand};
 use regex::Regex;
-use subprocess::Redirection;
 use tracing::warn;
 
 static HYPERLINKS_SUPPORTED: OnceLock<bool> = OnceLock::new();
@@ -65,33 +64,54 @@ pub(super) fn strip_html(html: &str) -> String {
   re.replace_all(html, "").trim().to_string()
 }
 
-pub(super) fn resolve_nixpkgs_path(channel: &str) -> String {
-  let flake_ref = if channel == "nixos-unstable" {
-    "github:NixOS/nixpkgs/nixos-unstable".to_string()
-  } else if channel.starts_with("nixos-") {
-    format!("github:NixOS/nixpkgs/{channel}")
-  } else {
-    "nixpkgs".to_string()
-  };
+/// Resolve the ambient nixpkgs lookup path without fetching a mutable channel.
+///
+/// This path only backs the local `file://` link. The channel-specific source
+/// link is rendered separately, so failure here should not block search output.
+pub(super) fn resolve_nixpkgs_path() -> Option<PathBuf> {
+  let output = nixpkgs_path_command().output().ok()?;
+  if !output.status.success() {
+    return None;
+  }
 
-  let flake_path = format!("{flake_ref}#path");
-  capture_nix_eval(&["--raw", &flake_path])
-    .or_else(|| capture_nix_eval(&["-f", "<nixpkgs>", "path"]))
-    .unwrap_or_default()
+  let path = std::str::from_utf8(&output.stdout).ok()?.trim();
+  if path.is_empty() {
+    None
+  } else {
+    Some(PathBuf::from(path))
+  }
 }
 
-fn capture_nix_eval(args: &[&str]) -> Option<String> {
-  let capture = NixCommand::new(CommandKind::Eval)
-    .args(args)
-    .to_exec()
-    .stderr(Redirection::None)
-    .stdout(Redirection::Pipe)
-    .capture()
-    .ok()?;
+fn nixpkgs_path_command() -> NixCommand {
+  NixCommand::new(CommandKind::Eval).impure(true).args([
+    "--offline",
+    "--raw",
+    "--expr",
+    "toString <nixpkgs>",
+  ])
+}
 
-  capture
-    .exit_status
-    .success()
-    .then(|| capture.stdout_str().trim().to_string())
-    .filter(|path| !path.is_empty())
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn nixpkgs_path_lookup_is_local_and_offline() {
+    let argv = nixpkgs_path_command().argv();
+
+    assert_eq!(argv, [
+      "nix",
+      "eval",
+      "--impure",
+      "--offline",
+      "--raw",
+      "--expr",
+      "toString <nixpkgs>"
+    ]);
+    assert!(
+      !argv
+        .iter()
+        .any(|arg| arg.to_string_lossy().contains("github:"))
+    );
+  }
 }
