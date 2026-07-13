@@ -235,20 +235,25 @@ fn test_resolve_or_default_rejects_missing_path_scheme() {
 }
 
 #[test]
-fn test_resolve_or_default_accepts_path_scheme_with_query() {
-  let flake_dir = tempfile::tempdir().unwrap();
-  fs::write(flake_dir.path().join("flake.nix"), "{}").unwrap();
-  let reference = format!("path:{}?lastModified=1", flake_dir.path().display());
-  let installable = Installable::Flake {
-    reference: reference.clone(),
-    attribute: vec![],
-  };
+fn test_resolve_or_default_defers_parameterized_local_flake_refs_to_nix() {
+  let source_dir = tempfile::tempdir().unwrap();
 
-  let resolved = specified(installable)
-    .resolve_or_default(CommandContext::Os)
-    .unwrap();
+  for reference in [
+    format!("path:{}?lastModified=1", source_dir.path().display()),
+    format!("path:{}?dir=nix/flakes", source_dir.path().display()),
+    format!("{}?submodules=1", source_dir.path().display()),
+  ] {
+    let installable = Installable::Flake {
+      reference: reference.clone(),
+      attribute: vec![],
+    };
 
-  assert_eq!(resolved.to_args(), vec![format!("{reference}#")]);
+    let resolved = specified(installable)
+      .resolve_or_default(CommandContext::Os)
+      .unwrap();
+
+    assert_eq!(resolved.to_args(), vec![format!("{reference}#")]);
+  }
 }
 
 #[test]
