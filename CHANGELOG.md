@@ -27,6 +27,10 @@ functionality, under the "Removed" section.
   mutable nixpkgs channel. Local `Defined at` links now resolve the ambient
   nixpkgs lookup path offline
   ([#732](https://github.com/nix-community/nh/issues/732)).
+- Parameterized local flake references such as `path:/repo?dir=nix/flakes` and
+  `./nix?submodules=1` are now passed through to Nix instead of being rejected
+  by nh's local path validation
+  ([#733](https://github.com/nix-community/nh/issues/733)).
 - `nh search prs` and `nh search issues` now search pull requests and issues
   updated in the requested `--days` window instead of only items created in that
   window.

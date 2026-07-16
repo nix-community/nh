@@ -593,10 +593,14 @@ where
 fn local_flake_reference_path(reference: &str) -> Option<PathBuf> {
   // Only preflight references that are unmistakably filesystem paths. Bare
   // names like `nixpkgs`, plus URL/registry-style refs, stay in Nix's hands.
+  // Parameterized local flake references such as `path:/repo?dir=nix/flakes`
+  // and `./nix?submodules=1` have scheme- and repository-dependent semantics,
+  // so we leave their interpretation to Nix as well.
+  if reference.contains('?') {
+    return None;
+  }
+
   if let Some(path) = reference.strip_prefix("path:") {
-    // Query parameters affect Nix's flakeref, not the local path existence
-    // check. Keep the original reference unchanged for command execution.
-    let path = path.split_once('?').map_or(path, |(path, _)| path);
     return Some(PathBuf::from(path));
   }
 
