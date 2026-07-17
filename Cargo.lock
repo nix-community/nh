@@ -1353,6 +1353,7 @@ version = "4.4.1"
 dependencies = [
  "clap",
  "color-eyre",
+ "nix-command",
  "serial_test",
  "tempfile",
  "tracing",
