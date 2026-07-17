@@ -1402,6 +1402,7 @@ version = "4.4.2"
 dependencies = [
  "clap",
  "color-eyre",
+ "nix-command",
  "nix-installable",
  "serial_test",
  "tempfile",
