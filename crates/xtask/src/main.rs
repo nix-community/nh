@@ -40,7 +40,7 @@ enum Command {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
   let Cli { command } = Cli::parse();
 
-  env::set_current_dir(project_root())?;
+  env::set_current_dir(project_root()?)?;
 
   match command {
     Command::Man { out_dir } => {
@@ -68,13 +68,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   }
 }
 
-fn project_root() -> PathBuf {
-  Path::new(
-    &env::var("CARGO_MANIFEST_DIR")
-      .unwrap_or_else(|_| env!("CARGO_MANIFEST_DIR").to_owned()),
-  )
-  .ancestors()
-  .nth(2)
-  .unwrap()
-  .to_path_buf()
+fn project_root() -> Result<PathBuf, String> {
+  let manifest_dir = env::var("CARGO_MANIFEST_DIR")
+    .unwrap_or_else(|_| env!("CARGO_MANIFEST_DIR").to_owned());
+
+  Path::new(&manifest_dir)
+    .ancestors()
+    .nth(2)
+    .map(Path::to_path_buf)
+    .ok_or_else(|| {
+      format!("Could not determine project root from '{manifest_dir}'")
+    })
 }
