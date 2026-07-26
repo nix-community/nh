@@ -458,6 +458,17 @@ the common variables that you may encounter or choose to employ are as follows:
     is given. Accepted values: `packages` (default), `options` (uses scope
     `all`). Equivalent to `--default-search`.
 
+- `NH_SEARCH_BACKEND_VERSION`
+  - Backend index version queried on search.nixos.org by `nh search packages`
+    and `nh search options`. Defaults to the version bundled with nh. Use this
+    to point nh at a newer index without waiting for a release. Equivalent to
+    `--backend-version`.
+
+- `NH_SEARCH_BACKEND_FALLBACKS`
+  - Number of newer index versions to try when the requested version is outdated
+    (missing on the backend). Defaults to `1`, so nh retries the next version
+    once before failing. Equivalent to `--backend-version-fallbacks`.
+
 - `NH_OFFLINE_DB`
   - Colon-separated list of paths to SPAM database files used by
     `nh search offline`. Each path is treated as a separate database. Equivalent

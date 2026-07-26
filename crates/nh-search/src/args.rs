@@ -5,6 +5,7 @@ use color_eyre::{Result, eyre::bail};
 
 const DEFAULT_LIMIT: u64 = 30;
 const DEFAULT_CHANNEL: &str = "nixos-unstable";
+const DEFAULT_BACKEND_FALLBACKS: u32 = 1;
 
 #[derive(Args, Debug)]
 /// Searches packages or NixOS/home-manager options via search.nixos.org,
@@ -18,6 +19,9 @@ pub struct SearchArgs {
 
   #[command(flatten)]
   pub platforms: PlatformsArg,
+
+  #[command(flatten)]
+  pub backend: BackendArgs,
 
   /// Output results as JSON
   #[arg(
@@ -72,6 +76,9 @@ pub struct PackagesArgs {
   #[command(flatten)]
   pub platforms: PlatformsArg,
 
+  #[command(flatten)]
+  pub backend: BackendArgs,
+
   /// Name of the package to search
   #[arg(required = true)]
   pub query: Vec<String>,
@@ -94,6 +101,9 @@ pub struct OptionsArgs {
     value_name = "SCOPE"
   )]
   pub scope: Option<OptionScope>,
+
+  #[command(flatten)]
+  pub backend: BackendArgs,
 
   /// Name of the option to search
   #[arg(required = true)]
@@ -168,6 +178,30 @@ pub struct ChannelArg {
 }
 
 #[derive(Args, Debug, Clone, Copy)]
+pub struct BackendArgs {
+  /// Backend index version to query on search.nixos.org. Defaults to the
+  /// version bundled with nh
+  #[arg(
+    id = "backend-version",
+    long = "backend-version",
+    env = "NH_SEARCH_BACKEND_VERSION",
+    value_name = "VERSION"
+  )]
+  pub version: Option<u32>,
+
+  /// Number of newer index versions to try when the requested version is
+  /// outdated (missing on the backend)
+  #[arg(
+    id = "backend-version-fallbacks",
+    long = "backend-version-fallbacks",
+    env = "NH_SEARCH_BACKEND_FALLBACKS",
+    default_value_t = DEFAULT_BACKEND_FALLBACKS,
+    value_name = "COUNT"
+  )]
+  pub fallbacks: u32,
+}
+
+#[derive(Args, Debug, Clone, Copy)]
 pub struct PlatformsArg {
   /// Show supported platforms for each package
   #[arg(
@@ -220,12 +254,14 @@ pub enum ResolvedSearchMode<'a> {
     channel:   &'a str,
     limit:     u64,
     platforms: bool,
+    backend:   BackendArgs,
     query:     &'a [String],
   },
   Options {
     channel: &'a str,
     limit:   u64,
     scope:   OptionScope,
+    backend: BackendArgs,
     query:   &'a [String],
   },
   Offline {
@@ -251,6 +287,7 @@ impl SearchArgs {
           channel:   &args.channel.value,
           limit:     args.limit.value,
           platforms: args.platforms.value,
+          backend:   args.backend,
           query:     &args.query,
         })
       },
@@ -259,6 +296,7 @@ impl SearchArgs {
           channel: &args.channel.value,
           limit:   args.limit.value,
           scope:   args.scope.unwrap_or(OptionScope::All),
+          backend: args.backend,
           query:   &args.query,
         })
       },
@@ -289,6 +327,7 @@ impl SearchArgs {
           channel:   &self.channel.value,
           limit:     self.limit.value,
           platforms: self.platforms.value,
+          backend:   self.backend,
           query:     &self.query,
         })
       },
@@ -301,6 +340,7 @@ impl SearchArgs {
           channel: &self.channel.value,
           limit:   self.limit.value,
           scope:   OptionScope::All,
+          backend: self.backend,
           query:   &self.query,
         })
       },
@@ -452,6 +492,47 @@ mod tests {
     assert!(matches!(args.default_search, SearchDefault::Options));
     assert_eq!(args.query, ["hello"]);
     assert!(args.mode.is_none());
+    Ok(())
+  }
+
+  #[test]
+  fn backend_version_flags_parse_and_default() -> clap::error::Result<()> {
+    let args = parse_search(&[
+      "search",
+      "packages",
+      "hello",
+      "--backend-version",
+      "51",
+      "--backend-version-fallbacks",
+      "3",
+    ])?;
+
+    match args.mode {
+      Some(SearchMode::Packages(packages)) => {
+        assert_eq!(packages.backend.version, Some(51));
+        assert_eq!(packages.backend.fallbacks, 3);
+      },
+      other => {
+        return Err(clap::Error::raw(
+          ErrorKind::InvalidValue,
+          format!("expected packages mode, got {other:?}"),
+        ));
+      },
+    }
+
+    let defaults = parse_search(&["search", "options", "hello"])?;
+    match defaults.mode {
+      Some(SearchMode::Options(options)) => {
+        assert_eq!(options.backend.version, None);
+        assert_eq!(options.backend.fallbacks, 1);
+      },
+      other => {
+        return Err(clap::Error::raw(
+          ErrorKind::InvalidValue,
+          format!("expected options mode, got {other:?}"),
+        ));
+      },
+    }
     Ok(())
   }
 
