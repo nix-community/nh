@@ -85,7 +85,7 @@ pub struct OptionsArgs {
   #[command(flatten)]
   pub channel: ChannelArg,
 
-  /// Options scope: nixpkgs, home-manager, or all (default)
+  /// Options scope: nixpkgs, home-manager, nix-darwin, or all (default)
   #[arg(
     long,
     num_args = 0..=1,
@@ -199,7 +199,10 @@ pub enum OptionScope {
   /// Search home-manager options
   #[value(name = "home-manager")]
   HomeManager,
-  /// Search all options (NixOS, services, and home-manager)
+  /// Search nix-darwin options
+  #[value(name = "nix-darwin")]
+  Darwin,
+  /// Search all options (NixOS, services, home-manager, and nix-darwin)
   All,
 }
 
