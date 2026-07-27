@@ -12,7 +12,6 @@ version      = "4.4.2"
 [workspace.dependencies]
 nh             = { path = "crates/nh", version = "4.4.2" }
 nh-clean       = { path = "crates/nh-clean", version = "4.4.2" }
-nh-config      = { path = "crates/nh-config", version = "4.4.2" }
 nh-core        = { path = "crates/nh-core", version = "4.4.2" }
 nh-darwin      = { path = "crates/nh-darwin", version = "4.4.2" }
 nh-diff        = { path = "crates/nh-diff", version = "4.4.2" }
