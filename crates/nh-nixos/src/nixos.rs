@@ -1257,7 +1257,7 @@ fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
 ///
 /// Returns an error if the flake attribute path is too specific to infer the
 /// requested build attributes.
-pub fn toplevel_for<S: AsRef<str>>(
+fn toplevel_for<S: AsRef<str>>(
   hostname: S,
   installable: Installable,
   final_attrs: &[&str],

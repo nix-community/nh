@@ -15,7 +15,7 @@ use crate::util::{self, NixVariant, normalize_version_string};
 /// # Errors
 ///
 /// Returns an error if the Nix version cannot be determined or parsed.
-pub fn check_nix_version() -> Result<()> {
+fn check_nix_version() -> Result<()> {
   // XXX: Both Nix and Lix follow semantic versioning (semver). Update the
   // versions below once latest stable for either of those packages change.
   // We *also* cannot (or rather, will not) make this check for non-nixpkgs

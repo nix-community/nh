@@ -18,7 +18,7 @@ use nh_remote::RemoteHost;
 #[derive(Debug, Args)]
 pub struct DarwinArgs {
   #[command(subcommand)]
-  pub subcommand: DarwinSubcommand,
+  pub(crate) subcommand: DarwinSubcommand,
 }
 
 impl DarwinArgs {
@@ -53,36 +53,36 @@ pub enum DarwinSubcommand {
 #[derive(Debug, Args)]
 pub struct DarwinRebuildArgs {
   #[command(flatten)]
-  pub common: CommonRebuildArgs,
+  pub(crate) common: CommonRebuildArgs,
 
   #[command(flatten)]
-  pub update_args: UpdateArgs,
+  pub(crate) update_args: UpdateArgs,
 
   /// When using a flake installable, select this hostname from
   /// darwinConfigurations
   #[arg(long, short = 'H', global = true)]
-  pub hostname: Option<String>,
+  pub(crate) hostname: Option<String>,
 
   /// Extra arguments passed to nix build
   #[arg(last = true)]
-  pub extra_args: Vec<String>,
+  pub(crate) extra_args: Vec<String>,
 
   /// Don't panic if calling nh as root
   #[arg(short = 'R', long, env = "NH_BYPASS_ROOT_CHECK")]
-  pub bypass_root_check: bool,
+  pub(crate) bypass_root_check: bool,
 
   /// Show activation logs
   #[arg(long, env = "NH_SHOW_ACTIVATION_LOGS", value_parser = clap::builder::BoolishValueParser::new())]
-  pub show_activation_logs: bool,
+  pub(crate) show_activation_logs: bool,
 
   /// Build the configuration on a different host over SSH
   #[arg(long)]
-  pub build_host: Option<RemoteHost>,
+  pub(crate) build_host: Option<RemoteHost>,
 }
 
 impl DarwinRebuildArgs {
   #[must_use]
-  pub fn uses_flakes(&self) -> bool {
+  fn uses_flakes(&self) -> bool {
     self.common.installable.uses_flakes(CommandContext::Darwin)
   }
 }
@@ -90,17 +90,17 @@ impl DarwinRebuildArgs {
 #[derive(Debug, Args)]
 pub struct DarwinReplArgs {
   #[command(flatten)]
-  pub installable: InstallableArgs,
+  pub(crate) installable: InstallableArgs,
 
   /// When using a flake installable, select this hostname from
   /// darwinConfigurations
   #[arg(long, short = 'H', global = true)]
-  pub hostname: Option<String>,
+  pub(crate) hostname: Option<String>,
 }
 
 impl DarwinReplArgs {
   #[must_use]
-  pub fn uses_flakes(&self) -> bool {
+  fn uses_flakes(&self) -> bool {
     self.installable.uses_flakes(CommandContext::Darwin)
   }
 }

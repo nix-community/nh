@@ -49,87 +49,87 @@ pub enum DiffType {
 pub struct NixBuildPassthroughArgs {
   /// Number of concurrent jobs Nix should run
   #[arg(long, short = 'j')]
-  pub max_jobs: Option<usize>,
+  max_jobs: Option<usize>,
 
   /// Number of cores Nix should utilize
   #[arg(long)]
-  pub cores: Option<usize>,
+  cores: Option<usize>,
 
   /// Logging format used by Nix
   #[arg(long)]
-  pub log_format: Option<String>,
+  log_format: Option<String>,
 
   /// Continue building despite encountering errors
   #[arg(long, short = 'k')]
-  pub keep_going: bool,
+  keep_going: bool,
 
   /// Keep build outputs from failed builds
   #[arg(long, short = 'K')]
-  pub keep_failed: bool,
+  keep_failed: bool,
 
   /// Attempt to build locally if substituters fail
   #[arg(long)]
-  pub fallback: bool,
+  fallback: bool,
 
   /// Repair corrupted store paths
   #[arg(long)]
-  pub repair: bool,
+  repair: bool,
 
   /// Explicitly define remote builders
   #[arg(long)]
-  pub builders: Option<String>,
+  builders: Option<String>,
 
   /// Paths to include
   #[arg(long, short = 'I')]
-  pub include: Vec<String>,
+  include: Vec<String>,
 
   /// Print build logs directly to stdout
   #[arg(long, short = 'L')]
-  pub print_build_logs: bool,
+  print_build_logs: bool,
 
   /// Display tracebacks on errors
   #[arg(long, short = 't')]
-  pub show_trace: bool,
+  show_trace: bool,
 
   /// Accept configuration from flakes
   #[arg(long)]
-  pub accept_flake_config: bool,
+  accept_flake_config: bool,
 
   /// Refresh flakes to the latest revision
   #[arg(long)]
-  pub refresh: bool,
+  refresh: bool,
 
   /// Allow impure builds
   #[arg(long)]
-  pub impure: bool,
+  impure: bool,
 
   /// Build without internet access
   #[arg(long)]
-  pub offline: bool,
+  offline: bool,
 
   /// Prohibit network usage
   #[arg(long)]
-  pub no_net: bool,
+  no_net: bool,
 
   /// Recreate the flake.lock file entirely
   #[arg(long)]
-  pub recreate_lock_file: bool,
+  recreate_lock_file: bool,
 
   /// Do not update the flake.lock file
   #[arg(long)]
-  pub no_update_lock_file: bool,
+  no_update_lock_file: bool,
 
   /// Do not write a lock file
   #[arg(long)]
-  pub no_write_lock_file: bool,
+  no_write_lock_file: bool,
 
   /// Do not use registries
   #[arg(long = "no-use-registries")]
-  pub no_use_registries: bool,
+  no_use_registries: bool,
 
   /// Do not use registries (deprecated, use --no-use-registries)
   #[arg(long, alias = "no-registries")]
-  pub no_registries: bool,
+  no_registries: bool,
 
   /// Commit the lock file after updates
   #[arg(long)]
@@ -137,7 +137,7 @@ pub struct NixBuildPassthroughArgs {
 
   /// Suppress build output
   #[arg(long, short = 'Q')]
-  pub no_build_output: bool,
+  no_build_output: bool,
 
   /// Use substitutes when copying
   #[arg(long)]
@@ -145,15 +145,15 @@ pub struct NixBuildPassthroughArgs {
 
   /// Output results in JSON format
   #[arg(long)]
-  pub json: bool,
+  json: bool,
 
   /// Set a Nix configuration option (may be given multiple times)
   #[arg(long, number_of_values = 2, value_names = ["NAME", "VALUE"])]
-  pub option: Vec<String>,
+  option: Vec<String>,
 
   /// Override a specific flake input (may be given multiple times)
   #[arg(long, number_of_values = 2, value_names = ["INPUT", "FLAKE_URL"])]
-  pub override_input: Vec<String>,
+  override_input: Vec<String>,
 }
 
 impl NixBuildPassthroughArgs {

@@ -43,7 +43,7 @@ impl ConfigStore {
   /// # Errors
   ///
   /// Returns an error when the file cannot be read or parsed.
-  pub fn load_from(path: impl Into<PathBuf>) -> Result<Self> {
+  fn load_from(path: impl Into<PathBuf>) -> Result<Self> {
     let path = path.into();
     let document = match fs::read_to_string(&path) {
       Ok(raw) => parse_document(&path, &raw)?,
@@ -67,7 +67,7 @@ impl ConfigStore {
   /// # Errors
   ///
   /// Returns an error when a known field is present with the wrong type.
-  pub const fn config(&self) -> Result<Config> {
+  const fn config(&self) -> Result<Config> {
     Ok(Config {})
   }
 
@@ -77,7 +77,7 @@ impl ConfigStore {
   ///
   /// Returns an error when the parent directory cannot be created or the file
   /// cannot be written.
-  pub fn save(&self) -> Result<()> {
+  fn save(&self) -> Result<()> {
     write_private(&self.path, self.document.to_string().as_bytes())
   }
 }
@@ -88,7 +88,7 @@ impl ConfigStore {
 ///
 /// Returns an error when `NH_CONFIG` is empty or no home directory can be
 /// determined for the fallback path.
-pub fn default_config_path() -> Result<PathBuf> {
+pub(crate) fn default_config_path() -> Result<PathBuf> {
   if let Some(path) = env::var_os(CONFIG_ENV) {
     if path.is_empty() {
       bail!("{CONFIG_ENV} is set but empty");

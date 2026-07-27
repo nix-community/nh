@@ -37,7 +37,7 @@ pub struct Main {
   #[command(flatten)]
   /// Increase logging verbosity, can be passed multiple times for
   /// more detailed logs.
-  pub verbosity: clap_verbosity_flag::Verbosity<InfoLevel>,
+  pub(crate) verbosity: clap_verbosity_flag::Verbosity<InfoLevel>,
 
   #[arg(
     short,
@@ -54,10 +54,10 @@ pub struct Main {
   /// 'passwordless' (use elevation without password prompt for remote hosts
   /// with NOPASSWD configured), or 'auto' (automatically detect available
   /// elevation programs in order: doas, sudo, run0, pkexec)
-  pub elevation_strategy: Option<nh_core::command::ElevationStrategyArg>,
+  pub(crate) elevation_strategy: Option<nh_core::command::ElevationStrategyArg>,
 
   #[command(subcommand)]
-  pub command: NHCommand,
+  pub(crate) command: NHCommand,
 }
 
 #[derive(Subcommand, Debug)]
@@ -72,7 +72,7 @@ pub enum NHCommand {
 
 impl NHCommand {
   #[must_use]
-  pub fn get_feature_requirements(&self) -> Box<dyn FeatureRequirements> {
+  fn get_feature_requirements(&self) -> Box<dyn FeatureRequirements> {
     match self {
       Self::Os(args) => args.get_feature_requirements(),
       Self::Home(args) => args.get_feature_requirements(),
@@ -87,7 +87,7 @@ impl NHCommand {
   ///
   /// Returns an error if required Nix features are unavailable or if the
   /// selected subcommand fails.
-  pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
+  pub(crate) fn run(self, elevation: ElevationStrategy) -> Result<()> {
     // Check features specific to this command
     let requirements = self.get_feature_requirements();
     requirements.check_features()?;

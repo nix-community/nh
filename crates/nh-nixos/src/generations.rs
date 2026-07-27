@@ -14,29 +14,29 @@ use tracing::{debug, warn};
 #[derive(Debug, Clone)]
 pub struct GenerationInfo {
   /// Number of a generation
-  pub number: u64,
+  pub(crate) number: u64,
 
   /// Date on switch a generation was built
-  pub date: String,
+  date: String,
 
   /// `NixOS` version derived from `nixos-version`
-  pub nixos_version: String,
+  nixos_version: String,
 
   /// Version of the bootable kernel for a given generation
-  pub kernel_version: String,
+  kernel_version: String,
 
   /// Revision for a configuration. This will be the value
   /// set in `config.system.configurationRevision`
-  pub configuration_revision: Option<String>,
+  configuration_revision: Option<String>,
 
   /// Specialisations, if any.
-  pub specialisations: Option<Vec<String>>,
+  specialisations: Option<Vec<String>>,
 
   /// Whether a given generation is the current one.
-  pub current: bool,
+  pub(crate) current: bool,
 
   /// Closure size of the generation.
-  pub closure_size: String,
+  closure_size: String,
 }
 
 #[derive(ValueEnum, Clone, Debug)]
@@ -89,7 +89,7 @@ impl Field {
   }
 }
 #[must_use]
-pub fn from_dir(generation_dir: &Path) -> Option<u64> {
+fn from_dir(generation_dir: &Path) -> Option<u64> {
   generation_dir
     .file_name()
     .and_then(|os_str| os_str.to_str())
@@ -137,7 +137,7 @@ fn bytes_to_gb_string(bytes: u64) -> String {
 /// A map from generation directory path to formatted closure size
 /// string.
 #[must_use]
-pub fn get_closure_sizes_batch(
+pub(crate) fn get_closure_sizes_batch(
   generation_dirs: &[&Path],
 ) -> HashMap<PathBuf, String> {
   if generation_dirs.is_empty() {
@@ -189,7 +189,7 @@ pub fn get_closure_sizes_batch(
 }
 
 #[must_use]
-pub fn get_closure_size(generation_dir: &Path) -> String {
+fn get_closure_size(generation_dir: &Path) -> String {
   let store_path = generation_dir
     .read_link()
     .unwrap_or_else(|_| generation_dir.to_path_buf());
@@ -234,7 +234,7 @@ pub fn get_closure_size(generation_dir: &Path) -> String {
 }
 
 #[must_use]
-pub fn describe(
+pub(crate) fn describe(
   generation_dir: &Path,
   closure_size: Option<String>,
 ) -> Option<GenerationInfo> {
@@ -382,7 +382,7 @@ pub fn describe(
 ///
 /// Returns an error if output or formatting fails.
 #[expect(clippy::too_many_lines)]
-pub fn print_info(
+pub(crate) fn print_info(
   mut generations: Vec<GenerationInfo>,
   fields: Option<&[Field]>,
 ) -> Result<()> {

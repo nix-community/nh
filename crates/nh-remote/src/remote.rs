@@ -523,7 +523,7 @@ impl RemoteHost {
   ///
   /// Returns an error if the host specification is invalid (empty hostname,
   /// empty username, contains invalid characters like `:` or `/`).
-  pub fn parse(input: &str) -> Result<Self> {
+  fn parse(input: &str) -> Result<Self> {
     let (host, store_scheme) = input.strip_prefix("ssh-ng://").map_or_else(
       || {
         input
@@ -608,7 +608,7 @@ impl RemoteHost {
   /// - `[fe80::1%eth0]` -> `fe80::1%eth0`
   /// - `host.example` -> `host.example`
   #[must_use]
-  pub fn ssh_host(&self) -> String {
+  fn ssh_host(&self) -> String {
     let hostname = self.hostname();
 
     // Check for bracketed IPv6 address
@@ -635,7 +635,7 @@ impl RemoteHost {
 
   /// Get the SSH store URI used by Nix store commands.
   #[must_use]
-  pub fn nix_store_uri(&self) -> String {
+  fn nix_store_uri(&self) -> String {
     format!("{}://{}", self.store_scheme.as_str(), self.host)
   }
 }
@@ -684,7 +684,7 @@ fn shell_quote(s: &str) -> String {
 /// plus our defaults. This includes connection multiplexing options
 /// (`ControlMaster`, `ControlPath`, `ControlPersist`) which enable efficient
 /// reuse of SSH connections.
-pub fn get_ssh_opts() -> Vec<String> {
+fn get_ssh_opts() -> Vec<String> {
   let mut opts: Vec<String> = Vec::new();
 
   // NH_SSHOPTS takes precedence; NIX_SSHOPTS is the compatibility fallback.

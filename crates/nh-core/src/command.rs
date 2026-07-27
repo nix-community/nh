@@ -731,7 +731,7 @@ impl Command {
   ///
   /// Returns an error if the current executable path cannot be determined or
   /// sudo command cannot be built.
-  pub fn self_elevate_cmd(
+  pub(crate) fn self_elevate_cmd(
     strategy: ElevationStrategy,
   ) -> Result<std::process::Command> {
     // Get the current executable path
