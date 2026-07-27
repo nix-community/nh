@@ -1391,7 +1391,7 @@ impl OsGenerationsArgs {
       })
       .collect();
 
-    generations::print_info(descriptions, self.fields.as_deref())?;
+    generations::print_info(descriptions, self.fields.as_deref());
 
     Ok(())
   }

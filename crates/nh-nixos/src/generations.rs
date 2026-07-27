@@ -385,7 +385,7 @@ pub(crate) fn describe(
 pub(crate) fn print_info(
   mut generations: Vec<GenerationInfo>,
   fields: Option<&[Field]>,
-) -> Result<()> {
+) {
   // Parse all dates at once and cache them
   let mut parsed_dates = HashMap::with_capacity(generations.len());
   for generation in &generations {
@@ -531,6 +531,4 @@ pub(crate) fn print_info(
       .join(" ");
     println!("{row}");
   }
-
-  Ok(())
 }
