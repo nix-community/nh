@@ -1256,7 +1256,7 @@ dependencies = [
 
 [[package]]
 name = "nh"
-version = "4.4.1"
+version = "4.4.2"
 dependencies = [
  "anstyle",
  "clap",
@@ -1275,7 +1275,7 @@ dependencies = [
 
 [[package]]
 name = "nh-clean"
-version = "4.4.1"
+version = "4.4.2"
 dependencies = [
  "clap",
  "color-eyre",
@@ -1302,7 +1302,7 @@ dependencies = [
 
 [[package]]
 name = "nh-core"
-version = "4.4.1"
+version = "4.4.2"
 dependencies = [
  "clap",
  "color-eyre",
@@ -1328,7 +1328,7 @@ dependencies = [
 
 [[package]]
 name = "nh-darwin"
-version = "4.4.1"
+version = "4.4.2"
 dependencies = [
  "clap",
  "color-eyre",
@@ -1344,7 +1344,7 @@ dependencies = [
 
 [[package]]
 name = "nh-diff"
-version = "4.4.1"
+version = "4.4.2"
 dependencies = [
  "color-eyre",
  "dix",
@@ -1356,7 +1356,7 @@ dependencies = [
 
 [[package]]
 name = "nh-home"
-version = "4.4.1"
+version = "4.4.2"
 dependencies = [
  "clap",
  "color-eyre",
@@ -1371,7 +1371,7 @@ dependencies = [
 
 [[package]]
 name = "nh-installable"
-version = "4.4.1"
+version = "4.4.2"
 dependencies = [
  "clap",
  "color-eyre",
@@ -1383,7 +1383,7 @@ dependencies = [
 
 [[package]]
 name = "nh-nixos"
-version = "4.4.1"
+version = "4.4.2"
 dependencies = [
  "chrono",
  "clap",
@@ -1401,7 +1401,7 @@ dependencies = [
 
 [[package]]
 name = "nh-remote"
-version = "4.4.1"
+version = "4.4.2"
 dependencies = [
  "color-eyre",
  "dix",
@@ -1421,7 +1421,7 @@ dependencies = [
 
 [[package]]
 name = "nh-search"
-version = "4.4.1"
+version = "4.4.2"
 dependencies = [
  "chrono",
  "clap",
@@ -3027,7 +3027,7 @@ checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
 
 [[package]]
 name = "xtask"
-version = "4.4.1"
+version = "4.4.2"
 dependencies = [
  "clap",
  "clap_complete",

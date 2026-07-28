@@ -7,20 +7,20 @@ edition      = "2024"
 homepage     = "https://github.com/nix-community/nh"
 license      = "EUPL-1.2"
 rust-version = "1.95.0"
-version      = "4.4.1"
+version      = "4.4.2"
 
 [workspace.dependencies]
-nh             = { path = "crates/nh", version = "4.4.1" }
-nh-clean       = { path = "crates/nh-clean", version = "4.4.1" }
-nh-config      = { path = "crates/nh-config", version = "4.4.1" }
-nh-core        = { path = "crates/nh-core", version = "4.4.1" }
-nh-darwin      = { path = "crates/nh-darwin", version = "4.4.1" }
-nh-diff        = { path = "crates/nh-diff", version = "4.4.1" }
-nh-home        = { path = "crates/nh-home", version = "4.4.1" }
-nh-installable = { path = "crates/nh-installable", version = "4.4.1" }
-nh-nixos       = { path = "crates/nh-nixos", version = "4.4.1" }
-nh-remote      = { path = "crates/nh-remote", version = "4.4.1" }
-nh-search      = { path = "crates/nh-search", version = "4.4.1" }
+nh             = { path = "crates/nh", version = "4.4.2" }
+nh-clean       = { path = "crates/nh-clean", version = "4.4.2" }
+nh-config      = { path = "crates/nh-config", version = "4.4.2" }
+nh-core        = { path = "crates/nh-core", version = "4.4.2" }
+nh-darwin      = { path = "crates/nh-darwin", version = "4.4.2" }
+nh-diff        = { path = "crates/nh-diff", version = "4.4.2" }
+nh-home        = { path = "crates/nh-home", version = "4.4.2" }
+nh-installable = { path = "crates/nh-installable", version = "4.4.2" }
+nh-nixos       = { path = "crates/nh-nixos", version = "4.4.2" }
+nh-remote      = { path = "crates/nh-remote", version = "4.4.2" }
+nh-search      = { path = "crates/nh-search", version = "4.4.2" }
 nix-command    = { path = "crates/nix-command", version = "0.2.3" }
 
 anstyle               = "1.0.13"
