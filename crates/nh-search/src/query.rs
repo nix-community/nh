@@ -5,11 +5,17 @@ use crate::args;
 const TYPE_OPTION: &str = "option";
 const TYPE_SERVICE: &str = "service";
 const TYPE_HOME_MANAGER_OPTION: &str = "home-manager-option";
+const TYPE_DARWIN_OPTION: &str = "darwin-option";
 
 const NIXPKGS_SCOPE_TYPES: &[&str] = &[TYPE_OPTION, TYPE_SERVICE];
 const HOME_MANAGER_SCOPE_TYPES: &[&str] = &[TYPE_HOME_MANAGER_OPTION];
-const ALL_SCOPE_TYPES: &[&str] =
-  &[TYPE_OPTION, TYPE_SERVICE, TYPE_HOME_MANAGER_OPTION];
+const DARWIN_SCOPE_TYPES: &[&str] = &[TYPE_DARWIN_OPTION];
+const ALL_SCOPE_TYPES: &[&str] = &[
+  TYPE_OPTION,
+  TYPE_SERVICE,
+  TYPE_HOME_MANAGER_OPTION,
+  TYPE_DARWIN_OPTION,
+];
 
 pub fn packages(query: &str, limit: u64) -> Search {
   Search::new().from(0).size(limit).query(
@@ -89,6 +95,7 @@ pub const fn option_scope_label(scope: args::OptionScope) -> &'static str {
   match scope {
     args::OptionScope::Nixpkgs => "nixpkgs",
     args::OptionScope::HomeManager => "home-manager",
+    args::OptionScope::Darwin => "nix-darwin",
     args::OptionScope::All => "all",
   }
 }
@@ -100,6 +107,27 @@ const fn option_scope_types(
   match scope {
     args::OptionScope::Nixpkgs => NIXPKGS_SCOPE_TYPES,
     args::OptionScope::HomeManager => HOME_MANAGER_SCOPE_TYPES,
+    args::OptionScope::Darwin => DARWIN_SCOPE_TYPES,
     args::OptionScope::All => ALL_SCOPE_TYPES,
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn darwin_scope_maps_to_darwin_option_type() {
+    assert_eq!(option_scope_types(args::OptionScope::Darwin), &[
+      TYPE_DARWIN_OPTION
+    ]);
+    assert_eq!(option_scope_label(args::OptionScope::Darwin), "nix-darwin");
+  }
+
+  #[test]
+  fn all_scope_includes_darwin_option_type() {
+    assert!(
+      option_scope_types(args::OptionScope::All).contains(&TYPE_DARWIN_OPTION)
+    );
   }
 }
