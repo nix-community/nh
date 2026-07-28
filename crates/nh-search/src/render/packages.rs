@@ -28,6 +28,10 @@ pub fn print(
       common::print_wrapped(&description.replace('\n', " "));
     }
 
+    if let Some(main_program) = &elem.package_mainProgram {
+      common::print_wrapped_field("Main program", main_program);
+    }
+
     for url in &elem.package_homepage {
       common::print_field_link("Homepage", url);
     }

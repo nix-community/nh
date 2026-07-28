@@ -30,6 +30,9 @@ functionality, under the "Removed" section.
 
 ### Changed
 
+- Results package queries with `nh search`/`nh search packages` now displays the
+  `meta.mainProgram` attribute of the packages where applicable.
+
 ### Fixed
 
 - `nh search` now queries the current search.nixos.org backend index version.

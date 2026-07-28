@@ -12,6 +12,7 @@ pub struct PackageSearchResult {
   pub package_outputs:         Vec<String>,
   pub package_default_output:  Option<String>,
   pub package_programs:        Vec<String>,
+  pub package_mainProgram:     Option<String>,
   // package_license: Vec<License>,
   pub package_license_set:     Vec<String>,
   // package_maintainers: Vec<HashMap<String, String>>,
