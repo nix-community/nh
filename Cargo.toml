@@ -24,7 +24,6 @@ nh-search      = { path = "crates/nh-search", version = "4.4.2" }
 nix-command    = { path = "crates/nix-command", version = "0.2.3" }
 
 anstyle               = "1.0.13"
-chrono                = "0.4.42"
 clap                  = { features = [ "cargo", "color", "derive", "env", "unstable-styles" ], version = "4.5.51" }
 clap-verbosity-flag   = { default-features = false, features = [ "tracing" ], version = "3.0.4" }
 clap_complete         = "4.5.61"
@@ -36,6 +35,7 @@ elasticsearch-dsl     = "0.4.24"
 humantime             = "2.3.0"
 indicatif             = "0.18.4"
 inquire               = { default-features = false, features = [ "crossterm" ], version = "0.9.1" }
+jiff                  = { default-features = false, features = [ "std", "tzdb-zoneinfo" ], version = "0.2.35" }
 
 nix = { default-features = false, features = [ "fs", "user", "hostname" ], version = "0.31.1" }
 proptest = "1.9.0"

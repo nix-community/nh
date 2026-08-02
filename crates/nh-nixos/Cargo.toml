@@ -8,10 +8,10 @@ license.workspace      = true
 rust-version.workspace = true
 
 [dependencies]
-chrono.workspace         = true
 clap.workspace           = true
 color-eyre.workspace     = true
 inquire.workspace        = true
+jiff.workspace           = true
 nh-core.workspace        = true
 nh-diff.workspace        = true
 nh-installable.workspace = true
