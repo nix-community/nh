@@ -1,5 +1,5 @@
-use chrono::{Duration as ChronoDuration, SecondsFormat, Utc};
 use color_eyre::{Result, eyre::bail};
+use jiff::{Timestamp, ToSpan};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -89,8 +89,9 @@ pub(super) fn search(
   query: &str,
   days: u32,
 ) -> Result<Vec<PullRequest>> {
-  let updated_since = (Utc::now() - ChronoDuration::days(i64::from(days)))
-    .to_rfc3339_opts(SecondsFormat::Secs, true);
+  let updated_since = Timestamp::now()
+    .checked_sub((i64::from(days) * 24).hours())?
+    .to_string();
   let github_query = search_query(query, &updated_since);
   let data = client.query::<SearchPullRequestsData>(
     SEARCH_PULL_REQUESTS_QUERY,

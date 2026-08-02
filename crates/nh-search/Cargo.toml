@@ -8,11 +8,11 @@ license.workspace      = true
 publish                = true
 
 [dependencies]
-chrono.workspace              = true
 clap.workspace                = true
 color-eyre.workspace          = true
 elasticsearch-dsl.workspace   = true
 inquire.workspace             = true
+jiff.workspace                = true
 nh-core.workspace             = true
 regex.workspace               = true
 reqwest.workspace             = true
