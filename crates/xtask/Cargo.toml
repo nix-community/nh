@@ -11,3 +11,6 @@ clap_complete_nushell.workspace = true
 clap_mangen.workspace           = true
 nh.workspace                    = true
 roff.workspace                  = true
+
+[lints]
+workspace = true
