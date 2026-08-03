@@ -5,9 +5,9 @@ use std::{
   process,
 };
 
-use chrono::{DateTime, Local, TimeZone, Utc};
 use clap::ValueEnum;
 use color_eyre::eyre::Result;
+use jiff::{Timestamp, tz::TimeZone};
 use nh_core::command::{CommandKind, NixCommand};
 use tracing::{debug, warn};
 
@@ -246,15 +246,9 @@ pub fn describe(
   let build_date = metadata
     .created()
     .or_else(|_| metadata.modified())
-    .map_or_else(
-      |_| "Unknown".to_string(),
-      |system_time| {
-        let duration = system_time
-          .duration_since(std::time::UNIX_EPOCH)
-          .unwrap_or_default();
-        DateTime::<Utc>::from(std::time::UNIX_EPOCH + duration).to_rfc3339()
-      },
-    );
+    .ok()
+    .and_then(|system_time| Timestamp::try_from(system_time).ok())
+    .map_or_else(|| "Unknown".into(), |timestamp| timestamp.to_string());
 
   let nixos_version = fs::read_to_string(generation_dir.join("nixos-version"))
     .unwrap_or_else(|_| "Unknown".to_string());
@@ -395,13 +389,14 @@ pub fn print_info(
   // Parse all dates at once and cache them
   let mut parsed_dates = HashMap::with_capacity(generations.len());
   for generation in &generations {
-    let date = DateTime::parse_from_rfc3339(&generation.date).map_or_else(
-      |_| Local.timestamp_opt(0, 0).unwrap(),
-      |dt| dt.with_timezone(&Local),
-    );
+    let date = generation
+      .date
+      .parse()
+      .unwrap_or(Timestamp::UNIX_EPOCH)
+      .to_zoned(TimeZone::system());
     parsed_dates.insert(
       generation.date.clone(),
-      date.format("%Y-%m-%d %H:%M:%S").to_string(),
+      date.strftime("%Y-%m-%d %H:%M:%S").to_string(),
     );
   }
 

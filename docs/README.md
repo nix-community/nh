@@ -238,10 +238,10 @@ The command exposes several explicit subcommands and a convenient shorthand:
 
 | Invocation                                    | What it does                                                                                                       |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `nh search <query>`                           | Shorthand; searches packages by default (see `NH_DEFAULT_SEARCH`)                                                  |
-| `nh search packages <query>`                  | Search Nixpkgs packages via search.nixos.org                                                                       |
-| `nh search options [--scope=<SCOPE>] <query>` | Search NixOS/Home Manager options (`--scope`: `nixpkgs`, `home-manager`, `all`)                                    |
-| `nh search offline --db <PATH> <query>`       | Search a local SPAM database without network access. Generated DBs can be [found here].                            |
+| `nh search <query>`                           | Shorthand; searches packages by default (see `NH_DEFAULT_SEARCH`.)                                                 |
+| `nh search packages <query>`                  | Search Nixpkgs packages via <https://search.nixos.org> elasticsearch API.                                          |
+| `nh search options [--scope=<SCOPE>] <query>` | Search NixOS/Home Manager/nix-darwin options (`--scope`: `nixpkgs`, `home-manager`, `nix-darwin`, `all`.)          |
+| `nh search offline --db <PATH> <query>`       | Search a local [SPAM] database without network access. Generated DBs can be [found here].                          |
 | `nh search prs [--days <DAYS>] <query>`       | Search Nixpkgs pull requests and show branch reachability for merged PRs. Defaults to updates in the last 15 days. |
 | `nh search issues [--days <DAYS>] <query>`    | Search Nixpkgs issues, excluding pull requests. Defaults to updates in the last 15 days.                           |
 
@@ -457,6 +457,17 @@ the common variables that you may encounter or choose to employ are as follows:
   - Controls the target of the `nh search <query>` shorthand when no subcommand
     is given. Accepted values: `packages` (default), `options` (uses scope
     `all`). Equivalent to `--default-search`.
+
+- `NH_SEARCH_BACKEND_VERSION`
+  - Backend index version queried on search.nixos.org by `nh search packages`
+    and `nh search options`. Defaults to the version bundled with nh. Use this
+    to point nh at a newer index without waiting for a release. Equivalent to
+    `--backend-version`.
+
+- `NH_SEARCH_BACKEND_FALLBACKS`
+  - Number of newer index versions to try when the requested version is outdated
+    (missing on the backend). Defaults to `1`, so nh retries the next version
+    once before failing. Equivalent to `--backend-version-fallbacks`.
 
 - `NH_OFFLINE_DB`
   - Colon-separated list of paths to SPAM database files used by
