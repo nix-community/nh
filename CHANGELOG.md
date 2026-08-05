@@ -56,8 +56,8 @@ functionality, under the "Removed" section.
   window.
 - `nh` now properly errors when the provided or stored GitHub token is invalid
   or malformed.
-- `nh darwin` now properly caches in MacOS home directory for root instead of in
-  working directory
+- `nh darwin` now properly caches in root user's home directory on macOS instead
+  of in working directory ([#739](https://github.com/nix-community/nh/issues/739))
 
 ### Removed
 
