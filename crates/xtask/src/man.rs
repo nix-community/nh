@@ -19,6 +19,12 @@ const ENVIRONMENT: &[Entry] = &[
      or running in constrained build environments.",
   ),
   (
+    "NH_ASK",
+    "When set to a truthy value such as 1, true, yes, or on, asks for \
+     confirmation before applying supported operations. Falsy values such as \
+     0, false, no, or off disable it. Equivalent to --ask.",
+  ),
+  (
     "NH_FLAKE",
     "Preferred path/reference to a directory containing your flake.nix used \
      by NH when running flake-based commands. Historically FLAKE was used; NH \

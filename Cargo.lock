@@ -1304,6 +1304,7 @@ dependencies = [
  "nh-home",
  "nh-nixos",
  "nh-search",
+ "serial_test",
  "tracing",
  "tracing-subscriber",
  "yansi",
