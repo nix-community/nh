@@ -252,7 +252,7 @@ impl DarwinReplArgs {
 ///
 /// Returns an error if the installable is a store path or if the flake
 /// attribute path is too specific to infer the requested build attribute.
-pub fn toplevel_for<S: AsRef<str>>(
+fn toplevel_for<S: AsRef<str>>(
   hostname: S,
   installable: Installable,
   final_attr: &str,

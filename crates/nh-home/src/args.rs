@@ -27,7 +27,7 @@ pub enum HomeSubcommand {
 /// Home-manager functionality
 pub struct HomeArgs {
   #[command(subcommand)]
-  pub subcommand: HomeSubcommand,
+  pub(crate) subcommand: HomeSubcommand,
 }
 
 impl HomeArgs {
@@ -52,45 +52,45 @@ impl HomeArgs {
 #[derive(Debug, Args)]
 pub struct HomeRebuildArgs {
   #[command(flatten)]
-  pub common: CommonRebuildArgs,
+  pub(crate) common: CommonRebuildArgs,
 
   #[command(flatten)]
-  pub update_args: nh_core::update::UpdateArgs,
+  pub(crate) update_args: nh_core::update::UpdateArgs,
 
   /// Name of the flake homeConfigurations attribute, like username@hostname
   ///
   /// If unspecified, will try <username>@<hostname> and <username>
   #[arg(long, short)]
-  pub configuration: Option<String>,
+  pub(crate) configuration: Option<String>,
 
   /// Explicitly select some specialisation
   #[arg(long, short)]
-  pub specialisation: Option<String>,
+  pub(crate) specialisation: Option<String>,
 
   /// Ignore specialisations
   #[arg(long, short = 'S')]
-  pub no_specialisation: bool,
+  pub(crate) no_specialisation: bool,
 
   /// Extra arguments passed to nix build
   #[arg(last = true)]
-  pub extra_args: Vec<String>,
+  pub(crate) extra_args: Vec<String>,
 
   /// Move existing files by backing up with this file extension
   #[arg(long, short = 'b')]
-  pub backup_extension: Option<String>,
+  pub(crate) backup_extension: Option<String>,
 
   /// Show activation logs
   #[arg(long, env = "NH_SHOW_ACTIVATION_LOGS", value_parser = clap::builder::BoolishValueParser::new())]
-  pub show_activation_logs: bool,
+  pub(crate) show_activation_logs: bool,
 
   /// Build the configuration on a different host over SSH
   #[arg(long)]
-  pub build_host: Option<RemoteHost>,
+  pub(crate) build_host: Option<RemoteHost>,
 }
 
 impl HomeRebuildArgs {
   #[must_use]
-  pub fn uses_flakes(&self) -> bool {
+  fn uses_flakes(&self) -> bool {
     self.common.installable.uses_flakes(CommandContext::Home)
   }
 }
@@ -98,22 +98,22 @@ impl HomeRebuildArgs {
 #[derive(Debug, Args)]
 pub struct HomeReplArgs {
   #[command(flatten)]
-  pub installable: InstallableArgs,
+  pub(crate) installable: InstallableArgs,
 
   /// Name of the flake homeConfigurations attribute, like username@hostname
   ///
   /// If unspecified, will try <username>@<hostname> and <username>
   #[arg(long, short)]
-  pub configuration: Option<String>,
+  pub(crate) configuration: Option<String>,
 
   /// Extra arguments passed to nix repl
   #[arg(last = true)]
-  pub extra_args: Vec<String>,
+  pub(crate) extra_args: Vec<String>,
 }
 
 impl HomeReplArgs {
   #[must_use]
-  pub fn uses_flakes(&self) -> bool {
+  fn uses_flakes(&self) -> bool {
     self.installable.uses_flakes(CommandContext::Home)
   }
 }

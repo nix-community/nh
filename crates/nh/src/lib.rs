@@ -4,10 +4,10 @@ use color_eyre::Result;
 use nh_core::command::{ElevationStrategy, ElevationStrategyArg};
 
 pub mod interface;
-pub mod logging;
+pub(crate) mod logging;
 
-pub const NH_VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const NH_REV: Option<&str> = option_env!("NH_REV");
+const NH_VERSION: &str = env!("CARGO_PKG_VERSION");
+const NH_REV: Option<&str> = option_env!("NH_REV");
 
 /// Run nh with arguments parsed from the process environment.
 ///

@@ -136,7 +136,7 @@ static VERSION_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 /// # Returns
 ///
 /// * `String` - The normalized version string suitable for semver parsing
-pub fn normalize_version_string(version: &str) -> String {
+pub(crate) fn normalize_version_string(version: &str) -> String {
   if let Some(captures) = VERSION_REGEX.captures(version) {
     let major = captures.get(1).map_or_else(
       || {
@@ -202,7 +202,7 @@ pub fn normalize_version_string(version: &str) -> String {
 /// Returns an error if:
 /// - The `nix --version` command produces no output
 /// - The output contains no valid version string
-pub fn get_nix_version() -> Result<String> {
+pub(crate) fn get_nix_version() -> Result<String> {
   let output = get_nix_version_output();
 
   let version_str = output
@@ -323,7 +323,7 @@ pub fn get_hostname(supplied_hostname: Option<String>) -> Result<String> {
 ///
 /// Returns an error if the `nix config show experimental-features` command
 /// fails to execute.
-pub fn get_nix_experimental_features() -> Result<HashSet<String>> {
+fn get_nix_experimental_features() -> Result<HashSet<String>> {
   // Try to get cached features first
   if let Some(features) = NIX_EXPERIMENTAL_FEATURES.get() {
     return Ok(features.clone());
@@ -359,7 +359,7 @@ pub fn get_nix_experimental_features() -> Result<HashSet<String>> {
 ///
 /// Returns an error if retrieving the list of enabled experimental features
 /// fails.
-pub fn get_missing_experimental_features(
+pub(crate) fn get_missing_experimental_features(
   required_features: &[&str],
 ) -> Result<Vec<String>> {
   let enabled_features = get_nix_experimental_features()?;

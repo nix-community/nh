@@ -36,7 +36,7 @@ use crate::{
 /// Implements functionality mostly around but not exclusive to nixos-rebuild
 pub struct OsArgs {
   #[command(subcommand)]
-  pub subcommand: OsSubcommand,
+  pub(crate) subcommand: OsSubcommand,
 }
 
 impl OsArgs {
@@ -118,34 +118,34 @@ pub enum OsSubcommand {
 #[derive(Debug, Args)]
 pub struct OsBuildImageArgs {
   #[command(flatten)]
-  pub common: OsRebuildArgs,
+  pub(crate) common: OsRebuildArgs,
 
   /// Image variant
   #[arg(long)]
-  pub image_variant: String,
+  pub(crate) image_variant: String,
 }
 
 #[derive(Debug, Args)]
 pub struct OsBuildVmArgs {
   #[command(flatten)]
-  pub common: OsRebuildArgs,
+  pub(crate) common: OsRebuildArgs,
 
   /// Build with bootloader. Bootloader is bypassed by default.
   #[arg(long, short = 'B')]
-  pub with_bootloader: bool,
+  pub(crate) with_bootloader: bool,
 
   /// Run the VM immediately after building
   #[arg(long, short = 'r')]
-  pub run: bool,
+  pub(crate) run: bool,
 }
 
 #[derive(Debug, Args)]
 pub struct OsRebuildArgs {
   #[command(flatten)]
-  pub common: CommonRebuildArgs,
+  pub(crate) common: CommonRebuildArgs,
 
   #[command(flatten)]
-  pub update_args: nh_core::update::UpdateArgs,
+  pub(crate) update_args: nh_core::update::UpdateArgs,
 
   /// When using a flake installable, select this hostname from
   /// nixosConfigurations
@@ -154,54 +154,54 @@ pub struct OsRebuildArgs {
   /// deployments, and hostname of the target machine for remote
   /// deployments (see --target-host).
   #[arg(long, short = 'H', global = true)]
-  pub hostname: Option<String>,
+  pub(crate) hostname: Option<String>,
 
   /// Explicitly select some specialisation
   #[arg(long, short)]
-  pub specialisation: Option<String>,
+  pub(crate) specialisation: Option<String>,
 
   /// Ignore specialisations
   #[arg(long, short = 'S')]
-  pub no_specialisation: bool,
+  pub(crate) no_specialisation: bool,
 
   /// Install bootloader for switch and boot commands
   #[arg(long)]
-  pub install_bootloader: bool,
+  pub(crate) install_bootloader: bool,
 
   /// Extra arguments passed to nix build
   #[arg(last = true)]
-  pub extra_args: Vec<String>,
+  pub(crate) extra_args: Vec<String>,
 
   /// Don't panic if calling nh as root
   #[arg(short = 'R', long, env = "NH_BYPASS_ROOT_CHECK")]
-  pub bypass_root_check: bool,
+  pub(crate) bypass_root_check: bool,
 
   /// Deploy the built configuration to a different host over SSH
   #[arg(long)]
-  pub target_host: Option<RemoteHost>,
+  pub(crate) target_host: Option<RemoteHost>,
 
   /// Build the configuration on a different host over SSH
   #[arg(long)]
-  pub build_host: Option<RemoteHost>,
+  pub(crate) build_host: Option<RemoteHost>,
 
   /// Skip pre-activation system validation checks
   #[arg(long, env = "NH_NO_VALIDATE")]
-  pub no_validate: bool,
+  pub(crate) no_validate: bool,
 }
 
 #[derive(Debug, Args)]
 pub struct OsRebuildActivateArgs {
   #[command(flatten)]
-  pub rebuild: OsRebuildArgs,
+  pub(crate) rebuild: OsRebuildArgs,
 
   /// Show activation logs
   #[arg(long, env = "NH_SHOW_ACTIVATION_LOGS", value_parser = clap::builder::BoolishValueParser::new())]
-  pub show_activation_logs: bool,
+  pub(crate) show_activation_logs: bool,
 }
 
 impl OsRebuildArgs {
   #[must_use]
-  pub fn uses_flakes(&self) -> bool {
+  fn uses_flakes(&self) -> bool {
     self.common.installable.uses_flakes(CommandContext::Os)
   }
 }
@@ -210,77 +210,77 @@ impl OsRebuildArgs {
 pub struct OsRollbackArgs {
   /// Only print actions, without performing them
   #[arg(long, short = 'n')]
-  pub dry: bool,
+  pub(crate) dry: bool,
 
   /// Ask for confirmation
   #[arg(long, short)]
-  pub ask: bool,
+  pub(crate) ask: bool,
 
   /// Explicitly select some specialisation
   #[arg(long, short)]
-  pub specialisation: Option<String>,
+  pub(crate) specialisation: Option<String>,
 
   /// Ignore specialisations
   #[arg(long, short = 'S')]
-  pub no_specialisation: bool,
+  pub(crate) no_specialisation: bool,
 
   /// Rollback to a specific generation number (defaults to previous
   /// generation)
   #[arg(long, short)]
-  pub to: Option<u64>,
+  pub(crate) to: Option<u64>,
 
   /// Don't panic if calling nh as root
   #[arg(short = 'R', long, env = "NH_BYPASS_ROOT_CHECK")]
-  pub bypass_root_check: bool,
+  pub(crate) bypass_root_check: bool,
 
   /// Whether to display a package diff
   #[arg(long, short, value_enum, default_value_t = DiffType::Auto)]
-  pub diff: DiffType,
+  pub(crate) diff: DiffType,
 }
 
 #[derive(Debug, Args)]
 pub struct CommonRebuildArgs {
   /// Only print actions, without performing them
   #[arg(long, short = 'n')]
-  pub dry: bool,
+  pub(crate) dry: bool,
 
   /// Ask for confirmation
   #[arg(long, short)]
-  pub ask: bool,
+  pub(crate) ask: bool,
 
   #[command(flatten)]
-  pub installable: InstallableArgs,
+  pub(crate) installable: InstallableArgs,
 
   /// Don't use nix-output-monitor for the build process
   #[arg(long)]
-  pub no_nom: bool,
+  pub(crate) no_nom: bool,
 
   /// Path to save the result link, defaults to using a temporary directory
   #[arg(long, short)]
-  pub out_link: Option<PathBuf>,
+  pub(crate) out_link: Option<PathBuf>,
 
   /// Whether to display a package diff
   #[arg(long, short, value_enum, default_value_t = DiffType::Auto)]
-  pub diff: DiffType,
+  pub(crate) diff: DiffType,
 
   #[command(flatten)]
-  pub passthrough: NixBuildPassthroughArgs,
+  pub(crate) passthrough: NixBuildPassthroughArgs,
 }
 
 #[derive(Debug, Args)]
 pub struct OsReplArgs {
   #[command(flatten)]
-  pub installable: InstallableArgs,
+  pub(crate) installable: InstallableArgs,
 
   /// When using a flake installable, select this hostname from
   /// nixosConfigurations
   #[arg(long, short = 'H', global = true)]
-  pub hostname: Option<String>,
+  pub(crate) hostname: Option<String>,
 }
 
 impl OsReplArgs {
   #[must_use]
-  pub fn uses_flakes(&self) -> bool {
+  fn uses_flakes(&self) -> bool {
     self.installable.uses_flakes(CommandContext::Os)
   }
 }
@@ -289,9 +289,9 @@ impl OsReplArgs {
 pub struct OsGenerationsArgs {
   /// Path to Nix' profiles directory
   #[arg(long, short = 'P', default_value = "/nix/var/nix/profiles/system")]
-  pub profile: Option<String>,
+  pub(crate) profile: Option<String>,
 
   /// Comma-delimited list of field(s) to display
   #[arg(long, value_delimiter = ',')]
-  pub fields: Option<Vec<Field>>,
+  pub(crate) fields: Option<Vec<Field>>,
 }
