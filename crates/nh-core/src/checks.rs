@@ -148,9 +148,48 @@ pub fn verify_nix_environment() -> Result<()> {
   Ok(())
 }
 
+const FLAKE_FEATURES: &[&str] = &["nix-command", "flakes"];
+const LEGACY_LIX_REPL_FEATURES: &[&str] =
+  &["nix-command", "flakes", "repl-flake"];
+
+fn required_flake_features() -> &'static [&'static str] {
+  // Determinate Nix no longer treats `nix-command` and `flakes` as
+  // experimental, so requiring them would be redundant.
+  match util::get_nix_variant() {
+    NixVariant::Determinate => &[],
+    NixVariant::Nix | NixVariant::Lix => FLAKE_FEATURES,
+  }
+}
+
+fn required_repl_features(is_flake: bool) -> &'static [&'static str] {
+  if is_flake {
+    required_flake_features()
+  } else {
+    &[]
+  }
+}
+
+fn required_os_repl_features(is_flake: bool) -> &'static [&'static str] {
+  if !is_flake {
+    return &[];
+  }
+
+  // Lix versions before 2.93 gate flake REPL support behind `repl-flake`.
+  if matches!(util::get_nix_variant(), NixVariant::Lix)
+    && let Ok(version) = util::get_nix_version()
+    && let Ok(current) = Version::parse(&normalize_version_string(&version))
+    && let Ok(threshold) = Version::parse("2.93.0")
+    && current < threshold
+  {
+    return LEGACY_LIX_REPL_FEATURES;
+  }
+
+  required_flake_features()
+}
+
 /// Trait for types that have feature requirements.
 pub trait FeatureRequirements {
-  /// Returns the list of required experimental features
+  /// Returns the list of required experimental features.
   fn required_features(&self) -> &'static [&'static str];
 
   /// Checks if all required features are enabled
@@ -170,7 +209,7 @@ pub trait FeatureRequirements {
 
     debug!("Required Nix features: {}", required.join(", "));
 
-    let missing = util::get_missing_experimental_features(&required)?;
+    let missing = util::get_missing_experimental_features(required)?;
     if !missing.is_empty() {
       return Err(color_eyre::eyre::eyre!(
         "Missing required experimental features for this command: {}",
@@ -189,11 +228,7 @@ pub struct FlakeFeatures;
 
 impl FeatureRequirements for FlakeFeatures {
   fn required_features(&self) -> &'static [&'static str] {
-    let variant = util::get_nix_variant();
-    match variant {
-      NixVariant::Determinate => &[],
-      NixVariant::Nix | NixVariant::Lix => &["nix-command", "flakes"],
-    }
+    required_flake_features()
   }
 }
 
@@ -219,15 +254,7 @@ pub struct OsReplFeatures {
 
 impl FeatureRequirements for OsReplFeatures {
   fn required_features(&self) -> &'static [&'static str] {
-    if !self.is_flake {
-      return &[];
-    }
-
-    let variant = util::get_nix_variant();
-    match variant {
-      NixVariant::Determinate => &[],
-      NixVariant::Nix | NixVariant::Lix => &["nix-command", "flakes"],
-    }
+    required_os_repl_features(self.is_flake)
   }
 }
 
@@ -239,15 +266,7 @@ pub struct HomeReplFeatures {
 
 impl FeatureRequirements for HomeReplFeatures {
   fn required_features(&self) -> &'static [&'static str] {
-    if !self.is_flake {
-      return &[];
-    }
-
-    let variant = util::get_nix_variant();
-    match variant {
-      NixVariant::Determinate => &[],
-      NixVariant::Nix | NixVariant::Lix => &["nix-command", "flakes"],
-    }
+    required_repl_features(self.is_flake)
   }
 }
 
@@ -259,15 +278,7 @@ pub struct DarwinReplFeatures {
 
 impl FeatureRequirements for DarwinReplFeatures {
   fn required_features(&self) -> &'static [&'static str] {
-    if !self.is_flake {
-      return &[];
-    }
-
-    let variant = util::get_nix_variant();
-    match variant {
-      NixVariant::Determinate => &[],
-      NixVariant::Nix | NixVariant::Lix => &["nix-command", "flakes"],
-    }
+    required_repl_features(self.is_flake)
   }
 }
 
@@ -426,7 +437,7 @@ mod tests {
           if is_flake {
               // Property: All flake repls should have consistent base features
               // (when features are required, they should include nix-command and flakes)
-              for result in [&os_result, &home_result, &darwin_result] {
+              for result in [os_result, home_result, darwin_result] {
                   if !result.is_empty() {
                       prop_assert!(result.contains(&"nix-command"));
                       prop_assert!(result.contains(&"flakes"));
@@ -484,7 +495,7 @@ mod tests {
               }
 
               // Property: No duplicate features
-              let unique: HashSet<_> =  result1.iter().copied().collect();
+              let unique: HashSet<_> = result1.iter().copied().collect();
               prop_assert_eq!(result1.len(), unique.len());
           }
       }
