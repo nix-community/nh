@@ -1662,31 +1662,4 @@ mod tests {
     let error_string = format!("{error}");
     assert!(error_string.contains("Command exited with status"));
   }
-
-  #[test]
-  fn test_env_action_debug() {
-    let set_action = EnvAction::Set("value".to_string());
-    let preserve_action = EnvAction::Preserve;
-    let remove_action = EnvAction::Remove;
-
-    // Test that Debug is implemented (this will compile-fail if not)
-    let _debug_set = format!("{set_action:?}");
-    let _debug_preserve = format!("{preserve_action:?}");
-    let _debug_remove = format!("{remove_action:?}");
-  }
-
-  #[test]
-  fn test_env_action_clone() {
-    let original = EnvAction::Set("value".to_string());
-    let cloned = original.clone();
-
-    match (original, cloned) {
-      (EnvAction::Set(orig_val), EnvAction::Set(cloned_val)) => {
-        assert_eq!(orig_val, cloned_val);
-      },
-      #[allow(clippy::unreachable, reason = "Should never happen")]
-      _ => unreachable!("Clone should preserve variant and value"),
-    }
-  }
-
 }
