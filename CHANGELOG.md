@@ -18,6 +18,10 @@ functionality, under the "Removed" section.
 
 ### Added
 
+- `nh` now supports the boolean `NH_ASK` environment variable as the environment
+  counterpart to `--ask`. When set, applicable commands behave as if `--ask` had
+  been passed explicitly, avoiding the need to specify it on every invocation
+  ([#418](https://github.com/nix-community/nh/issues/418)).
 - `nh search options` can now search nix-darwin options via a new
   `--scope=nix-darwin` value. The default `--scope=all` now searches nix-darwin
   options in addition to NixOS, modular service, and home-manager options.
@@ -56,6 +60,9 @@ functionality, under the "Removed" section.
   window.
 - `nh` now properly errors when the provided or stored GitHub token is invalid
   or malformed.
+- `nh darwin` now properly caches in root user's home directory on macOS instead
+  of in working directory
+  ([#739](https://github.com/nix-community/nh/issues/739))
 
 ### Removed
 

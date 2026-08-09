@@ -543,12 +543,12 @@ impl Command {
         .insert("HOME".to_string(), EnvAction::Set(home));
     }
 
-    // INFO: Setting HOME to "" for macos
+    // INFO: Set HOME to proper root-owned directory for macos
     // ref: https://github.com/NixOS/nix/blob/d5d7ca01b3dcf48f43819012c580cfb57cb08e47/src/libutil/unix/users.cc#L52
     if self.elevate.is_some() && cfg!(target_os = "macos") {
       self
         .env_vars
-        .insert("HOME".to_string(), EnvAction::Set(String::new()));
+        .insert("HOME".to_string(), EnvAction::Set("/var/root".to_string()));
     }
 
     // Preserve all variables in PRESERVE_ENV if present
