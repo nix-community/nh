@@ -101,3 +101,68 @@ impl NHCommand {
     }
   }
 }
+
+#[cfg(test)]
+mod tests {
+  use std::{env, ffi::OsString};
+
+  use clap::{Parser, error::ErrorKind};
+  use nh_clean::args::CleanMode;
+  use serial_test::serial;
+
+  use super::{Main, NHCommand};
+
+  struct EnvGuard(Option<OsString>);
+
+  impl EnvGuard {
+    fn new() -> Self {
+      Self(env::var_os("NH_ASK"))
+    }
+  }
+
+  impl Drop for EnvGuard {
+    fn drop(&mut self) {
+      unsafe {
+        match &self.0 {
+          Some(value) => env::set_var("NH_ASK", value),
+          None => env::remove_var("NH_ASK"),
+        }
+      }
+    }
+  }
+
+  #[test]
+  #[serial]
+  fn nh_ask_parses_boolish_environment_values() -> clap::error::Result<()> {
+    let _guard = EnvGuard::new();
+
+    for (value, expected) in
+      [("1", true), ("true", true), ("0", false), ("false", false)]
+    {
+      unsafe {
+        env::set_var("NH_ASK", value);
+      }
+      let parsed = Main::try_parse_from(["nh", "clean", "all"])?;
+      let ask = match parsed.command {
+        NHCommand::Clean(proxy) => {
+          match proxy.command {
+            CleanMode::All(args) => Some(args.ask),
+            _ => None,
+          }
+        },
+        _ => None,
+      };
+      assert_eq!(ask, Some(expected));
+    }
+
+    unsafe {
+      env::set_var("NH_ASK", "invalid");
+    }
+    assert!(matches!(
+      Main::try_parse_from(["nh", "clean", "all"]),
+      Err(error) if error.kind() == ErrorKind::ValueValidation
+    ));
+
+    Ok(())
+  }
+}

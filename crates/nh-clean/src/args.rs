@@ -37,7 +37,12 @@ pub struct CleanArgs {
   pub dry: bool,
 
   /// Ask for confirmation
-  #[arg(long, short)]
+  #[arg(
+    long,
+    short,
+    env = "NH_ASK",
+    value_parser = clap::builder::BoolishValueParser::new()
+  )]
   pub ask: bool,
 
   /// Don't run nix store --gc

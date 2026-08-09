@@ -378,6 +378,11 @@ the common variables that you may encounter or choose to employ are as follows:
 
 ### NH Specific
 
+- `NH_ASK`
+  - When set to a truthy value such as `1`, `true`, `yes`, or `on`, asks for
+    confirmation before applying supported operations. Falsy values such as `0`,
+    `false`, `no`, or `off` disable it. Equivalent to `--ask`.
+
 - `NH_NO_CHECKS`
   - When set (any non-empty value), skips startup checks such as Nix version and
     experimental feature validation. Useful for generating completions or
