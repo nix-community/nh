@@ -13,7 +13,7 @@ use color_eyre::{
   eyre::{Context, ContextCompat, bail, eyre},
 };
 use inquire::Confirm;
-use nh_core::command::{Command, ElevationStrategy};
+use nh_core::command::{Command, CommandKind, ElevationStrategy, NixCommand};
 use nix::{
   errno::Errno,
   fcntl::AtFlags,
@@ -438,13 +438,16 @@ impl args::CleanMode {
     }
 
     if !args.no_gc {
-      let mut gc_args = vec!["store", "gc"];
+      let mut gc_args = vec!["gc"];
       if let Some(ref max) = args.max {
         gc_args.push("--max");
         gc_args.push(max.as_str());
       }
-      Command::new("nix")
+      let (binary, command_args, _) = NixCommand::new(CommandKind::Store)
         .args(gc_args)
+        .into_parts();
+      Command::new(binary)
+        .args(command_args)
         .dry(args.dry)
         .message("Performing garbage collection on the nix store")
         .show_output(true)
@@ -453,8 +456,10 @@ impl args::CleanMode {
     }
 
     if args.optimise {
-      Command::new("nix-store")
-        .arg("--optimise")
+      let (binary, command_args, _) =
+        NixCommand::nix_store().arg("--optimise").into_parts();
+      Command::new(binary)
+        .args(command_args)
         .dry(args.dry)
         .message("Optimising the nix store")
         .show_output(true)
