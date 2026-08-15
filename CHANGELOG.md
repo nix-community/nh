@@ -14,6 +14,13 @@ be put in the "Changed" section or, if it's just to remove code or
 functionality, under the "Removed" section.
 -->
 
+## Unreleased
+
+### Added
+
+- `.local` TLDs now get stripped from the hostname. `user@host.local` now uses
+  `host` as a hostname instead of `host.local` for target and build hosts.
+
 ## 4.4.2
 
 ### Added
