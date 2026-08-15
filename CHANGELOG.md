@@ -18,9 +18,10 @@ functionality, under the "Removed" section.
 
 ### Added
 
-- `nh darwin switch`, `nh home switch`, and `nh os switch` now feature beautifully formatted and summarized activation logs by default. Homebrew, Home Manager, and Darwin activation steps are summarized automatically into concise blocks.
-
-
+- `nh darwin switch`, `nh home switch`, and `nh os switch` now feature
+  beautifully formatted and summarized activation logs by default. Homebrew,
+  Home Manager, and Darwin activation steps are summarized automatically into
+  concise blocks.
 
 ## 4.4.2
 
