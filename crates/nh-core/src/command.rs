@@ -867,17 +867,13 @@ impl Command {
     // Configure output redirection based on show_output setting
     let cmd = if self.show_output && self.pretty {
       cmd.stderr(Redirection::Merge).stdout(Redirection::Pipe)
+    } else if self.show_output {
+      cmd.stderr(Redirection::Merge)
     } else {
-      ssh_wrap(
-        if self.show_output {
-          cmd.stderr(Redirection::Merge)
-        } else {
-          cmd.stderr(Redirection::None).stdout(Redirection::None)
-        },
-        self.ssh.as_deref(),
-        sudo_password.as_ref(),
-      )
+      cmd.stderr(Redirection::None).stdout(Redirection::None)
     };
+
+    let cmd = ssh_wrap(cmd, self.ssh.as_deref(), sudo_password.as_ref());
 
     if let Some(m) = &self.message {
       info!("{m}");
