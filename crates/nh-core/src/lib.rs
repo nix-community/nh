@@ -1,7 +1,9 @@
 pub mod args;
 pub mod checks;
 pub mod command;
+pub mod format;
 pub mod progress;
+pub mod ui;
 pub mod update;
 pub mod util;
 
