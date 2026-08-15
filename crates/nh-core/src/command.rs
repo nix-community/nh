@@ -407,6 +407,7 @@ pub struct Command {
   elevate:     Option<ElevationStrategy>,
   ssh:         Option<String>,
   show_output: bool,
+  pretty:      bool,
   env_vars:    HashMap<String, EnvAction>,
 }
 
@@ -420,6 +421,7 @@ impl Command {
       elevate:     None,
       ssh:         None,
       show_output: false,
+      pretty:      false,
       env_vars:    HashMap::new(),
     }
   }
@@ -442,6 +444,12 @@ impl Command {
   #[must_use]
   pub const fn show_output(mut self, show_output: bool) -> Self {
     self.show_output = show_output;
+    self
+  }
+
+  #[must_use]
+  pub const fn pretty(mut self, pretty: bool) -> Self {
+    self.pretty = pretty;
     self
   }
 
@@ -857,15 +865,19 @@ impl Command {
     };
 
     // Configure output redirection based on show_output setting
-    let cmd = ssh_wrap(
-      if self.show_output {
-        cmd.stderr(Redirection::Merge)
-      } else {
-        cmd.stderr(Redirection::None).stdout(Redirection::None)
-      },
-      self.ssh.as_deref(),
-      sudo_password.as_ref(),
-    );
+    let cmd = if self.show_output && self.pretty {
+      cmd.stderr(Redirection::Merge).stdout(Redirection::Pipe)
+    } else {
+      ssh_wrap(
+        if self.show_output {
+          cmd.stderr(Redirection::Merge)
+        } else {
+          cmd.stderr(Redirection::None).stdout(Redirection::None)
+        },
+        self.ssh.as_deref(),
+        sudo_password.as_ref(),
+      )
+    };
 
     if let Some(m) = &self.message {
       info!("{m}");
@@ -881,6 +893,10 @@ impl Command {
       .message
       .clone()
       .unwrap_or_else(|| "Command failed".to_string());
+
+    if self.show_output && self.pretty {
+      return crate::format::run_pretty(cmd).wrap_err(msg);
+    }
 
     if self.show_output {
       let exit_status = cmd.join().wrap_err(msg.clone())?;
