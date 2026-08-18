@@ -128,7 +128,6 @@ rustPlatform.buildRustPackage (finalAttrs: {
       drupol
       faukah
       NotAShelf
-      viperML
     ];
   };
 })
