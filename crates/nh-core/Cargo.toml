@@ -24,6 +24,7 @@ subprocess.workspace     = true
 thiserror.workspace      = true
 tracing.workspace        = true
 which.workspace          = true
+yansi.workspace          = true
 
 [dev-dependencies]
 proptest.workspace    = true
