@@ -488,14 +488,15 @@ pub struct RemoteHost {
 }
 
 impl RemoteHost {
-  /// Get the hostname part without the `user@` prefix.
+  /// Get the hostname part without the `user@` prefix and `.local` TLD.
   ///
   /// Used for hostname comparisons when determining if two `RemoteHost`
   /// instances refer to the same physical host (e.g., detecting when
   /// `build_host` == `target_host` regardless of different user credentials).
   ///
   /// Returns the bracketed IPv6 address as-is if present (e.g.,
-  /// `[2001:db8::1]`).
+  /// `[2001:db8::1]`). A `.local` suffix is stripped if present, so that
+  /// `user@host.local` returns `host`.
   ///
   /// # Panics
   ///
@@ -505,7 +506,8 @@ impl RemoteHost {
   #[must_use]
   pub fn hostname(&self) -> &str {
     #[allow(clippy::unwrap_used)]
-    self.host.rsplit('@').next().unwrap()
+    let hostname = self.host.rsplit('@').next().unwrap();
+    hostname.strip_suffix(".local").unwrap_or(hostname)
   }
 
   /// Parse a host specification string.
