@@ -194,6 +194,9 @@ impl NixBuildPassthroughArgs {
     if self.no_net {
       args.push("--no-net".into());
     }
+    if self.recreate_lock_file {
+      args.push("--recreate-lock-file".into());
+    }
     if self.no_update_lock_file {
       args.push("--no-update-lock-file".into());
     }
@@ -385,16 +388,21 @@ mod tests {
   }
 
   #[test]
-  fn evaluation_args_include_network_restrictions_without_output_flags() {
+  fn evaluation_args_include_flake_resolution_flags_without_output_flags() {
     let args = NixBuildPassthroughArgs {
       offline: true,
       no_net: true,
+      recreate_lock_file: true,
       json: true,
       no_build_output: true,
       ..Default::default()
     };
 
-    assert_eq!(args.generate_evaluation_args(), ["--offline", "--no-net"]);
+    assert_eq!(args.generate_evaluation_args(), [
+      "--offline",
+      "--no-net",
+      "--recreate-lock-file"
+    ]);
   }
 
   #[test]
