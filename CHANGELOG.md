@@ -14,6 +14,17 @@ be put in the "Changed" section or, if it's just to remove code or
 functionality, under the "Removed" section.
 -->
 
+## Unreleased
+
+### Fixed
+
+- `nh os`, `nh home`, and `nh darwin` now preserve applicable Nix passthrough
+  arguments across evaluation, updates, remote copying and builds, and profile
+  installation. Multi-step and remote rebuilds no longer drop network
+  restrictions such as `--offline` and `--no-net`, and flags such as
+  `--recreate-lock-file` now affect the evaluation that selects the derivation
+  ([#768](https://github.com/nix-community/nh/issues/768)).
+
 ## 4.4.2
 
 ### Added
