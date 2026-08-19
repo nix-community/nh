@@ -422,6 +422,19 @@ pub fn get_build_image_variants(
   installable: &nh_installable::Installable,
   hostname: &str,
 ) -> Result<Vec<String>> {
+  get_build_image_variants_with_args(installable, hostname, [] as [&str; 0])
+}
+
+/// Gets image variants while applying legacy Nix evaluation arguments.
+///
+/// # Errors
+///
+/// Returns an error if evaluation fails or emits invalid JSON.
+pub fn get_build_image_variants_with_args(
+  installable: &nh_installable::Installable,
+  hostname: &str,
+  evaluation_args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
+) -> Result<Vec<String>> {
   let expr = match installable {
     nh_installable::Installable::File { path, .. } => {
       format!(
@@ -458,6 +471,7 @@ in
 
   let result = capture_nix_stdout(
     &NixCommand::nix_instantiate()
+      .args(evaluation_args)
       .arg("--eval")
       .arg("--strict")
       .arg("--json")
@@ -493,8 +507,21 @@ in
 pub fn get_build_image_variants_flake(
   installable: &nh_installable::Installable,
 ) -> Result<Vec<String>> {
+  get_build_image_variants_flake_with_args(installable, [] as [&str; 0])
+}
+
+/// Gets flake image variants while applying Nix evaluation arguments.
+///
+/// # Errors
+///
+/// Returns an error if evaluation fails or emits invalid JSON.
+pub fn get_build_image_variants_flake_with_args(
+  installable: &nh_installable::Installable,
+  evaluation_args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
+) -> Result<Vec<String>> {
   let result = capture_nix_stdout(
     &NixCommand::new(CommandKind::Eval)
+      .args(evaluation_args)
       .arg("--json")
       .args(installable.to_args())
       .arg("--apply")

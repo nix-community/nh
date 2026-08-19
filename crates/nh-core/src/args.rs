@@ -163,6 +163,103 @@ pub struct NixBuildPassthroughArgs {
 
 impl NixBuildPassthroughArgs {
   #[must_use]
+  pub const fn network_restricted(&self) -> bool {
+    self.offline || self.no_net
+  }
+
+  /// Generate arguments that affect evaluation without changing its output.
+  #[must_use]
+  pub fn generate_evaluation_args(&self) -> Vec<String> {
+    let mut args = Vec::new();
+
+    for inc in &self.include {
+      args.push("--include".into());
+      args.push(inc.clone());
+    }
+    if self.show_trace {
+      args.push("--show-trace".into());
+    }
+    if self.accept_flake_config {
+      args.push("--accept-flake-config".into());
+    }
+    if self.refresh {
+      args.push("--refresh".into());
+    }
+    if self.impure {
+      args.push("--impure".into());
+    }
+    if self.offline {
+      args.push("--offline".into());
+    }
+    if self.no_net {
+      args.push("--no-net".into());
+    }
+    if self.no_update_lock_file {
+      args.push("--no-update-lock-file".into());
+    }
+    if self.no_write_lock_file {
+      args.push("--no-write-lock-file".into());
+    }
+    if self.no_use_registries || self.no_registries {
+      args.push("--no-use-registries".into());
+    }
+    for pair in self.option.chunks_exact(2) {
+      args.push("--option".into());
+      args.extend(pair.iter().cloned());
+    }
+    for pair in self.override_input.chunks_exact(2) {
+      args.push("--override-input".into());
+      args.extend(pair.iter().cloned());
+    }
+
+    args
+  }
+
+  /// Generate arguments supported by `nix flake update`.
+  #[must_use]
+  pub fn generate_update_args(&self) -> Vec<String> {
+    let mut args = self.generate_evaluation_args();
+    let mut index = 0;
+
+    while index < args.len() {
+      let values = match args[index].as_str() {
+        "--no-update-lock-file" | "--no-write-lock-file" => 0,
+        "--override-input" => 2,
+        _ => {
+          index += 1;
+          continue;
+        },
+      };
+      args.drain(index..=index + values);
+    }
+
+    args
+  }
+
+  /// Generate arguments supported by legacy Nix evaluation commands.
+  #[must_use]
+  pub fn generate_legacy_evaluation_args(&self) -> Vec<String> {
+    let mut args = Vec::new();
+
+    for inc in &self.include {
+      args.push("--include".into());
+      args.push(inc.clone());
+    }
+    if self.show_trace {
+      args.push("--show-trace".into());
+    }
+    if self.impure {
+      args.push("--impure".into());
+    }
+    for pair in self.option.chunks_exact(2) {
+      args.push("--option".into());
+      args.extend(pair.iter().cloned());
+    }
+
+    args
+  }
+
+  #[must_use]
   pub fn generate_passthrough_args(&self) -> Vec<String> {
     let mut args = Vec::new();
 
@@ -285,6 +382,49 @@ mod tests {
     assert_eq!(args.generate_passthrough_args(), [
       "--option", "sandbox", "false", "--option", "cores", "4"
     ]);
+  }
+
+  #[test]
+  fn evaluation_args_include_network_restrictions_without_output_flags() {
+    let args = NixBuildPassthroughArgs {
+      offline: true,
+      no_net: true,
+      json: true,
+      no_build_output: true,
+      ..Default::default()
+    };
+
+    assert_eq!(args.generate_evaluation_args(), ["--offline", "--no-net"]);
+  }
+
+  #[test]
+  fn legacy_evaluation_args_exclude_new_cli_flags() {
+    let args = NixBuildPassthroughArgs {
+      include: vec!["nixpkgs=/src".into()],
+      impure: true,
+      offline: true,
+      no_net: true,
+      ..Default::default()
+    };
+
+    assert_eq!(args.generate_legacy_evaluation_args(), [
+      "--include",
+      "nixpkgs=/src",
+      "--impure"
+    ]);
+  }
+
+  #[test]
+  fn update_args_exclude_flags_that_prevent_updates() {
+    let args = NixBuildPassthroughArgs {
+      no_net: true,
+      no_update_lock_file: true,
+      no_write_lock_file: true,
+      override_input: vec!["nixpkgs".into(), "path:/src".into()],
+      ..Default::default()
+    };
+
+    assert_eq!(args.generate_update_args(), ["--no-net"]);
   }
 
   #[test]
