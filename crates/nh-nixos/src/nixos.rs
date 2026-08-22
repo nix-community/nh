@@ -8,11 +8,11 @@ use color_eyre::eyre::{Context, Result, bail, eyre};
 use nh_core::{
   args::DiffType,
   command::{self, Command, CommandKind, ElevationStrategy, NixCommand},
-  update::update,
+  update::update_with_args,
   util::{
     ensure_ssh_key_login,
-    get_build_image_variants,
-    get_build_image_variants_flake,
+    get_build_image_variants_flake_with_args,
+    get_build_image_variants_with_args,
     get_hostname,
   },
 };
@@ -171,10 +171,10 @@ impl OsRebuildActivateArgs {
     if self.rebuild.update_args.update_all
       || self.rebuild.update_args.update_input.is_some()
     {
-      update(
+      update_with_args(
         &toplevel,
         self.rebuild.update_args.update_input.clone(),
-        self.rebuild.common.passthrough.commit_lock_file,
+        &self.rebuild.common.passthrough,
       )?;
     }
 
@@ -280,10 +280,12 @@ impl OsRebuildActivateArgs {
       // Only copy if the output path exists locally (i.e., was copied back from
       // remote build)
       if out_path.exists() {
-        nh_remote::copy_to_remote(
+        nh_remote::copy_to_remote_with_args(
           target_host,
           target_profile,
-          self.rebuild.common.passthrough.use_substitutes,
+          self.rebuild.common.passthrough.use_substitutes
+            && !self.rebuild.common.passthrough.network_restricted(),
+          &self.rebuild.common.passthrough.generate_evaluation_args(),
         )
         .context("Failed to copy configuration to target host")?;
       }
@@ -361,7 +363,7 @@ impl OsRebuildActivateArgs {
           _ => unreachable!(),
         };
 
-        nh_remote::activate_remote(
+        nh_remote::activate_remote_with_build_args(
           target_host,
           &resolved_profile,
           &nh_remote::ActivateRemoteConfig {
@@ -371,6 +373,7 @@ impl OsRebuildActivateArgs {
             show_logs: self.show_activation_logs,
             elevation: elevate.then_some(elevation.clone()),
           },
+          &self.rebuild.common.passthrough.generate_passthrough_args(),
         )
         .wrap_err(format!(
           "Activation ({}) failed",
@@ -402,7 +405,7 @@ impl OsRebuildActivateArgs {
 
     if let Boot | Switch = variant {
       if let Some(target_host) = &self.rebuild.target_host {
-        nh_remote::activate_remote(
+        nh_remote::activate_remote_with_build_args(
           target_host,
           &resolved_profile,
           &nh_remote::ActivateRemoteConfig {
@@ -412,6 +415,7 @@ impl OsRebuildActivateArgs {
             show_logs:          false,
             elevation:          elevate.then_some(elevation),
           },
+          &self.rebuild.common.passthrough.generate_passthrough_args(),
         )
         .wrap_err("Bootloader activation failed")?;
       } else {
@@ -422,9 +426,14 @@ impl OsRebuildActivateArgs {
           .canonicalize()
           .context("Failed to resolve base output path to store path")?;
 
-        Command::new("nix")
-          .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
+        let (binary, args, _) = NixCommand::new(CommandKind::Build)
+          .print_build_logs(false)
+          .args(["--no-link", "--profile", SYSTEM_PROFILE])
           .arg(&base_store_path)
+          .args(self.rebuild.common.passthrough.generate_passthrough_args())
+          .into_parts();
+        Command::new(binary)
+          .args(args)
           .elevate(elevate.then_some(elevation.clone()))
           .with_required_env()
           .run()
@@ -582,7 +591,8 @@ impl OsRebuildArgs {
         build_host,
         target_host: self.target_host.clone(),
         use_nom: !self.common.no_nom,
-        use_substitutes: self.common.passthrough.use_substitutes,
+        use_substitutes: self.common.passthrough.use_substitutes
+          && !self.common.passthrough.network_restricted(),
         extra_args: self
           .extra_args
           .iter()
@@ -598,8 +608,12 @@ impl OsRebuildArgs {
           .collect(),
       };
 
-      let actual_store_path =
-        nh_remote::build_remote(&toplevel, &config, Some(out_path))?;
+      let actual_store_path = nh_remote::build_remote_with_args(
+        &toplevel,
+        &config,
+        Some(out_path),
+        &self.common.passthrough.generate_evaluation_args(),
+      )?;
 
       Ok(Some(actual_store_path))
     } else {
@@ -685,10 +699,10 @@ impl OsRebuildArgs {
       self.resolve_installable_and_toplevel(&target_hostname, final_attrs)?;
 
     if self.update_args.update_all || self.update_args.update_input.is_some() {
-      update(
+      update_with_args(
         &toplevel,
         self.update_args.update_input.clone(),
-        self.common.passthrough.commit_lock_file,
+        &self.common.passthrough,
       )?;
     }
 
@@ -907,10 +921,21 @@ impl OsBuildImageArgs {
       Installable::Flake { .. } => {
         let images_installable =
           toplevel_for(&target_hostname, installable.clone(), &["images"])?;
-        get_build_image_variants_flake(&images_installable)?
+        get_build_image_variants_flake_with_args(
+          &images_installable,
+          self.common.common.passthrough.generate_evaluation_args(),
+        )?
       },
       Installable::File { .. } | Installable::Expression { .. } => {
-        get_build_image_variants(&installable, &target_hostname)?
+        get_build_image_variants_with_args(
+          &installable,
+          &target_hostname,
+          self
+            .common
+            .common
+            .passthrough
+            .generate_legacy_evaluation_args(),
+        )?
       },
       Installable::Store { .. } => {
         bail!("Unsupported installable type for image building")

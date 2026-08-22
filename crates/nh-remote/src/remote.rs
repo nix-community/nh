@@ -35,8 +35,11 @@ use tracing::{debug, error, info, warn};
 mod copy;
 mod dix;
 
-pub use copy::copy_to_remote;
-use copy::{copy_closure_between_remotes, copy_closure_from};
+use copy::{
+  copy_closure_between_remotes_with_args,
+  copy_closure_from_with_args,
+};
+pub use copy::{copy_to_remote, copy_to_remote_with_args};
 pub use dix::ResolvedRemoteStorePath;
 
 /// Global flag indicating whether a SIGINT (Ctrl+C) was received.
@@ -1154,8 +1157,24 @@ pub fn activate_remote(
   system_profile: &Path,
   config: &ActivateRemoteConfig,
 ) -> Result<()> {
+  activate_remote_with_build_args(host, system_profile, config, &[])
+}
+
+/// Activate a remote configuration with profile-setting Nix arguments.
+///
+/// # Errors
+///
+/// Returns an error if SSH connection or activation fails.
+pub fn activate_remote_with_build_args(
+  host: &RemoteHost,
+  system_profile: &Path,
+  config: &ActivateRemoteConfig,
+  build_args: &[String],
+) -> Result<()> {
   match config.platform {
-    Platform::NixOS => activate_nixos_remote(host, system_profile, config),
+    Platform::NixOS => {
+      activate_nixos_remote(host, system_profile, config, build_args)
+    },
     // TODO:
     // Platform::Darwin => activate_darwin_remote(host, system_profile, config),
     // Platform::HomeManager => activate_home_remote(host, system_profile,
@@ -1181,6 +1200,7 @@ fn activate_nixos_remote(
   host: &RemoteHost,
   system_profile: &Path,
   config: &ActivateRemoteConfig,
+  build_args: &[String],
 ) -> Result<()> {
   let ssh_opts = get_ssh_opts();
 
@@ -1278,11 +1298,11 @@ fn activate_nixos_remote(
       profile_ssh_cmd = profile_ssh_cmd.arg(host.ssh_host());
 
       // Build the remote command using helper function
-      let base_cmd = format!(
-        "nix build --no-link --profile {} {}",
-        NIXOS_SYSTEM_PROFILE,
-        shell_quote(&system_profile.to_string_lossy())
-      );
+      let base_cmd = profile_nix_command(system_profile, build_args)?
+        .iter()
+        .map(|arg| shell_quote(arg))
+        .collect::<Vec<_>>()
+        .join(" ");
       let profile_remote_cmd =
         build_remote_command(config.elevation.as_ref(), &base_cmd)?;
 
@@ -1358,7 +1378,10 @@ const NIXOS_SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
 
 /// Evaluate a flake installable to get its derivation path.
 /// Matches nixos-rebuild-ng: `nix eval --raw <flake>.drvPath`
-fn eval_drv_path(installable: &Installable) -> Result<PathBuf> {
+fn eval_drv_path(
+  installable: &Installable,
+  evaluation_args: &[String],
+) -> Result<PathBuf> {
   // Build the installable with .drvPath appended
   let drv_installable = match installable {
     Installable::Flake {
@@ -1405,6 +1428,7 @@ fn eval_drv_path(installable: &Installable) -> Result<PathBuf> {
 
   let cmd = NixCommand::new(CommandKind::Eval)
     .global_args(get_flake_flags())
+    .args(evaluation_args)
     .arg("--raw")
     .args(&args)
     .to_exec()
@@ -1492,15 +1516,34 @@ pub fn build_remote(
   config: &RemoteBuildConfig,
   out_link: Option<&std::path::Path>,
 ) -> Result<PathBuf> {
+  build_remote_with_args(installable, config, out_link, &[])
+}
+
+/// Build remotely while applying arguments to pre-build Nix operations.
+///
+/// # Errors
+///
+/// Returns an error if evaluation, copying, or building fails.
+pub fn build_remote_with_args(
+  installable: &Installable,
+  config: &RemoteBuildConfig,
+  out_link: Option<&std::path::Path>,
+  evaluation_args: &[String],
+) -> Result<PathBuf> {
   let build_host = &config.build_host;
   let use_substitutes = config.use_substitutes;
 
   // Step 1: Evaluate drvPath locally
   info!("Evaluating derivation path");
-  let drv_path = eval_drv_path(installable)?;
+  let drv_path = eval_drv_path(installable, evaluation_args)?;
 
   // Step 2: Copy derivation to build host
-  copy_to_remote(build_host, &drv_path, use_substitutes)?;
+  copy_to_remote_with_args(
+    build_host,
+    &drv_path,
+    use_substitutes,
+    evaluation_args,
+  )?;
 
   // Step 3: Build on remote
   info!("Building on remote host '{}'", build_host);
@@ -1536,11 +1579,12 @@ pub fn build_remote(
       false
     },
     Some(target_host) => {
-      match copy_closure_between_remotes(
+      match copy_closure_between_remotes_with_args(
         build_host,
         target_host,
         &out_path,
         use_substitutes,
+        evaluation_args,
       ) {
         Ok(()) => {
           debug!(
@@ -1565,7 +1609,7 @@ pub fn build_remote(
   };
 
   if need_local_copy {
-    copy_closure_from(build_host, &out_path)?;
+    copy_closure_from_with_args(build_host, &out_path, evaluation_args)?;
   }
 
   // Create local out-link if requested and the result is in local store
@@ -1626,8 +1670,21 @@ fn build_nix_command(
       .print_build_logs(false)
       .global_args(get_flake_flags())
       .arg(drv_with_outputs)
-      .args(extra_flags)
-      .args(extra_args_strings),
+      .args(extra_args_strings)
+      .args(extra_flags),
+  )
+}
+
+fn profile_nix_command(
+  system_profile: &Path,
+  build_args: &[String],
+) -> Result<Vec<String>> {
+  nix_argv_to_strings(
+    &NixCommand::new(CommandKind::Build)
+      .print_build_logs(false)
+      .args(["--no-link", "--profile", NIXOS_SYSTEM_PROFILE])
+      .arg(system_profile)
+      .args(build_args),
   )
 }
 
@@ -1829,8 +1886,11 @@ fn build_on_remote_with_nom(
   // nom consumed the output, so we need to query the output path separately
   // Run nix build again with --print-out-paths (it will be a no-op since
   // already built)
-  let query_args =
-    build_nix_command(drv_with_outputs, &["--print-out-paths"], &[])?;
+  let query_args = build_nix_command(
+    drv_with_outputs,
+    &["--print-out-paths"],
+    &config.extra_args,
+  )?;
   let query_refs: Vec<&str> =
     query_args.iter().map(std::string::String::as_str).collect();
 
@@ -1904,6 +1964,25 @@ mod tests {
   }
 
   use super::*;
+
+  #[test]
+  fn remote_build_and_profile_commands_preserve_no_net() {
+    let extra_args = [OsString::from("--no-net")];
+    let build = build_nix_command(
+      "/nix/store/example.drv^*",
+      &["--print-out-paths"],
+      &extra_args,
+    )
+    .unwrap();
+    let profile =
+      profile_nix_command(Path::new("/nix/store/example-system"), &[
+        "--no-net".into(),
+      ])
+      .unwrap();
+
+    assert!(build.iter().any(|arg| arg == "--no-net"));
+    assert!(profile.iter().any(|arg| arg == "--no-net"));
+  }
 
   proptest! {
     #[test]
