@@ -56,7 +56,7 @@ signal-hook = "0.4.1"
 spam-db = "0.2.4"
 subprocess = "1.0.3"
 supports-hyperlinks = "3.1.0"
-system-configuration = "0.7.0"
+system-configuration = "0.8.0"
 tempfile = "3.23.0"
 textwrap = { features = [ "terminal_size" ], version = "0.16.2" }
 thiserror = "2.0.17"
