@@ -3,7 +3,19 @@ use std::io::{BufRead, BufReader, Write};
 use subprocess::Exec;
 use yansi::Paint;
 
-use crate::ui::*;
+use crate::ui::{
+  BLUE,
+  GREEN,
+  GREY,
+  ICON_ARROW,
+  ICON_BULLET,
+  ICON_INFO,
+  ICON_SUCCESS,
+  ICON_WARNING,
+  PURPLE,
+  RED,
+  YELLOW,
+};
 
 pub enum LogLine {
   HomebrewUsing(String),
@@ -19,6 +31,7 @@ pub enum LogLine {
   Other(String),
 }
 
+#[must_use]
 pub fn process_line(line: &str) -> LogLine {
   let line = line.trim();
   if let Some(dep) = line.strip_prefix("Using ") {
@@ -30,19 +43,17 @@ pub fn process_line(line: &str) -> LogLine {
   if let Some(dep) = line.strip_prefix("Upgrading ") {
     return LogLine::HomebrewUpgrading(dep.to_string());
   }
-  if let Some(caps) = line.strip_prefix("`brew bundle` complete! ") {
-    if let Some(count_str) = caps.split_whitespace().next() {
-      if let Ok(count) = count_str.parse::<usize>() {
-        return LogLine::HomebrewComplete(count);
-      }
-    }
+  if let Some(caps) = line.strip_prefix("`brew bundle` complete! ")
+    && let Some(count_str) = caps.split_whitespace().next()
+    && let Ok(count) = count_str.parse::<usize>()
+  {
+    return LogLine::HomebrewComplete(count);
   }
-  if let Some(caps) = line.strip_prefix("Homebrew Bundle complete! ") {
-    if let Some(count_str) = caps.split_whitespace().next() {
-      if let Ok(count) = count_str.parse::<usize>() {
-        return LogLine::HomebrewComplete(count);
-      }
-    }
+  if let Some(caps) = line.strip_prefix("Homebrew Bundle complete! ")
+    && let Some(count_str) = caps.split_whitespace().next()
+    && let Ok(count) = count_str.parse::<usize>()
+  {
+    return LogLine::HomebrewComplete(count);
   }
   if let Some(input) = line.strip_prefix("updating input '") {
     let input = input.trim_end_matches('\'');
@@ -89,6 +100,7 @@ pub struct ActivationState {
   last_info:        Option<String>,
 }
 
+#[allow(clippy::missing_errors_doc)]
 pub fn run_pretty(exec: Exec) -> color_eyre::Result<()> {
   let mut popen = exec.start()?;
   let stdout = popen

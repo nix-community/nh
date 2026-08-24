@@ -20,6 +20,7 @@ pub const ICON_DIVIDER: &str = "─";
 /// Render a byte count as a colored, human-readable size:
 /// green for KB, yellow for MB, magenta-bold for GB.
 #[must_use]
+#[allow(clippy::cast_precision_loss)]
 pub fn colored_size(bytes: u64) -> String {
   let kb = bytes as f64 / 1024.0;
   let mb = kb / 1024.0;
