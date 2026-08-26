@@ -181,7 +181,15 @@ pub struct OsRebuildActivateArgs {
   pub rebuild: OsRebuildArgs,
 
   /// Show activation logs
-  #[arg(long, env = "NH_SHOW_ACTIVATION_LOGS", value_parser = clap::builder::BoolishValueParser::new())]
+  #[arg(
+    long,
+    env = "NH_SHOW_ACTIVATION_LOGS",
+    default_value_t = true,
+    action = clap::ArgAction::Set,
+    num_args = 0..=1,
+    default_missing_value = "true",
+    value_parser = clap::builder::BoolishValueParser::new()
+  )]
   pub show_activation_logs: bool,
 }
 

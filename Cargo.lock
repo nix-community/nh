@@ -1351,6 +1351,7 @@ dependencies = [
  "thiserror",
  "tracing",
  "which",
+ "yansi",
 ]
 
 [[package]]

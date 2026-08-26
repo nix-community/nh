@@ -14,6 +14,15 @@ be put in the "Changed" section or, if it's just to remove code or
 functionality, under the "Removed" section.
 -->
 
+## Unreleased
+
+### Added
+
+- `nh darwin switch`, `nh home switch`, and `nh os switch` now feature
+  beautifully formatted and summarized activation logs by default. Homebrew,
+  Home Manager, and Darwin activation steps are summarized automatically into
+  concise blocks.
+
 ## 4.4.2
 
 ### Added
