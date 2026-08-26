@@ -261,10 +261,7 @@ impl NixBuildPassthroughArgs {
     args
   }
 
-  #[must_use]
-  pub fn generate_passthrough_args(&self) -> Vec<String> {
-    let mut args = Vec::new();
-
+  fn append_execution_args(&self, args: &mut Vec<String>) {
     if let Some(jobs) = self.max_jobs {
       args.push("--max-jobs".into());
       args.push(jobs.to_string());
@@ -337,9 +334,6 @@ impl NixBuildPassthroughArgs {
     if self.no_build_output {
       args.push("--quiet".into());
     }
-    if self.json {
-      args.push("--json".into());
-    }
     for pair in self.option.chunks(2) {
       args.push("--option".into());
       args.push(pair[0].clone());
@@ -350,7 +344,22 @@ impl NixBuildPassthroughArgs {
       args.push(pair[0].clone());
       args.push(pair[1].clone());
     }
+  }
 
+  #[must_use]
+  pub fn generate_passthrough_args(&self) -> Vec<String> {
+    let mut args = Vec::new();
+    self.append_execution_args(&mut args);
+    if self.json {
+      args.push("--json".into());
+    }
+    args
+  }
+
+  #[must_use]
+  pub fn generate_remote_build_args(&self) -> Vec<String> {
+    let mut args = Vec::new();
+    self.append_execution_args(&mut args);
     args
   }
 }
@@ -454,5 +463,16 @@ mod tests {
       "nixpkgs",
       "github:NixOS/nixpkgs/nixos-unstable"
     ]);
+  }
+
+  #[test]
+  fn remote_build_args_exclude_json() {
+    let args = NixBuildPassthroughArgs {
+      json: true,
+      no_net: true,
+      ..Default::default()
+    };
+
+    assert_eq!(args.generate_remote_build_args(), ["--no-net"]);
   }
 }
