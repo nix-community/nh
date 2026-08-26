@@ -121,7 +121,7 @@ impl HomeRebuildArgs {
         use_nom: !self.common.no_nom,
         use_substitutes: self.common.passthrough.use_substitutes
           && !self.common.passthrough.network_restricted(),
-        extra_args: self
+        execution_args: self
           .extra_args
           .iter()
           .map(Into::into)
@@ -129,7 +129,7 @@ impl HomeRebuildArgs {
             self
               .common
               .passthrough
-              .generate_passthrough_args()
+              .generate_remote_build_args()
               .into_iter()
               .map(Into::into),
           )

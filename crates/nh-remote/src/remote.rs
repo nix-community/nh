@@ -1494,8 +1494,8 @@ pub struct RemoteBuildConfig {
   /// Whether to use substitutes when copying closures
   pub use_substitutes: bool,
 
-  /// Extra arguments to pass to the build command
-  pub extra_args: Vec<OsString>,
+  /// Arguments to pass to remote build execution.
+  pub execution_args: Vec<OsString>,
 }
 
 /// Perform a remote build of a flake installable.
@@ -1652,7 +1652,7 @@ fn build_on_remote(
     build_on_remote_with_nom(host, &drv_with_outputs, config)
   } else {
     // Without nom: simple remote execution
-    build_on_remote_simple(host, &drv_with_outputs)
+    build_on_remote_simple(host, &drv_with_outputs, config)
   }
 }
 
@@ -1664,6 +1664,12 @@ fn build_nix_command(
   extra_args: &[OsString],
 ) -> Result<Vec<String>> {
   let extra_args_strings = convert_extra_args(extra_args)?;
+  if extra_args_strings
+    .iter()
+    .any(|arg| matches!(arg.as_str(), "--json" | "--pretty" | "--no-pretty"))
+  {
+    bail!("remote builds do not support output-format arguments after `--`");
+  }
 
   nix_argv_to_strings(
     &NixCommand::new(CommandKind::Build)
@@ -1692,13 +1698,18 @@ fn profile_nix_command(
 fn build_on_remote_simple(
   host: &RemoteHost,
   drv_with_outputs: &str,
+  config: &RemoteBuildConfig,
 ) -> Result<String> {
   // Register interrupt handler at start
   register_interrupt_handler()?;
 
   let ssh_opts = get_ssh_opts();
 
-  let args = build_nix_command(drv_with_outputs, &["--print-out-paths"], &[])?;
+  let args = build_nix_command(
+    drv_with_outputs,
+    &["--print-out-paths"],
+    &config.execution_args,
+  )?;
   let arg_refs: Vec<&str> =
     args.iter().map(std::string::String::as_str).collect();
 
@@ -1791,7 +1802,7 @@ fn build_on_remote_with_nom(
   let remote_args = build_nix_command(
     drv_with_outputs,
     &["--log-format", "internal-json", "--verbose"],
-    &config.extra_args,
+    &config.execution_args,
   )?;
   let arg_refs: Vec<&str> = remote_args
     .iter()
@@ -1977,18 +1988,14 @@ mod tests {
   }
 
   #[test]
-  fn output_path_command_does_not_forward_build_output_flags() {
-    let extra_args = [OsString::from("--json")];
-    let build =
-      build_nix_command("/nix/store/example.drv^*", &[], &extra_args).unwrap();
-    let output_path =
+  fn remote_build_commands_reject_output_format_args() {
+    let err =
       build_nix_command("/nix/store/example.drv^*", &["--print-out-paths"], &[
+        OsString::from("--json"),
       ])
-      .unwrap();
+      .unwrap_err();
 
-    assert!(build.iter().any(|arg| arg == "--json"));
-    assert!(output_path.iter().any(|arg| arg == "--print-out-paths"));
-    assert!(!output_path.iter().any(|arg| arg == "--json"));
+    assert!(err.to_string().contains("output-format"));
   }
 
   proptest! {
