@@ -1652,7 +1652,7 @@ fn build_on_remote(
     build_on_remote_with_nom(host, &drv_with_outputs, config)
   } else {
     // Without nom: simple remote execution
-    build_on_remote_simple(host, &drv_with_outputs, config)
+    build_on_remote_simple(host, &drv_with_outputs)
   }
 }
 
@@ -1692,18 +1692,13 @@ fn profile_nix_command(
 fn build_on_remote_simple(
   host: &RemoteHost,
   drv_with_outputs: &str,
-  config: &RemoteBuildConfig,
 ) -> Result<String> {
   // Register interrupt handler at start
   register_interrupt_handler()?;
 
   let ssh_opts = get_ssh_opts();
 
-  let args = build_nix_command(
-    drv_with_outputs,
-    &["--print-out-paths"],
-    &config.extra_args,
-  )?;
+  let args = build_nix_command(drv_with_outputs, &["--print-out-paths"], &[])?;
   let arg_refs: Vec<&str> =
     args.iter().map(std::string::String::as_str).collect();
 
@@ -1886,11 +1881,8 @@ fn build_on_remote_with_nom(
   // nom consumed the output, so we need to query the output path separately
   // Run nix build again with --print-out-paths (it will be a no-op since
   // already built)
-  let query_args = build_nix_command(
-    drv_with_outputs,
-    &["--print-out-paths"],
-    &config.extra_args,
-  )?;
+  let query_args =
+    build_nix_command(drv_with_outputs, &["--print-out-paths"], &[])?;
   let query_refs: Vec<&str> =
     query_args.iter().map(std::string::String::as_str).collect();
 
@@ -1982,6 +1974,21 @@ mod tests {
 
     assert!(build.iter().any(|arg| arg == "--no-net"));
     assert!(profile.iter().any(|arg| arg == "--no-net"));
+  }
+
+  #[test]
+  fn output_path_command_does_not_forward_build_output_flags() {
+    let extra_args = [OsString::from("--json")];
+    let build =
+      build_nix_command("/nix/store/example.drv^*", &[], &extra_args).unwrap();
+    let output_path =
+      build_nix_command("/nix/store/example.drv^*", &["--print-out-paths"], &[
+      ])
+      .unwrap();
+
+    assert!(build.iter().any(|arg| arg == "--json"));
+    assert!(output_path.iter().any(|arg| arg == "--print-out-paths"));
+    assert!(!output_path.iter().any(|arg| arg == "--json"));
   }
 
   proptest! {

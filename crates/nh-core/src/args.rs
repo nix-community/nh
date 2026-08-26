@@ -221,22 +221,21 @@ impl NixBuildPassthroughArgs {
   /// Generate arguments supported by `nix flake update`.
   #[must_use]
   pub fn generate_update_args(&self) -> Vec<String> {
-    let mut args = self.generate_evaluation_args();
-    let mut index = 0;
+    let mut args = self.generate_evaluation_args().into_iter();
+    let mut update_args = Vec::new();
 
-    while index < args.len() {
-      let values = match args[index].as_str() {
-        "--no-update-lock-file" | "--no-write-lock-file" => 0,
-        "--override-input" => 2,
-        _ => {
-          index += 1;
-          continue;
+    while let Some(arg) = args.next() {
+      match arg.as_str() {
+        "--no-update-lock-file" | "--no-write-lock-file" => {},
+        "--override-input" => {
+          args.next();
+          args.next();
         },
-      };
-      args.drain(index..=index + values);
+        _ => update_args.push(arg),
+      }
     }
 
-    args
+    update_args
   }
 
   /// Generate arguments supported by legacy Nix evaluation commands.
@@ -412,13 +411,14 @@ mod tests {
       impure: true,
       offline: true,
       no_net: true,
+      recreate_lock_file: true,
       ..Default::default()
     };
 
     assert_eq!(args.generate_legacy_evaluation_args(), [
       "--include",
       "nixpkgs=/src",
-      "--impure"
+      "--impure",
     ]);
   }
 
@@ -426,13 +426,17 @@ mod tests {
   fn update_args_exclude_flags_that_prevent_updates() {
     let args = NixBuildPassthroughArgs {
       no_net: true,
+      recreate_lock_file: true,
       no_update_lock_file: true,
       no_write_lock_file: true,
       override_input: vec!["nixpkgs".into(), "path:/src".into()],
       ..Default::default()
     };
 
-    assert_eq!(args.generate_update_args(), ["--no-net"]);
+    assert_eq!(args.generate_update_args(), [
+      "--no-net",
+      "--recreate-lock-file"
+    ]);
   }
 
   #[test]
