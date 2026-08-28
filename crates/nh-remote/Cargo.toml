@@ -22,7 +22,6 @@ shlex.workspace          = true
 signal-hook.workspace    = true
 subprocess.workspace     = true
 tracing.workspace        = true
-which.workspace          = true
 
 [dev-dependencies]
 proptest.workspace    = true

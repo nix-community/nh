@@ -76,12 +76,6 @@ const ENVIRONMENT: &[Entry] = &[
      (e.g., nh=trace).",
   ),
   (
-    "NH_NOM",
-    "Controls whether nix-output-monitor (nom) is used. Unset enables it only \
-     on a terminal. Set to 1, true, yes, or on to force it on; set to 0, \
-     false, no, or off to force it off. --no-nom takes precedence.",
-  ),
-  (
     "NH_REMOTE_CLEANUP",
     "Whether to clean up remote processes on interrupt via pkill. Opt-in due \
      to fragile behavior.",

@@ -16,6 +16,7 @@ nh-installable.workspace = true
 nix.workspace            = true
 nix-command.workspace    = true
 regex.workspace          = true
+rom.workspace            = true
 secrecy.workspace        = true
 semver.workspace         = true
 serde_json.workspace     = true

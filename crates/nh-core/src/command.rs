@@ -971,7 +971,7 @@ pub struct Build {
   message:     Option<String>,
   installable: Installable,
   extra_args:  Vec<OsString>,
-  nom:         bool,
+  rom:         bool,
 }
 
 impl Build {
@@ -981,7 +981,7 @@ impl Build {
       message: None,
       installable,
       extra_args: vec![],
-      nom: false,
+      rom: false,
     }
   }
 
@@ -998,8 +998,8 @@ impl Build {
   }
 
   #[must_use]
-  pub const fn nom(mut self, yes: bool) -> Self {
-    self.nom = yes;
+  pub const fn rom(mut self, yes: bool) -> Self {
+    self.rom = yes;
     self
   }
 
@@ -1038,36 +1038,26 @@ impl Build {
       .args(&self.extra_args)
       .to_exec();
 
-    if self.nom {
-      let pipeline = {
-        base_command
-          .args(["--log-format", "internal-json", "--verbose"])
-          .stderr(Redirection::Merge)
-          .stdout(Redirection::Pipe)
-          | Exec::cmd("nom").args(["--json"])
-      }
-      .stdout(Redirection::None);
-      debug!(?pipeline);
+    if self.rom {
+      let cmd = base_command
+        .args(["--log-format", "internal-json", "--verbose"])
+        .stderr(Redirection::Merge)
+        .stdout(Redirection::Pipe);
+      debug!(?cmd);
 
-      // Use `popen()` to get access to individual processes so we can check
-      // Nix's exit status, not nom's. The pipeline's `join()` only returns
-      // the exit status of the last command (nom), which always succeeds
-      // even when Nix fails.
-      let job = pipeline.start()?;
+      let mut process = cmd.start()?;
+      let output = process
+        .stdout
+        .take()
+        .ok_or_else(|| eyre::eyre!("failed to capture Nix build output"))?;
+      let monitor_result = crate::monitor::run(output);
+      let exit_status = process.wait()?;
 
-      // Wait for all processes to finish
-      for proc in &job.processes {
-        proc.wait()?;
+      // Nix owns the build result; a presentation error must not mask it.
+      if !exit_status.success() {
+        bail!(ExitError(exit_status));
       }
-
-      // Check the exit status of the FIRST process (nix build)
-      // This is the one that matters. If Nix fails, we should fail as well
-      if let Some(nix_proc) = job.processes.first() {
-        let exit_status = nix_proc.wait()?;
-        if !exit_status.success() {
-          bail!(ExitError(exit_status));
-        }
-      }
+      monitor_result.wrap_err("ROM failed to monitor the Nix build")?;
     } else {
       let cmd = base_command
         .stderr(Redirection::Merge)
@@ -1620,7 +1610,7 @@ mod tests {
       installable.to_args().unwrap()
     );
     assert!(build.extra_args.is_empty());
-    assert!(!build.nom);
+    assert!(!build.rom);
   }
 
   #[test]
@@ -1634,7 +1624,7 @@ mod tests {
       .message("Building package")
       .extra_arg("--verbose")
       .extra_args(["--option", "setting", "value"])
-      .nom(true);
+      .rom(true);
 
     assert_eq!(build.message, Some("Building package".to_string()));
     assert_eq!(build.extra_args, vec![
@@ -1643,7 +1633,7 @@ mod tests {
       OsString::from("setting"),
       OsString::from("value")
     ]);
-    assert!(build.nom);
+    assert!(build.rom);
   }
 
   #[test]

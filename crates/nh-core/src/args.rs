@@ -22,9 +22,9 @@ pub struct CommonRebuildArgs {
   #[command(flatten)]
   pub installable: InstallableArgs,
 
-  /// Don't use nix-output-monitor for the build process
+  /// Don't use ROM for the build process
   #[arg(long)]
-  pub no_nom: bool,
+  pub no_rom: bool,
 
   /// Path to save the result link, defaults to using a temporary directory
   #[arg(long, short)]

@@ -2,17 +2,12 @@
   lib,
   stdenv,
   rustPlatform,
-  makeBinaryWrapper,
   installShellFiles,
   versionCheckHook,
   sudo,
-  use-nom ? true,
-  nix-output-monitor ? null,
   rev ? "dirty",
 }:
-assert use-nom -> nix-output-monitor != null;
 let
-  runtimeDeps = lib.optionals use-nom [ nix-output-monitor ];
   cargoToml = lib.importTOML ./Cargo.toml;
 in
 rustPlatform.buildRustPackage (finalAttrs: {
@@ -35,10 +30,12 @@ rustPlatform.buildRustPackage (finalAttrs: {
   strictDeps = true;
   nativeBuildInputs = [
     installShellFiles
-    makeBinaryWrapper
   ];
 
-  cargoLock.lockFile = ./Cargo.lock;
+  cargoLock = {
+    lockFile = ./Cargo.lock;
+    allowBuiltinFetchGit = true;
+  };
 
   postInstall =
     lib.optionalString (stdenv.buildPlatform.canExecute stdenv.hostPlatform) ''
@@ -63,11 +60,6 @@ rustPlatform.buildRustPackage (finalAttrs: {
       # Avoid populating PATH with an 'xtask' cmd
       rm $out/bin/xtask
     '';
-
-  postFixup = ''
-    wrapProgram $out/bin/nh \
-      --prefix PATH : ${lib.makeBinPath runtimeDeps}
-  '';
 
   nativeInstallCheckInputs = [ versionCheckHook ];
   doInstallCheck = false; # FIXME: --version includes 'dirty' and the hook doesn't let us change the assertion
