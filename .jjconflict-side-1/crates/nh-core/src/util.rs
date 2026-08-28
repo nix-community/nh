@@ -1,0 +1,690 @@
+use std::{
+  collections::HashSet,
+  ffi::OsString,
+  os::unix::process::CommandExt,
+  process::{Command as StdCommand, Stdio},
+  sync::{LazyLock, OnceLock},
+};
+
+use color_eyre::{
+  Result,
+  eyre::{self, Context, bail, eyre},
+};
+use nix_command::{CommandKind, NixCommand};
+use regex::Regex;
+use tracing::{debug, warn};
+
+use crate::command::{Command, ElevationStrategy};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NixVariant {
+  Nix,
+  Lix,
+  Determinate,
+}
+
+static NIX_VERSION_OUTPUT: OnceLock<Option<String>> = OnceLock::new();
+static NIX_VARIANT: OnceLock<NixVariant> = OnceLock::new();
+static NIX_EXPERIMENTAL_FEATURES: OnceLock<HashSet<String>> = OnceLock::new();
+
+fn format_argv(argv: &[OsString]) -> String {
+  argv
+    .iter()
+    .map(|arg| {
+      let arg = arg.to_string_lossy().into_owned();
+      shlex::try_quote(&arg)
+        .map_or_else(|_| arg.clone(), std::borrow::Cow::into_owned)
+    })
+    .collect::<Vec<_>>()
+    .join(" ")
+}
+
+fn capture_nix_stdout(command: &NixCommand) -> Result<String> {
+  let argv = command.argv();
+  let command_text = format_argv(&argv);
+  let output = command
+    .output()
+    .wrap_err_with(|| format!("Failed to run {command_text}"))?;
+
+  if !output.status.success() {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stderr = stderr.trim();
+    if stderr.is_empty() {
+      bail!("{command_text} failed (exit status {:?})", output.status);
+    }
+    bail!(
+      "{command_text} failed (exit status {:?})\nstderr:\n{stderr}",
+      output.status
+    );
+  }
+
+  String::from_utf8(output.stdout)
+    .wrap_err_with(|| format!("{command_text} produced non-UTF-8 stdout"))
+}
+
+/// Fetches and caches the raw output from `nix --version` command.
+/// This is called once and shared by both variant and version detection.
+fn get_nix_version_output() -> Option<&'static String> {
+  NIX_VERSION_OUTPUT
+    .get_or_init(|| {
+      capture_nix_stdout(&NixCommand::raw().arg("--version")).ok()
+    })
+    .as_ref()
+}
+
+/// Get the Nix variant
+///
+/// # Panics
+///
+/// If any of the Nix commands fail, or the regex fails to compile, this will
+/// function will panic.
+pub fn get_nix_variant() -> &'static NixVariant {
+  NIX_VARIANT.get_or_init(|| {
+    let output = get_nix_version_output();
+
+    // XXX: If running with dry=true or Nix is not installed, output might be
+    // None The latter is less likely to occur, but we still want graceful
+    // handling.
+    let Some(output_str) = output else {
+      warn!("Failed to get Nix version output. Assuming mainline Nix");
+      return NixVariant::Nix;
+    };
+
+    let output_lower = output_str.to_lowercase();
+
+    // FIXME: This fails to account for Nix variants we don't check for and
+    // assumes the environment is mainstream Nix.
+    if output_lower.contains("determinate") {
+      NixVariant::Determinate
+    } else if output_lower.contains("lix") {
+      NixVariant::Lix
+    } else {
+      NixVariant::Nix
+    }
+  });
+
+  #[allow(clippy::expect_used)]
+  NIX_VARIANT
+    .get()
+    .expect("NIX_VARIANT should be initialized by get_nix_variant")
+}
+
+// Matches and captures major, minor, and optional patch numbers from semantic
+// version strings, optionally followed by a "pre" pre-release suffix.
+#[allow(clippy::expect_used)]
+static VERSION_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+  Regex::new(r"(\d+)\.(\d+)(?:\.(\d+))?(?:pre\d*)?")
+    .expect("VERSION_REGEX should be valid")
+});
+
+/// Normalizes a version string to be compatible with semver parsing.
+///
+/// This function handles, or at least tries to handle, various Nix
+/// vendors' complex version formats by extracting just the semantic
+/// version part.
+///
+/// Examples of supported formats:
+/// - "2.25.0-pre" -> "2.25.0"
+/// - "2.24.14-1" -> "2.24.14"
+/// - "`2.30pre20250521_76a4d4c2`" -> "2.30.0"
+/// - "2.91.1" -> "2.91.1"
+///
+/// # Arguments
+///
+/// * `version` - The raw version string to normalize
+///
+/// # Returns
+///
+/// * `String` - The normalized version string suitable for semver parsing
+pub fn normalize_version_string(version: &str) -> String {
+  if let Some(captures) = VERSION_REGEX.captures(version) {
+    let major = captures.get(1).map_or_else(
+      || {
+        debug!("Failed to extract major version from '{version}'",);
+        version
+      },
+      |m| m.as_str(),
+    );
+    let minor = captures.get(2).map_or_else(
+      || {
+        debug!("Failed to extract minor version from '{version}'");
+        version
+      },
+      |m| m.as_str(),
+    );
+    let patch = captures.get(3).map_or("0", |m| m.as_str());
+
+    let normalized = format!("{major}.{minor}.{patch}");
+    if version != normalized {
+      debug!("Version normalized: '{version}' -> '{normalized}'");
+    }
+
+    return normalized;
+  }
+
+  // Fallback: split on common separators and take the first part
+  let base_version = version
+    .split(&['-', '+', 'p', '_'][..])
+    .next()
+    .unwrap_or(version);
+
+  // Version should have all three components (major.minor.patch)
+  let normalized = match base_version.split('.').collect::<Vec<_>>().as_slice()
+  {
+    [major] => format!("{major}.0.0"),
+    [major, minor] => format!("{major}.{minor}.0"),
+    _ => base_version.to_string(),
+  };
+
+  if version != normalized {
+    debug!("Version normalized: '{}' -> '{}'", version, normalized);
+  }
+
+  normalized
+}
+
+/// Retrieves the installed Nix version as a string (cached).
+///
+/// This function parses the cached output from `nix --version` command.
+/// The command is only executed once per program run and shared with
+/// `get_nix_variant()` for optimal performance.
+/// This function does not perform any kind of validation; its sole purpose is
+/// to get the version. To validate a version string, use
+/// `normalize_version_string()`.
+///
+/// # Returns
+///
+/// * `Result<String>` - The Nix version string or an error if the version
+///   cannot be retrieved.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The `nix --version` command produces no output
+/// - The output contains no valid version string
+pub fn get_nix_version() -> Result<String> {
+  let output = get_nix_version_output();
+
+  let version_str = output
+    .as_ref()
+    .ok_or_else(|| eyre::eyre!("No output from nix --version command"))?
+    .lines()
+    .next()
+    .ok_or_else(|| eyre::eyre!("No version string found"))?;
+
+  Ok(version_str.to_string())
+}
+
+/// Prompts the user for ssh key login if needed.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The `ssh-add -L` command fails to execute
+/// - The `ssh-add` command fails to spawn or complete
+///
+/// # Note
+///
+/// This func is a no-op when no SSH agent socket is configured (which is
+/// unlikely but possible), i.e., when no `SSH_AUTH_SOCK` is set. This behaviour
+/// is valid, and SSH can authenticate via the keys in `~/.ssh` or via
+/// `~/.ssh/config` without an agent. NH should be able to handle the
+/// case without erroring.
+pub fn ensure_ssh_key_login() -> Result<()> {
+  // No usable agent socket means ssh-add has nothing to talk to.
+  let agent_available = std::env::var_os("SSH_AUTH_SOCK")
+    .is_some_and(|s| std::path::Path::new(&s).exists());
+  if !agent_available {
+    debug!("SSH agent socket not available, skipping ssh-add check");
+
+    return Ok(());
+  }
+
+  // ssh-add -L checks if there are any currently usable ssh keys
+  if StdCommand::new("ssh-add")
+    .arg("-L")
+    .stdout(Stdio::null())
+    .stderr(Stdio::null())
+    .status()?
+    .success()
+  {
+    return Ok(());
+  }
+
+  StdCommand::new("ssh-add")
+    .stdin(Stdio::inherit())
+    .stdout(Stdio::inherit())
+    .stderr(Stdio::inherit())
+    .spawn()?
+    .wait()?;
+
+  Ok(())
+}
+
+/// Gets the hostname of the current system
+///
+/// # Arguments
+///
+/// * `supplied_hostname` - An optional hostname provided by the user.
+///
+/// # Returns
+///
+/// * `Ok(String)` with the resolved hostname.
+/// * `Err` if no hostname is supplied and fetching the system hostname fails.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - No hostname is supplied and the system hostname cannot be retrieved
+/// - On macOS: the dynamic store hostname lookup fails
+pub fn get_hostname(supplied_hostname: Option<String>) -> Result<String> {
+  if let Some(h) = supplied_hostname {
+    return Ok(h);
+  }
+  #[cfg(not(target_os = "macos"))]
+  {
+    use color_eyre::eyre::Context;
+
+    nix::unistd::gethostname()
+      .context("Failed to get hostname, and no hostname supplied")?
+      .into_string()
+      .map_err(|_| eyre::eyre!("Hostname contains invalid UTF-8"))
+  }
+  #[cfg(target_os = "macos")]
+  {
+    use color_eyre::eyre::bail;
+    use system_configuration::{
+      core_foundation::{base::TCFType, string::CFString},
+      sys::dynamic_store_copy_specific::SCDynamicStoreCopyLocalHostName,
+    };
+
+    let ptr = unsafe { SCDynamicStoreCopyLocalHostName(std::ptr::null()) };
+    if ptr.is_null() {
+      bail!("Failed to get hostname, and no hostname supplied");
+    }
+    let name = unsafe { CFString::wrap_under_get_rule(ptr) };
+
+    Ok(name.to_string())
+  }
+}
+
+/// Decide whether `nix-output-monitor` (nom) should be used for a build.
+///
+/// `--no-nom` always wins. Otherwise `NH_NOM` forces the choice if set. With
+/// neither, nom is on only when stdout is a terminal. nom's live rendering is
+/// just noise once stdout is a pipe or file, which is the usual case in CI or
+/// under an agent.
+///
+/// `NH_NOM` accepts `1`/`true`/`yes`/`on` to force nom on and
+/// `0`/`false`/`no`/`off` to force it off.
+#[must_use]
+pub fn use_nom(no_nom: bool) -> bool {
+  use std::io::IsTerminal;
+
+  if no_nom {
+    return false;
+  }
+
+  match std::env::var("NH_NOM").ok().as_deref().map(str::trim) {
+    Some("1" | "true" | "yes" | "on") => return true,
+    Some("0" | "false" | "no" | "off") => return false,
+    _ => {},
+  }
+
+  std::io::stdout().is_terminal()
+}
+
+/// Retrieves all enabled experimental features in Nix (cached).
+///
+/// This function executes the `nix config show experimental-features` command
+/// once, caches the result, and returns a `HashSet` of the enabled features.
+/// Subsequent calls return the cached value for optimal performance.
+///
+/// # Returns
+///
+/// * `Result<HashSet<String>>` - A `HashSet` of enabled experimental features
+///   or an error.
+///
+/// # Errors
+///
+/// Returns an error if the `nix config show experimental-features` command
+/// fails to execute.
+pub fn get_nix_experimental_features() -> Result<HashSet<String>> {
+  // Try to get cached features first
+  if let Some(features) = NIX_EXPERIMENTAL_FEATURES.get() {
+    return Ok(features.clone());
+  }
+
+  // Not cached, fetch them
+  let output = capture_nix_stdout(
+    &NixCommand::new(CommandKind::Config)
+      .args(["show", "experimental-features"]),
+  )?;
+
+  let enabled_features: HashSet<String> =
+    output.split_whitespace().map(String::from).collect();
+
+  // Cache the result and return
+  let _ = NIX_EXPERIMENTAL_FEATURES.set(enabled_features.clone());
+  Ok(enabled_features)
+}
+
+/// Gets the missing experimental features from a required list.
+///
+/// # Arguments
+///
+/// * `required_features` - A slice of string slices representing the features
+///   required.
+///
+/// # Returns
+///
+/// * `Result<Vec<String>>` - A vector of missing experimental features or an
+///   error.
+///
+/// # Errors
+///
+/// Returns an error if retrieving the list of enabled experimental features
+/// fails.
+pub fn get_missing_experimental_features(
+  required_features: &[&str],
+) -> Result<Vec<String>> {
+  let enabled_features = get_nix_experimental_features()?;
+
+  let missing_features: Vec<String> = required_features
+    .iter()
+    .filter(|&feature| !enabled_features.contains(*feature))
+    .map(|&s| s.to_string())
+    .collect();
+
+  Ok(missing_features)
+}
+
+/// Self-elevates the current process by re-executing it with `sudo`
+///
+/// # Panics
+///
+/// Panics if the process re-execution with elevated privileges fails.
+///
+/// # Examples
+///
+/// ```rust
+/// use nh_core::command::ElevationStrategy;
+///
+/// // Elevate the current process to run as root
+/// let elevate: fn(ElevationStrategy) -> ! = nh_core::util::self_elevate;
+/// ```
+#[allow(clippy::panic, clippy::expect_used)]
+pub fn self_elevate(strategy: ElevationStrategy) -> ! {
+  let mut cmd = Command::self_elevate_cmd(strategy)
+    .expect("Failed to create self-elevation command");
+  debug!("{:?}", cmd);
+
+  let err = cmd.exec();
+  panic!("{err}");
+}
+
+/// Gets the available image variants for a non-flake installable.
+///
+/// This function uses nix-instantiate to evaluate the available image
+/// variants from a Nix expression or file, matching the behavior of
+/// nixos-rebuild's `get_build_image_variants` function.
+///
+/// # Arguments
+///
+/// * `installable` - The original installable to evaluate
+/// * `hostname` - The hostname to use for the configuration
+///
+/// # Returns
+///
+/// * `Result<Vec<String>>` - A vector of available image variant names
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The nix-instantiate command fails
+/// - The JSON output cannot be parsed
+/// - The installable does not have images attribute
+pub fn get_build_image_variants(
+  installable: &nh_installable::Installable,
+  hostname: &str,
+) -> Result<Vec<String>> {
+  get_build_image_variants_with_args(installable, hostname, [] as [&str; 0])
+}
+
+/// Gets image variants while applying legacy Nix evaluation arguments.
+///
+/// # Errors
+///
+/// Returns an error if evaluation fails or emits invalid JSON.
+pub fn get_build_image_variants_with_args(
+  installable: &nh_installable::Installable,
+  hostname: &str,
+  evaluation_args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
+) -> Result<Vec<String>> {
+  let expr = match installable {
+    nh_installable::Installable::File { path, .. } => {
+      format!(
+        r#"
+let
+  value = import "{}";
+  set = if builtins.isFunction value then value {{}} else value;
+  config = set.nixosConfigurations."{hostname}" or set;
+in
+  builtins.attrNames config.config.system.build.images
+        "#,
+        path.display(),
+      )
+    },
+    nh_installable::Installable::Expression { expression, .. } => {
+      format!(
+        r#"
+let
+  value = {expression};
+  set = if builtins.isFunction value then value {{}} else value;
+  config = set.nixosConfigurations."{hostname}" or set;
+in
+  builtins.attrNames config.config.system.build.images
+        "#
+      )
+    },
+    _ => {
+      return Err(eyre!(
+        "get_build_image_variants only supports file and expression \
+         installables"
+      ));
+    },
+  };
+
+  let result = capture_nix_stdout(
+    &NixCommand::nix_instantiate()
+      .args(evaluation_args)
+      .arg("--eval")
+      .arg("--strict")
+      .arg("--json")
+      .arg("--expr")
+      .arg(expr),
+  )?;
+
+  let variants: Vec<String> = serde_json::from_str(&result)
+    .wrap_err("Failed to parse image variants JSON")?;
+
+  Ok(variants)
+}
+
+/// Gets the available image variants for a flake installable.
+///
+/// This function uses nix eval to evaluate the available image
+/// variants from a flake.
+///
+/// # Arguments
+///
+/// * `installable` - The flake installable to evaluate
+///
+/// # Returns
+///
+/// * `Result<Vec<String>>` - A vector of available image variant names
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The nix eval command fails
+/// - The JSON output cannot be parsed
+/// - The flake installable does not have images attribute
+pub fn get_build_image_variants_flake(
+  installable: &nh_installable::Installable,
+) -> Result<Vec<String>> {
+  get_build_image_variants_flake_with_args(installable, [] as [&str; 0])
+}
+
+/// Gets flake image variants while applying Nix evaluation arguments.
+///
+/// # Errors
+///
+/// Returns an error if evaluation fails or emits invalid JSON.
+pub fn get_build_image_variants_flake_with_args(
+  installable: &nh_installable::Installable,
+  evaluation_args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
+) -> Result<Vec<String>> {
+  let result = capture_nix_stdout(
+    &NixCommand::new(CommandKind::Eval)
+      .args(evaluation_args)
+      .arg("--json")
+      .args(installable.to_args())
+      .arg("--apply")
+      .arg("builtins.attrNames"),
+  )?;
+
+  let variants: Vec<String> = serde_json::from_str(&result)
+    .wrap_err("Failed to parse image variants JSON")?;
+
+  Ok(variants)
+}
+
+#[cfg(test)]
+#[expect(clippy::expect_used, clippy::unwrap_used, reason = "Fine in tests")]
+mod tests {
+  use nh_installable::Installable;
+
+  use super::*;
+
+  #[test]
+  fn use_nom_respects_explicit_no_nom_flag() {
+    // `--no-nom` must always win, regardless of TTY state or `NH_NOM`.
+    assert!(!use_nom(true));
+  }
+
+  #[test]
+  fn test_get_build_image_variants_expression() {
+    let installable = Installable::Expression {
+      expression: r"
+{
+  nixosConfigurations.test = {
+    config.system.build.images = {
+      iso = {};
+      disk = {};
+      container = {};
+    };
+  };
+}
+      "
+      .to_string(),
+      attribute:  vec![],
+    };
+
+    let result = get_build_image_variants(&installable, "test");
+    assert!(result.is_ok());
+
+    let variants = result.unwrap();
+    assert_eq!(variants.len(), 3);
+    assert!(variants.contains(&"iso".to_string()));
+    assert!(variants.contains(&"disk".to_string()));
+    assert!(variants.contains(&"container".to_string()));
+  }
+
+  #[test]
+  fn test_get_build_image_variants_file() {
+    let test_file = tempfile::Builder::new()
+      .prefix("nh-test")
+      .tempfile()
+      .expect("Failed to create temp file");
+    let test_content = r#"
+{
+  nixosConfigurations.test = {
+    config.system.build.images = {
+      iso = "test-iso";
+      disk = "test-disk";
+      container = "test-container";
+    };
+  };
+}
+"#;
+
+    std::fs::write(&test_file, test_content)
+      .expect("Failed to write test file");
+
+    let installable = Installable::File {
+      path:      test_file.path().to_path_buf(),
+      attribute: vec![],
+    };
+
+    let result = get_build_image_variants(&installable, "test");
+    assert!(result.is_ok());
+
+    let variants = result.unwrap();
+    assert_eq!(variants.len(), 3);
+    assert!(variants.contains(&"iso".to_string()));
+    assert!(variants.contains(&"disk".to_string()));
+    assert!(variants.contains(&"container".to_string()));
+  }
+
+  #[test]
+  fn test_get_build_image_variants_flake() {
+    use std::fs;
+
+    let test_dir = tempfile::Builder::new()
+      .prefix("nh-test")
+      .tempdir()
+      .expect("Failed to create temp dir");
+
+    // Canonicalize to resolve symlinks
+    let canonical = test_dir
+      .path()
+      .canonicalize()
+      .expect("Failed to canonicalize temp dir");
+    let test_file = canonical.join("flake.nix");
+    let test_content = r"
+{
+  outputs = _: {
+    nixosConfigurations.test.config.system.build.images = {
+      iso = { };
+      disk = { };
+      container = { };
+    };
+  };
+}
+";
+    fs::write(&test_file, test_content).expect("Failed to write test file");
+
+    let installable = Installable::Flake {
+      reference: format!("path:{}", canonical.display()),
+      attribute: vec![
+        "nixosConfigurations".to_owned(),
+        "test".to_string(),
+        "config".to_string(),
+        "system".to_string(),
+        "build".to_string(),
+        "images".to_string(),
+      ],
+    };
+
+    let result = get_build_image_variants_flake(&installable);
+
+    assert!(result.is_ok());
+
+    let variants = result.unwrap();
+    assert_eq!(variants.len(), 3);
+    assert!(variants.contains(&"iso".to_string()));
+    assert!(variants.contains(&"disk".to_string()));
+    assert!(variants.contains(&"container".to_string()));
+  }
+}

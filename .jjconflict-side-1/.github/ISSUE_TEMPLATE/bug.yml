@@ -1,0 +1,82 @@
+---
+name: Bug Report
+description: Report a bug
+title: "<short description of the bug>"
+labels: ["bug (requires confirmation)"]
+
+body:
+  - type: checkboxes
+    attributes:
+      label: I have confirmed that this is a bug related to nh
+      description: >-
+        If you are unsure whether this is a bug, a packaging issue, or user error that is *not*
+        stemming from NH, please consider creating a [discussion](https://github.com/nix-community/nh/discussions)
+        post instead. Invalid bug reports will be closed without an explanation.
+      options:
+        - required: true
+          label: >-
+            This is a bug, and not an user error or a support request. I understand that my issue
+            will be closed if it is not a bug in NH.
+        - required: true
+          label: >-
+            I have checked the [issues tab](https://github.com/nix-community/nh/issues?q=is%3Aissue)
+            and confirmed that my issue has not yet been reported. I understand that my issue will
+            be closed if it is a duplicate.
+
+  - type: textarea
+    attributes:
+      label: Description
+      placeholder: Describe the issue here...
+      description: >-
+        Describe the issue in detail, with steps you have taken included. If applicable, please include
+        a minimal reproducible example, relevant Nix logs, comparisons with alternative commands and
+        screenshots. Do note that **logs** are preferred over screenshots.
+    validations:
+      required: true
+
+  - type: dropdown
+    attributes:
+      label: Installation Method
+      description: How was NH installed?
+      options:
+        - Stable Release (nixpkgs, `pkgs.nh` from nixos-unstable or nixos-yy-mm)
+        - Flakes (`nix profile add`) / Channels (`nix-env` from master branch or from a release)
+        - Other (Please specify)
+
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Installation Method (Other)
+      description: "If you have selected 'Other' in the previous section, please describe your installation method"
+      placeholder: >-
+        I installed nh from...
+
+    validations:
+      required: false
+
+  - type: textarea
+    attributes:
+      label: NH Version
+      description: "Which version of NH is currently in use? (`nh --version`)"
+      placeholder: >-
+        For example, v4.1.0.
+
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: System Information
+      description: "Output of `nix-info --markdown`"
+      placeholder: |-
+        - system:
+        - host os:
+        - multi-user?:
+        - sandbox:
+        - version:
+        - nixpkgs:
+
+    validations:
+      required: true

@@ -1,0 +1,197 @@
+name: Tag and release
+
+concurrency: tag
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        name: Checkout
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Read version
+        run: |
+          set -e
+          VERSION=$(nix run --inputs-from . nixpkgs#fq -- -r '.workspace.package.version' Cargo.toml)
+          if [ -z "$VERSION" ]; then
+            echo "Error: Failed to read version from Cargo.toml"
+            exit 1
+          fi
+          echo "nh_version=v$VERSION" >> "$GITHUB_ENV"
+          echo "Read version: $VERSION"
+
+      - name: Tag
+        env:
+          PUSH_TOKEN: ${{ secrets.PAT }}
+        run: |
+          set -e
+          if git rev-parse "$nh_version" >/dev/null 2>&1; then
+            echo "Tag $nh_version already exists, skipping"
+            exit 0
+          fi
+          git tag "$nh_version"
+          git push "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" --tags
+
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    if: startsWith(github.ref, 'refs/tags/')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: x86_64-linux
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - platform: aarch64-linux
+            runner: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+          - platform: aarch64-darwin
+            runner: macos-14
+            target: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        name: Checkout
+        with:
+          persist-credentials: false
+
+      - name: Install cross
+        if: matrix.platform == 'aarch64-linux'
+        run: cargo install cross
+
+      - name: Install Rust target
+        if: matrix.platform != 'aarch64-linux'
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Build
+        run: |
+          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
+            cross build --release --target ${{ matrix.target }}
+          else
+            cargo build --release --target ${{ matrix.target }}
+          fi
+
+      - name: Prepare binary
+        run: |
+          cp "target/${{ matrix.target }}/release/nh" "nh-${{ matrix.platform }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ matrix.platform }}
+          path: nh-${{ matrix.platform }}
+          retention-days: 1
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        name: Checkout
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if gh release view "$REF_NAME" >/dev/null 2>&1; then
+            echo "release_exists=true" >> "$GITHUB_ENV"
+          else
+            echo "release_exists=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Determine release type
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [[ "$REF_NAME" == *beta* ]]; then
+            echo "release_type=beta" >> "$GITHUB_ENV"
+          else
+            echo "release_type=stable" >> "$GITHUB_ENV"
+          fi
+
+      - name: Extract changelog (stable)
+        if: env.release_exists == 'false' && env.release_type == 'stable'
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -e
+          VERSION="${REF_NAME#v}"
+
+          awk -v version="## $VERSION" '
+            index($0, version) == 1 { found=1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > changelog.txt
+
+          if [ -s changelog.txt ]; then
+            {
+              echo "CHANGELOG_CONTENT<<EOF"
+              cat changelog.txt
+              echo "EOF"
+            } >> "$GITHUB_ENV"
+          else
+            echo "CHANGELOG_CONTENT=No changelog available" >> "$GITHUB_ENV"
+          fi
+
+      - name: Extract changelog (beta)
+        if: env.release_exists == 'false' && env.release_type == 'beta'
+        run: |
+          set -e
+          LAST_TAG=$(git describe --tags --abbrev=0 HEAD^)
+          CHANGES=$(git log "$LAST_TAG"..HEAD --pretty=format:"- %s")
+          {
+            echo "CHANGELOG_CONTENT<<EOF"
+            echo "Changes since $LAST_TAG:"
+            echo ""
+            echo "$CHANGES"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
+      - name: Download artifacts
+        if: env.release_exists == 'false'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        if: env.release_exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF_NAME: ${{ github.ref_name }}
+          RELEASE_TYPE: ${{ env.release_type }}
+        run: |
+          release_flags=()
+          if [ "$RELEASE_TYPE" = "beta" ]; then
+            release_flags+=(--prerelease)
+          fi
+          gh release create "$REF_NAME" \
+            --title "$REF_NAME" \
+            --notes "$CHANGELOG_CONTENT" \
+            "${release_flags[@]}" \
+            artifacts/*

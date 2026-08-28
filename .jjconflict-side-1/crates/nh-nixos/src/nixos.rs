@@ -1,0 +1,1423 @@
+use std::{
+  convert::Into,
+  fs,
+  path::{Path, PathBuf},
+};
+
+use color_eyre::eyre::{Context, Result, bail, eyre};
+use nh_core::{
+  args::DiffType,
+  command::{self, Command, CommandKind, ElevationStrategy, NixCommand},
+  update::update_with_args,
+  util::{
+    ensure_ssh_key_login,
+    get_build_image_variants_flake_with_args,
+    get_build_image_variants_with_args,
+    get_hostname,
+  },
+};
+use nh_diff::{handle_nixos_diff, print_dix_diff};
+use nh_installable::{CommandContext, Installable};
+use nh_remote::{self, RemoteBuildConfig, RemoteHost};
+use tracing::{debug, info, warn};
+
+use crate::{
+  args::{
+    self,
+    OsBuildImageArgs,
+    OsBuildVmArgs,
+    OsGenerationsArgs,
+    OsRebuildActivateArgs,
+    OsRebuildArgs,
+    OsReplArgs,
+    OsRollbackArgs,
+    OsSubcommand::{self},
+  },
+  generations,
+};
+
+const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
+const CURRENT_PROFILE: &str = "/run/current-system";
+
+const SPEC_LOCATION: &str = "/etc/specialisation";
+
+/// Essential files that must exist in a valid NixOS system closure. Each tuple
+/// contains the file path relative to the system profile and its description.
+/// The descriptions are used on log messages or errors.
+const ESSENTIAL_FILES: &[(&str, &str)] = &[
+  ("bin/switch-to-configuration", "activation script"),
+  ("nixos-version", "system version identifier"),
+  ("init", "system init script"),
+  ("sw/bin", "system path"),
+];
+
+impl args::OsArgs {
+  /// Executes the NixOS subcommand.
+  ///
+  /// # Parameters
+  ///
+  /// * `self` - The NixOS operation arguments
+  /// * `elevation` - The privilege elevation strategy (sudo/doas/none)
+  ///
+  /// # Returns
+  ///
+  /// Returns `Ok(())` if the operation succeeds.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if:
+  ///
+  /// - Build or activation operations fail
+  /// - Remote operations encounter network or SSH issues
+  /// - Nix evaluation or building fails
+  /// - File system operations fail
+  pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
+    use OsRebuildVariant::{Boot, Build, Switch, Test};
+    match self.subcommand {
+      OsSubcommand::Boot(args) => {
+        args.rebuild_and_activate(&Boot, None, elevation)
+      },
+      OsSubcommand::Test(args) => {
+        args.rebuild_and_activate(&Test, None, elevation)
+      },
+      OsSubcommand::Switch(args) => {
+        args.rebuild_and_activate(&Switch, None, elevation)
+      },
+      OsSubcommand::Build(args) => {
+        if args.common.ask || args.common.dry {
+          warn!("`--ask` and `--dry` have no effect for `nh os build`");
+        }
+        args.build_only(&Build, None, &elevation)
+      },
+      OsSubcommand::BuildVm(args) => args.build_vm(&elevation),
+      OsSubcommand::Repl(args) => args.run(),
+      OsSubcommand::Info(args) => args.info(),
+      OsSubcommand::Rollback(args) => args.rollback(elevation),
+      OsSubcommand::BuildImage(args) => args.build_image(&elevation),
+    }
+  }
+}
+
+#[derive(Debug)]
+enum OsRebuildVariant {
+  Build,
+  Switch,
+  Boot,
+  Test,
+  BuildVm,
+  BuildIso,
+}
+
+impl OsBuildVmArgs {
+  fn build_vm(self, elevation: &ElevationStrategy) -> Result<()> {
+    let attr = if self.with_bootloader {
+      "vmWithBootLoader"
+    } else {
+      "vm"
+    };
+    let out_path = self
+      .common
+      .common
+      .out_link
+      .clone()
+      .unwrap_or_else(|| PathBuf::from("result"));
+
+    debug!("Building VM with attribute: {}", attr);
+
+    // Show warning if no hostname was explicitly provided for VM builds
+    if self.common.hostname.is_none() {
+      let (_, target_hostname) = self.common.setup_build_context(elevation)?;
+      tracing::warn!(
+        "Guessing system is {target_hostname} for a VM image. If this isn't \
+         intended, use --hostname to change."
+      );
+    }
+
+    self.common.build_only(
+      &OsRebuildVariant::BuildVm,
+      Some(&[attr]),
+      elevation,
+    )?;
+
+    // If --run flag is set, execute the VM
+    if self.run {
+      run_vm(&out_path)?;
+    }
+
+    Ok(())
+  }
+}
+
+impl OsRebuildActivateArgs {
+  // final_attr is the attribute of config.system.build.X to evaluate.
+  fn rebuild_and_activate(
+    self,
+    variant: &OsRebuildVariant,
+    final_attrs: Option<&[&str]>,
+    elevation: ElevationStrategy,
+  ) -> Result<()> {
+    use OsRebuildVariant::{Build, BuildVm};
+
+    let (local_elevate, target_hostname) =
+      self.rebuild.setup_build_context(&elevation)?;
+
+    let (out_path, _tempdir_guard) =
+      self.rebuild.determine_output_path(variant)?;
+
+    let toplevel = self
+      .rebuild
+      .resolve_installable_and_toplevel(&target_hostname, final_attrs)?;
+
+    if self.rebuild.update_args.update_all
+      || self.rebuild.update_args.update_input.is_some()
+    {
+      update_with_args(
+        &toplevel,
+        self.rebuild.update_args.update_input.clone(),
+        &self.rebuild.common.passthrough,
+      )?;
+    }
+
+    let message = match variant {
+      BuildVm => "Building NixOS VM image",
+      _ => "Building NixOS configuration",
+    };
+
+    // Initialize SSH control early if we have remote hosts - guard will keep
+    // connections alive for both build and activation
+    let _ssh_guard = if self.rebuild.build_host.is_some()
+      || self.rebuild.target_host.is_some()
+    {
+      let guard = nh_remote::init_ssh_control();
+
+      // Pre-establish ControlMaster connections so that delegated SSH
+      // invocations (e.g. `nix copy --to ssh://...`) reuse the already-
+      // authenticated socket rather than opening a fresh connection where
+      // SSH option ordering may differ.
+      if let Some(build_host) = &self.rebuild.build_host {
+        nh_remote::open_ssh_control_master(build_host)
+          .context("Failed to establish SSH connection to build host")?;
+      }
+
+      if let Some(target_host) = &self.rebuild.target_host {
+        nh_remote::open_ssh_control_master(target_host)
+          .context("Failed to establish SSH connection to target host")?;
+      }
+
+      Some(guard)
+    } else {
+      None
+    };
+
+    // Now that the ControlMaster is up, probe the remote uid for elevation.
+    let elevate = if self.rebuild.target_host.is_some() {
+      self.rebuild.determine_remote_elevation(&elevation)?
+    } else {
+      local_elevate
+    };
+
+    let actual_store_path =
+      self.rebuild.execute_build(toplevel, &out_path, message)?;
+
+    let target_profile =
+      self.rebuild.resolve_specialisation_and_profile(&out_path)?;
+
+    handle_nixos_diff(
+      &self.rebuild.common.diff,
+      self.rebuild.target_host.as_ref(),
+      &target_profile,
+      actual_store_path.as_deref(),
+      &out_path,
+    )?;
+
+    if self.rebuild.common.dry || matches!(variant, Build | BuildVm) {
+      if self.rebuild.common.ask {
+        warn!("--ask has no effect as dry run was requested");
+      }
+
+      // For VM builds, print instructions on how to run the VM
+      if matches!(variant, BuildVm) && !self.rebuild.common.dry {
+        print_vm_instructions(&out_path);
+      }
+
+      return Ok(());
+    }
+
+    self.activate_rebuilt_config(
+      variant,
+      &out_path,
+      &target_profile,
+      actual_store_path.as_deref(),
+      elevate,
+      elevation,
+    )?;
+
+    Ok(())
+  }
+
+  fn activate_rebuilt_config(
+    &self,
+    variant: &OsRebuildVariant,
+    out_path: &Path,
+    target_profile: &Path,
+    actual_store_path: Option<&Path>,
+    elevate: bool,
+    elevation: ElevationStrategy,
+  ) -> Result<()> {
+    use OsRebuildVariant::{Boot, Switch, Test};
+
+    if self.rebuild.common.ask {
+      let confirmation = inquire::Confirm::new("Apply the config?")
+        .with_default(false)
+        .prompt()?;
+
+      if !confirmation {
+        bail!("User rejected the new config");
+      }
+    }
+
+    if let Some(target_host) = &self.rebuild.target_host {
+      // Only copy if the output path exists locally (i.e., was copied back from
+      // remote build)
+      if out_path.exists() {
+        nh_remote::copy_to_remote_with_args(
+          target_host,
+          target_profile,
+          self.rebuild.common.passthrough.use_substitutes
+            && !self.rebuild.common.passthrough.network_restricted(),
+          &self.rebuild.common.passthrough.generate_evaluation_args(),
+        )
+        .context("Failed to copy configuration to target host")?;
+      }
+    }
+
+    // Validate system closure before activation, unless bypassed. For remote
+    // builds, use the actual store path returned from the build. For local
+    // builds, canonicalize the target_profile.
+    let is_remote_build = self.rebuild.target_host.is_some();
+    let resolved_profile: PathBuf = if let Some(store_path) = actual_store_path
+    {
+      // Remote build - use the actual store path from the build output
+      store_path.to_path_buf()
+    } else if is_remote_build && !out_path.exists() {
+      // Remote build with no local result and no store path captured
+      // (shouldn't happen, but fallback)
+      target_profile.to_path_buf()
+    } else {
+      // Local build - canonicalize the symlink to get the store path
+      target_profile
+        .canonicalize()
+        .context("Failed to resolve output path to actual store path")?
+    };
+
+    let should_skip = self.rebuild.no_validate;
+
+    if should_skip {
+      warn!(
+        "Skipping pre-activation validation (--no-validate or NH_NO_VALIDATE \
+         set)"
+      );
+      warn!(
+        "This may result in activation failures if the system closure is \
+         incomplete"
+      );
+    } else if let Some(target_host) = &self.rebuild.target_host {
+      // For remote activation, validate on the remote host using the resolved
+      // store path
+      validate_system_closure_remote(
+        &resolved_profile,
+        target_host,
+        self.rebuild.build_host.as_ref(),
+      )?;
+    } else {
+      // For local activation, validate locally
+      validate_system_closure(&resolved_profile)?;
+    }
+
+    // Resolve switch-to-configuration path for activation commands. For
+    // remote-only builds where out_path doesn't exist locally, skip this
+    // since we'll execute these commands via SSH on the remote host
+    let switch_to_configuration_path =
+      resolved_profile.join("bin").join("switch-to-configuration");
+
+    let switch_to_configuration = if is_remote_build && !out_path.exists() {
+      // Remote build with no local result. Use uncanonicalized path for SSH
+      switch_to_configuration_path
+    } else {
+      switch_to_configuration_path
+        .canonicalize()
+        .context("Failed to resolve switch-to-configuration path")?
+    };
+
+    let canonical_out_path =
+      switch_to_configuration.to_str().ok_or_else(|| {
+        eyre!("switch-to-configuration path contains invalid UTF-8")
+      })?;
+
+    if let Test | Switch = variant {
+      if let Some(target_host) = &self.rebuild.target_host {
+        let activation_type = match variant {
+          Test => nh_remote::ActivationType::Test,
+          Switch => nh_remote::ActivationType::Switch,
+          #[allow(clippy::unreachable, reason = "Should never happen.")]
+          _ => unreachable!(),
+        };
+
+        nh_remote::activate_remote_with_build_args(
+          target_host,
+          &resolved_profile,
+          &nh_remote::ActivateRemoteConfig {
+            platform: nh_remote::Platform::NixOS,
+            activation_type,
+            install_bootloader: false,
+            show_logs: self.show_activation_logs,
+            elevation: elevate.then_some(elevation.clone()),
+          },
+          &self.rebuild.common.passthrough.generate_passthrough_args(),
+        )
+        .wrap_err(format!(
+          "Activation ({}) failed",
+          activation_type.as_str()
+        ))?;
+      } else {
+        Command::new(canonical_out_path)
+          .arg("test")
+          .message("Activating configuration")
+          .elevate(elevate.then_some(elevation.clone()))
+          .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
+          .with_required_env()
+          .show_output(self.show_activation_logs)
+          .run()
+          .wrap_err("Activation (test) failed")?;
+      }
+
+      if let Some(store_path) = actual_store_path {
+        debug!(
+          "Completed {variant:?} operation with store path: {store_path:?}"
+        );
+      } else {
+        debug!(
+          "Completed {variant:?} operation with local output path: \
+           {out_path:?}"
+        );
+      }
+    }
+
+    if let Boot | Switch = variant {
+      if let Some(target_host) = &self.rebuild.target_host {
+        nh_remote::activate_remote_with_build_args(
+          target_host,
+          &resolved_profile,
+          &nh_remote::ActivateRemoteConfig {
+            platform:           nh_remote::Platform::NixOS,
+            activation_type:    nh_remote::ActivationType::Boot,
+            install_bootloader: self.rebuild.install_bootloader,
+            show_logs:          false,
+            elevation:          elevate.then_some(elevation),
+          },
+          &self.rebuild.common.passthrough.generate_passthrough_args(),
+        )
+        .wrap_err("Bootloader activation failed")?;
+      } else {
+        // Use the base system closure instead of the specialisation one.
+        // This is what makes all specialisations visible in the bootloader
+        // instead of only the generation with the specialisation.
+        let base_store_path = out_path
+          .canonicalize()
+          .context("Failed to resolve base output path to store path")?;
+
+        let (binary, args, _) = NixCommand::new(CommandKind::Build)
+          .print_build_logs(false)
+          .args(["--no-link", "--profile", SYSTEM_PROFILE])
+          .arg(&base_store_path)
+          .args(self.rebuild.common.passthrough.generate_passthrough_args())
+          .into_parts();
+        Command::new(binary)
+          .args(args)
+          .elevate(elevate.then_some(elevation.clone()))
+          .with_required_env()
+          .run()
+          .wrap_err("Failed to set system profile")?;
+
+        let mut cmd = Command::new(switch_to_configuration)
+          .arg("boot")
+          .elevate(elevate.then_some(elevation))
+          .message("Adding configuration to bootloader")
+          .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"]);
+
+        if self.rebuild.install_bootloader {
+          cmd = cmd.set_env("NIXOS_INSTALL_BOOTLOADER", "1");
+        }
+
+        cmd
+          .with_required_env()
+          .run()
+          .wrap_err("Bootloader activation failed")?;
+      }
+    }
+
+    if let Some(store_path) = actual_store_path {
+      debug!("Completed {variant:?} operation with store path: {store_path:?}");
+    } else {
+      debug!(
+        "Completed {variant:?} operation with local output path: {out_path:?}"
+      );
+    }
+    Ok(())
+  }
+}
+
+impl OsRebuildArgs {
+  /// Performs initial setup and gathers context for an OS rebuild operation.
+  ///
+  /// This includes:
+  /// - Ensuring SSH key login if a remote build/target host is involved.
+  /// - Determining elevation status for local activation; the remote case is
+  ///   handled by [`Self::determine_remote_elevation`] after the SSH
+  ///   `ControlMaster` is up.
+  /// - Performing updates to Nix inputs if specified.
+  /// - Resolving the target hostname for the build.
+  ///
+  /// # Returns
+  ///
+  /// `Result` containing a tuple:
+  ///
+  /// - `bool`: `true` if local elevation is required. When `target_host` is set
+  ///   this value is meaningless (returned as `false`), and the real answer is
+  ///   produced by [`Self::determine_remote_elevation`] once the SSH
+  ///   `ControlMaster` is up.
+  /// - `String`: The resolved target hostname.
+  fn setup_build_context(
+    &self,
+    elevation: &ElevationStrategy,
+  ) -> Result<(bool, String)> {
+    // Only check SSH key login if remote hosts are involved
+    if self.build_host.is_some() || self.target_host.is_some() {
+      ensure_ssh_key_login()?;
+    }
+
+    // We still call this for the local-root guard it performs, even though
+    // remote-target flows take their elevate answer from
+    // `determine_remote_elevation` later.
+    let local_elevate =
+      has_elevation_status(self.bypass_root_check, elevation)?;
+    let elevate = self.target_host.is_none() && local_elevate;
+
+    let target_hostname = get_hostname(
+      self
+        .hostname
+        .as_deref()
+        .or_else(|| self.target_host.as_ref().map(RemoteHost::hostname))
+        .map(ToOwned::to_owned),
+    )?;
+    Ok((elevate, target_hostname))
+  }
+
+  /// Probe the remote uid to decide whether activation needs elevation.
+  ///
+  /// This must be called after [`nh_remote::open_ssh_control_master`]
+  /// so the probe reuses the established connection.
+  ///
+  /// # Returns
+  ///
+  /// `false` when `target_host` is unset (caller should use
+  /// [`Self::setup_build_context`] or [`has_elevation_status`] for the
+  /// local case) or when the elevation strategy is [`None`].
+  fn determine_remote_elevation(
+    &self,
+    elevation: &ElevationStrategy,
+  ) -> Result<bool> {
+    let Some(target_host) = &self.target_host else {
+      return Ok(false);
+    };
+    if matches!(elevation, ElevationStrategy::None) {
+      return Ok(false);
+    }
+    let uid = nh_remote::probe_remote_uid(target_host)?;
+    Ok(uid != 0)
+  }
+
+  fn determine_output_path(
+    &self,
+    variant: &OsRebuildVariant,
+  ) -> Result<(PathBuf, Option<tempfile::TempDir>)> {
+    use OsRebuildVariant::{Build, BuildIso, BuildVm};
+    if let Some(p) = self.common.out_link.clone() {
+      Ok((p, None))
+    } else {
+      let (path, guard) = if matches!(variant, BuildVm | BuildIso | Build) {
+        (PathBuf::from("result"), None)
+      } else {
+        let dir = tempfile::Builder::new().prefix("nh-os").tempdir()?;
+        (dir.as_ref().join("result"), Some(dir))
+      };
+      Ok((path, guard))
+    }
+  }
+
+  fn resolve_installable_and_toplevel(
+    &self,
+    target_hostname: &str,
+    final_attrs: Option<&[&str]>,
+  ) -> Result<Installable> {
+    let installable = self
+      .common
+      .installable
+      .clone()
+      .resolve_or_default(CommandContext::Os)?;
+
+    toplevel_for(
+      target_hostname,
+      installable,
+      final_attrs.unwrap_or_else(|| &["toplevel"][..]),
+    )
+  }
+
+  fn execute_build(
+    &self,
+    toplevel: Installable,
+    out_path: &Path,
+    message: &str,
+  ) -> Result<Option<PathBuf>> {
+    // If a build host is specified, use proper remote build semantics:
+    //
+    // 1. Evaluate derivation locally
+    // 2. Copy derivation to build host (user-initiated SSH)
+    // 3. Build on remote host
+    // 4. Copy result back (to localhost or target_host)
+    if let Some(build_host) = self.build_host.clone() {
+      info!("{message}");
+      let config = RemoteBuildConfig {
+        build_host,
+        target_host: self.target_host.clone(),
+        use_rom: !self.common.no_rom,
+        use_substitutes: self.common.passthrough.use_substitutes
+          && !self.common.passthrough.network_restricted(),
+        execution_args: self
+          .extra_args
+          .iter()
+          .map(Into::into)
+          .chain(
+            self
+              .common
+              .passthrough
+              .generate_remote_build_args()
+              .into_iter()
+              .map(Into::into),
+          )
+          .collect(),
+      };
+
+      let actual_store_path = nh_remote::build_remote_with_args(
+        &toplevel,
+        &config,
+        Some(out_path),
+        &self.common.passthrough.generate_evaluation_args(),
+      )?;
+
+      Ok(Some(actual_store_path))
+    } else {
+      // Local build - use the existing path
+      command::Build::new(toplevel)
+        .extra_arg("--out-link")
+        .extra_arg(out_path)
+        .extra_args(&self.extra_args)
+        .passthrough(&self.common.passthrough)
+        .message(message)
+        .rom(!self.common.no_rom)
+        .run()
+        .wrap_err("Failed to build configuration")?;
+
+      Ok(None) // Local builds don't have separate store path
+    }
+  }
+
+  fn resolve_specialisation_and_profile(
+    &self,
+    out_path: &Path,
+  ) -> Result<PathBuf> {
+    let current_specialisation = std::fs::read_to_string(SPEC_LOCATION)
+      .ok()
+      .map(|s| s.trim().to_owned());
+
+    let target_specialisation = if self.no_specialisation {
+      None
+    } else {
+      self.specialisation.clone().or(current_specialisation)
+    };
+
+    debug!("Target specialisation: {target_specialisation:?}");
+
+    // Determine target profile, falling back to base if specialisation doesn't
+    // exist
+    let target_profile = match &target_specialisation {
+      None => out_path.to_path_buf(),
+      Some(spec) => {
+        let spec_path = out_path.join("specialisation").join(spec);
+
+        // For local builds, check if specialisation exists and fall back if not
+        if out_path.exists() && !spec_path.exists() {
+          bail!(
+            "Specialisation '{}' does not exist in the built configuration",
+            spec
+          );
+        }
+
+        spec_path
+      },
+    };
+
+    debug!("Output path: {out_path:?}");
+    debug!("Target profile path: {}", target_profile.display());
+
+    // Validate the final target profile exists if it's a local build
+    if out_path.exists() && !target_profile.exists() {
+      return Err(eyre!(
+        "Target profile path does not exist: {}",
+        target_profile.display()
+      ));
+    }
+
+    Ok(target_profile)
+  }
+
+  // final_attr is the attribute of config.system.build.X to evaluate.
+  // Used by Build and BuildVm subcommands which don't activate
+  fn build_only(
+    self,
+    variant: &OsRebuildVariant,
+    final_attrs: Option<&[&str]>,
+    elevation: &ElevationStrategy,
+  ) -> Result<()> {
+    use OsRebuildVariant::{Build, BuildIso, BuildVm};
+
+    let (_, target_hostname) = self.setup_build_context(elevation)?;
+
+    let (out_path, _tempdir_guard) = self.determine_output_path(variant)?;
+
+    let toplevel =
+      self.resolve_installable_and_toplevel(&target_hostname, final_attrs)?;
+
+    if self.update_args.update_all || self.update_args.update_input.is_some() {
+      update_with_args(
+        &toplevel,
+        self.update_args.update_input.clone(),
+        &self.common.passthrough,
+      )?;
+    }
+
+    let message = match variant {
+      BuildVm => "Building NixOS VM image",
+      BuildIso => {
+        &final_attrs.and_then(|attrs| attrs.last()).map_or_else(
+          || "Building NixOS image".to_string(),
+          |variant| format!("Building NixOS image ({variant})"),
+        )
+      },
+      _ => "Building NixOS configuration",
+    };
+
+    let actual_store_path = self.execute_build(toplevel, &out_path, message)?;
+
+    let target_profile = self.resolve_specialisation_and_profile(&out_path)?;
+
+    handle_nixos_diff(
+      &self.common.diff,
+      self.target_host.as_ref(),
+      &target_profile,
+      actual_store_path.as_deref(),
+      &out_path,
+    )?;
+
+    // Build, BuildVm and BuildIso subcommands never activate
+    debug_assert!(matches!(variant, Build | BuildVm | BuildIso));
+
+    Ok(())
+  }
+}
+
+impl OsRollbackArgs {
+  #[expect(clippy::too_many_lines)]
+  fn rollback(&self, elevation: ElevationStrategy) -> Result<()> {
+    let elevate = has_elevation_status(self.bypass_root_check, &elevation)?;
+
+    let generations = list_generations()?;
+
+    let current_generation = generations
+      .iter()
+      .find(|g| g.current)
+      .ok_or_else(|| eyre!("Current generation not found"))?;
+
+    // Find previous generation or specific generation
+    let target_generation = if let Some(gen_number) = self.to {
+      get_generation_by_number(gen_number, &generations)?
+    } else {
+      &find_previous_generation(current_generation.number, &generations)?
+    };
+
+    info!("Rolling back to generation {}", target_generation.number);
+
+    // Construct path to the generation
+    let profile_dir = Path::new(SYSTEM_PROFILE).parent().unwrap_or_else(|| {
+      tracing::warn!(
+        "SYSTEM_PROFILE has no parent, defaulting to /nix/var/nix/profiles"
+      );
+      Path::new("/nix/var/nix/profiles")
+    });
+    let generation_link =
+      profile_dir.join(format!("system-{}-link", target_generation.number));
+
+    // Handle specialisations
+    let current_specialisation = fs::read_to_string(SPEC_LOCATION)
+      .ok()
+      .map(|s| s.trim().to_owned());
+
+    let target_specialisation = if self.no_specialisation {
+      None
+    } else {
+      self.specialisation.clone().or(current_specialisation)
+    };
+
+    debug!("target_specialisation: {target_specialisation:?}");
+
+    // Compare changes between current and target generation
+    if matches!(self.diff, DiffType::Never) {
+      debug!(
+        "Not running dix as the target hostname is different from the system \
+         hostname."
+      );
+    } else {
+      debug!(
+        "Comparing with target profile: {}",
+        generation_link.display()
+      );
+      let _ = print_dix_diff(&PathBuf::from(CURRENT_PROFILE), &generation_link);
+    }
+
+    if self.dry {
+      info!(
+        "Dry run: would roll back to generation {}",
+        target_generation.number
+      );
+      return Ok(());
+    }
+
+    if self.ask {
+      let confirmation = inquire::Confirm::new(&format!(
+        "Roll back to generation {}?",
+        target_generation.number
+      ))
+      .with_default(false)
+      .prompt()?;
+
+      if !confirmation {
+        bail!("User rejected the rollback");
+      }
+    }
+
+    // Set the system profile
+    info!("Setting system profile...");
+
+    // Instead of direct symlink operations, use a command with proper elevation
+    Command::new("ln")
+            .arg("-sfn") // force, symbolic link
+            .arg(&generation_link)
+            .arg(SYSTEM_PROFILE)
+            .elevate(elevate.then_some(elevation.clone()))
+            .message("Setting system profile")
+            .with_required_env()
+            .run()
+            .wrap_err("Failed to set system profile during rollback")?;
+
+    // Determine the correct profile to use with specialisations
+    let final_profile = match &target_specialisation {
+      None => generation_link,
+      Some(spec) => {
+        let spec_path = generation_link.join("specialisation").join(spec);
+        if spec_path.exists() {
+          spec_path
+        } else {
+          warn!(
+            "Specialisation '{}' does not exist in generation {}",
+            spec, target_generation.number
+          );
+          warn!("Using base configuration without specialisations");
+          generation_link
+        }
+      },
+    };
+
+    // Activate the configuration
+    info!("Activating...");
+
+    let switch_to_configuration =
+      final_profile.join("bin").join("switch-to-configuration");
+
+    if !switch_to_configuration.exists() {
+      return Err(missing_switch_to_configuration_error());
+    }
+
+    match Command::new(&switch_to_configuration)
+      .arg("switch")
+      .elevate(elevate.then_some(elevation.clone()))
+      .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
+      .with_required_env()
+      .run()
+    {
+      Ok(()) => {
+        info!(
+          "Successfully rolled back to generation {}",
+          target_generation.number
+        );
+      },
+      Err(e) => {
+        // If activation fails, rollback the profile
+        if current_generation.number > 0 {
+          let current_gen_link = profile_dir
+            .join(format!("system-{}-link", current_generation.number));
+
+          Command::new("ln")
+                        .arg("-sfn") // Force, symbolic link
+                        .arg(&current_gen_link)
+                        .arg(SYSTEM_PROFILE)
+                        .elevate(elevate.then_some(elevation))
+                        .message("Rolling back system profile")
+                        .with_required_env()
+                        .run()
+                        .wrap_err("NixOS: Failed to restore previous system profile after failed activation")?;
+        }
+
+        return Err(eyre!("Activation (switch) failed: {}", e))
+          .context("Failed to activate configuration");
+      },
+    }
+
+    Ok(())
+  }
+}
+
+impl OsBuildImageArgs {
+  fn build_image(self, elevation: &ElevationStrategy) -> Result<()> {
+    let (_, target_hostname) = self.common.setup_build_context(elevation)?;
+
+    // Show warning if no hostname was explicitly provided for image builds
+    if self.common.hostname.is_none() {
+      tracing::warn!(
+        "Guessing system is {target_hostname} for an image ({}). If this \
+         isn't intended, use --hostname to change.",
+        self.image_variant
+      );
+    }
+
+    let installable = self
+      .common
+      .common
+      .installable
+      .clone()
+      .resolve_or_default(CommandContext::Os)?;
+
+    // Get the available image variants for validation
+    let valid_variants = match &installable {
+      Installable::Flake { .. } => {
+        let images_installable =
+          toplevel_for(&target_hostname, installable.clone(), &["images"])?;
+        get_build_image_variants_flake_with_args(
+          &images_installable,
+          self.common.common.passthrough.generate_evaluation_args(),
+        )?
+      },
+      Installable::File { .. } | Installable::Expression { .. } => {
+        get_build_image_variants_with_args(
+          &installable,
+          &target_hostname,
+          self
+            .common
+            .common
+            .passthrough
+            .generate_legacy_evaluation_args(),
+        )?
+      },
+      Installable::Store { .. } => {
+        bail!("Unsupported installable type for image building")
+      },
+    };
+
+    // Validate that the requested variant exists
+    if !valid_variants.contains(&self.image_variant) {
+      bail!(
+        "Invalid image variant '{}'. Available variants:\n- {}",
+        self.image_variant,
+        valid_variants.join("\n- ")
+      );
+    }
+
+    let attrs = ["images", &self.image_variant];
+
+    self.common.build_only(
+      &OsRebuildVariant::BuildIso,
+      Some(&attrs),
+      elevation,
+    )?;
+
+    Ok(())
+  }
+}
+
+/// Finds the VM runner script in the given build output directory.
+///
+/// Searches for a file matching `run-*-vm` in the `bin` subdirectory of
+/// `out_path`.
+///
+/// # Arguments
+///
+/// * `out_path` - The path to the build output directory (usually `result`).
+///
+/// # Returns
+///
+/// * `Ok(PathBuf)` with the path to the VM runner script if found.
+/// * `Err` if the script cannot be found or the bin directory is missing.
+///
+/// # Errors
+///
+/// Returns an error if the bin directory does not exist or if no matching
+/// script is found.
+fn find_vm_script(out_path: &Path) -> Result<PathBuf> {
+  let bin_dir = out_path.join("bin");
+
+  if !bin_dir.is_dir() {
+    bail!(
+      "VM build output missing bin directory at {}",
+      bin_dir.display()
+    );
+  }
+
+  let vm_script = fs::read_dir(&bin_dir)
+    .wrap_err_with(|| {
+      format!("Failed to read directory {}", bin_dir.display())
+    })?
+    .filter_map(|entry_result| {
+      match entry_result {
+        Ok(entry) => Some(entry),
+        Err(e) => {
+          warn!("Error reading entry in {}: {}", bin_dir.display(), e);
+          None
+        },
+      }
+    })
+    .find_map(|entry| {
+      let fname = entry.file_name();
+      if fname
+        .to_str()
+        .is_some_and(|name| name.starts_with("run-") && name.ends_with("-vm"))
+      {
+        Some(entry.path())
+      } else {
+        None
+      }
+    })
+    .ok_or_else(|| {
+      eyre!("Could not find VM runner script in {}", bin_dir.display())
+    })?;
+
+  Ok(vm_script)
+}
+
+/// Prints instructions for running the built VM to the user.
+///
+/// Attempts to locate the VM runner script in the build output directory and
+/// prints a message with the path to the script. If the script cannot be found,
+/// prints a warning and a generic path pattern.
+///
+/// # Arguments
+///
+/// * `out_path` - The path to the build output directory (usually `result`).
+///
+/// # Returns
+///
+/// * `Ok(())` on success.
+/// * `Err` if there is an error searching for the VM script.
+fn print_vm_instructions(out_path: &Path) {
+  match find_vm_script(out_path) {
+    Ok(script) => {
+      info!(
+        "Done. The virtual machine can be started by running {}",
+        script.display()
+      );
+    },
+    Err(e) => {
+      warn!("VM build completed, but could not find run script: {}", e);
+      info!(
+        "Done. The virtual machine script should be at {}/bin/run-*-vm",
+        out_path.display()
+      );
+    },
+  }
+}
+
+/// Runs the built NixOS VM by executing the VM runner script.
+///
+/// Locates the VM runner script in the build output directory and executes it,
+/// streaming its output to the user. Returns an error if the script cannot be
+/// found or if execution fails.
+///
+/// # Arguments
+///
+/// * `out_path` - The path to the build output directory (usually `result`).
+///
+/// # Returns
+///
+/// * `Ok(())` if the VM was started successfully.
+/// * `Err` if the script cannot be found or execution fails.
+fn run_vm(out_path: &Path) -> Result<()> {
+  let vm_script = find_vm_script(out_path)?;
+
+  info!(
+    "Running VM... Starting virtual machine with {}",
+    vm_script.display()
+  );
+
+  Command::new(&vm_script)
+    .message("Running VM")
+    .show_output(true)
+    .with_required_env()
+    .run()
+    .wrap_err_with(|| {
+      format!("Failed to run VM script at {}", vm_script.display())
+    })?;
+
+  Ok(())
+}
+
+/// Validates that essential files exist in the system closure.
+///
+/// Checks for a few critical files that must be present in a complete NixOS
+/// system. This is essentially in-line with what nixos-rebuild-ng checks for.
+///
+/// - bin/switch-to-configuration: activation script
+/// - nixos-version: system version identifier
+/// - init: system init script
+/// - sw/bin: system path binaries
+///
+/// # Returns
+///
+/// `Ok(())` if all files exist, or an error listing missing files.
+fn validate_system_closure(system_path: &Path) -> Result<()> {
+  let mut missing = Vec::new();
+  for (file, description) in ESSENTIAL_FILES {
+    let path = system_path.join(file);
+    if !path.exists() {
+      missing.push(format!("  - {file} ({description})"));
+    }
+  }
+
+  if !missing.is_empty() {
+    let missing_list = missing.join("\n");
+    return Err(eyre!(
+      "System closure validation failed. Missing essential files:\n{}\n\nThis \
+       typically happens when:\n1. 'system.switch.enable' is set to false in \
+       your configuration\n2. The build was incomplete or corrupted\n3. \
+       You're using an incomplete derivation\n\nTo fix this:\n1. Check if \
+       'system.switch.enable = false' is set and remove it\n2. Rebuild your \
+       system configuration\n3. If the problem persists, verify your system \
+       closure is complete\n\nSystem path checked: {}",
+      missing_list,
+      system_path.display()
+    ));
+  }
+
+  Ok(())
+}
+
+/// Validates essential files on a remote host via SSH.
+///
+/// Similar to [`validate_system_closure`] but executes checks on a remote host.
+fn validate_system_closure_remote(
+  system_path: &Path,
+  target_host: &RemoteHost,
+  build_host: Option<&RemoteHost>,
+) -> Result<()> {
+  // Build context string for error messages
+  let context = build_host.map(|build| {
+    if build.hostname() == target_host.hostname() {
+      "also build host".to_string()
+    } else {
+      format!("built on '{build}'")
+    }
+  });
+
+  // Delegate to the generic remote validation function
+  nh_remote::validate_closure_remote(
+    target_host,
+    system_path,
+    ESSENTIAL_FILES,
+    context.as_deref(),
+  )
+}
+
+/// Returns an error indicating that the 'switch-to-configuration' binary is
+/// missing, along with common reasons and solutions.
+fn missing_switch_to_configuration_error() -> color_eyre::eyre::Report {
+  eyre!(
+    "The 'switch-to-configuration' binary is missing from the built \
+     configuration.\n\nThis typically happens when 'system.switch.enable' is \
+     set to false in your\nNixOS configuration. To fix this, please \
+     either:\n1. Remove 'system.switch.enable = false' from your \
+     configuration, or\n2. Set 'system.switch.enable = true' explicitly\n\nIf \
+     the problem persists, please open an issue on our issue tracker!"
+  )
+}
+
+/// Checks if the current user is root and returns whether elevation is needed.
+///
+/// Returns `true` if elevation is required (not root and `bypass_root_check` is
+/// false). Returns `false` if elevation is not required (root or
+/// `bypass_root_check` is true).
+///
+/// # Arguments
+///
+/// * `bypass_root_check` - If true, bypasses the root check and assumes no
+///   elevation is needed.
+///
+/// # Errors
+///
+/// Returns an error if `bypass_root_check` is false and the user is root,
+/// as `nh os` subcommands should not be run directly as root.
+fn has_elevation_status(
+  bypass_root_check: bool,
+  elevation: &command::ElevationStrategy,
+) -> Result<bool> {
+  // If elevation strategy is None, never elevate
+  if matches!(elevation, command::ElevationStrategy::None) {
+    return Ok(false);
+  }
+
+  let is_root = nix::unistd::Uid::effective().is_root();
+
+  if is_root && !bypass_root_check {
+    bail!(
+      "Don't run nh os as root. It will escalate its privileges internally as \
+       needed."
+    );
+  }
+
+  if bypass_root_check {
+    warn!(
+      "Bypassing root check; running nix as {}",
+      if is_root { "root" } else { "non-root" }
+    );
+  }
+
+  Ok(!is_root)
+}
+
+fn find_previous_generation(
+  current_number: u64,
+  generations: &[generations::GenerationInfo],
+) -> Result<generations::GenerationInfo> {
+  let Some(current_idx) =
+    generations.iter().position(|g| g.number == current_number)
+  else {
+    bail!("Current generation not found");
+  };
+
+  if current_idx == 0 {
+    bail!("No generation older than the current one exists");
+  }
+
+  let previous_generation = generations[current_idx - 1].clone();
+
+  Ok(previous_generation)
+}
+
+fn get_generation_by_number(
+  number: u64,
+  generations: &[generations::GenerationInfo],
+) -> Result<&generations::GenerationInfo> {
+  generations
+    .iter()
+    .find(|g| g.number == number)
+    .ok_or_else(|| eyre!("Generation {} not found", number))
+}
+
+fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
+  let profile_path = PathBuf::from(SYSTEM_PROFILE);
+  let profiles_dir = profile_path
+    .parent()
+    .unwrap_or_else(|| Path::new("/nix/var/nix/profiles"));
+
+  let mut generations = Vec::new();
+  for entry in fs::read_dir(profiles_dir)? {
+    let entry = match entry {
+      Ok(e) => e,
+      Err(e) => {
+        warn!("Failed to read entry in profile directory: {}", e);
+        continue;
+      },
+    };
+
+    let path = entry.path();
+    if let Some(name) = path.file_name().and_then(|s| s.to_str())
+      && name.starts_with("system-")
+      && name.ends_with("-link")
+      && let Some(gen_info) = generations::describe(&path, None)
+    {
+      generations.push(gen_info);
+    }
+  }
+
+  if generations.is_empty() {
+    bail!("No generations found");
+  }
+
+  tracing::debug!("{} generations found", generations.len());
+
+  generations.sort_by_key(|g| g.number);
+
+  Ok(generations)
+}
+
+/// Resolve a NixOS installable to the requested system build attributes.
+///
+/// # Errors
+///
+/// Returns an error if the flake attribute path is too specific to infer the
+/// requested build attributes.
+pub fn toplevel_for<S: AsRef<str>>(
+  hostname: S,
+  installable: Installable,
+  final_attrs: &[&str],
+) -> Result<Installable> {
+  let mut res = installable;
+  let hostname_str = hostname.as_ref();
+
+  let toplevel = vec!["config", "system", "build"]
+    .into_iter()
+    .map(String::from)
+    .chain(final_attrs.iter().map(|&s| String::from(s)));
+
+  match res {
+    Installable::Flake {
+      ref mut attribute, ..
+    } => {
+      if attribute.is_empty() {
+        attribute.push(String::from("nixosConfigurations"));
+        attribute.push(hostname_str.to_owned());
+      } else if attribute.len() == 1 && attribute[0] == "nixosConfigurations" {
+        info!(
+          "Inferring hostname '{}' for nixosConfigurations",
+          hostname_str
+        );
+        attribute.push(hostname_str.to_owned());
+      } else if attribute[0] == "nixosConfigurations" {
+        if attribute.len() == 2 {
+          // nixosConfigurations.hostname - fine
+        } else if attribute.len() > 2 {
+          bail!(
+            "Attribute path is too specific: {}. Please either:\n  1. Use the \
+             flake reference without attributes (e.g., '.')\n  2. Specify \
+             only the configuration name (e.g., '.#{}')",
+            attribute.join("."),
+            attribute[1]
+          );
+        }
+      } else {
+        // User provided ".#myhost" - prepend nixosConfigurations
+        attribute.insert(0, String::from("nixosConfigurations"));
+      }
+      attribute.extend(toplevel);
+    },
+    Installable::File {
+      ref mut attribute, ..
+    }
+    | Installable::Expression {
+      ref mut attribute, ..
+    } => attribute.extend(toplevel),
+
+    Installable::Store { .. } => {},
+  }
+
+  Ok(res)
+}
+
+impl OsReplArgs {
+  fn run(self) -> Result<()> {
+    let mut target_installable =
+      self.installable.resolve_or_default(CommandContext::Os)?;
+
+    if matches!(target_installable, Installable::Store { .. }) {
+      bail!("Nix doesn't support nix store installables.");
+    }
+
+    let hostname = get_hostname(self.hostname)?;
+
+    if let Installable::Flake {
+      ref mut attribute, ..
+    } = target_installable
+      && attribute.is_empty()
+    {
+      attribute.push(String::from("nixosConfigurations"));
+      attribute.push(hostname);
+    }
+
+    let status = NixCommand::new(CommandKind::Repl)
+      .args(target_installable.to_args())
+      .with_required_env()
+      .run_with_logs()?;
+    if !status.success() {
+      bail!("nix repl failed (exit status {status:?})");
+    }
+
+    Ok(())
+  }
+}
+
+impl OsGenerationsArgs {
+  fn info(&self) -> Result<()> {
+    let profile = match self.profile {
+      Some(ref p) => PathBuf::from(p),
+      None => bail!("Profile path is required"),
+    };
+
+    if !profile.is_symlink() {
+      return Err(eyre!(
+        "No profile `{:?}` found",
+        profile.file_name().unwrap_or_default()
+      ));
+    }
+
+    let profile_dir = profile.parent().unwrap_or_else(|| Path::new("."));
+
+    let generations: Vec<_> = fs::read_dir(profile_dir)?
+      .filter_map(|entry| {
+        entry.ok().and_then(|e| {
+          let path = e.path();
+          if path
+            .file_name()?
+            .to_str()?
+            .starts_with(profile.file_name()?.to_str()?)
+          {
+            Some(path)
+          } else {
+            None
+          }
+        })
+      })
+      .collect();
+
+    let gen_dir_refs: Vec<&std::path::Path> =
+      generations.iter().map(PathBuf::as_path).collect();
+    let closure_sizes = generations::get_closure_sizes_batch(&gen_dir_refs);
+
+    let descriptions: Vec<generations::GenerationInfo> = generations
+      .iter()
+      .filter_map(|gen_dir| {
+        let size = closure_sizes.get(gen_dir).cloned();
+        generations::describe(gen_dir, size)
+      })
+      .collect();
+
+    generations::print_info(descriptions, self.fields.as_deref())?;
+
+    Ok(())
+  }
+}

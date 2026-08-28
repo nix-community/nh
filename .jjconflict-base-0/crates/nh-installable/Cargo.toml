@@ -1,0 +1,21 @@
+[package]
+name                   = "nh-installable"
+description            = "This is an internal component crate of nh"
+version.workspace      = true
+publish                = true
+edition.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+
+[dependencies]
+clap.workspace       = true
+color-eyre.workspace = true
+tracing.workspace    = true
+yansi.workspace      = true
+
+[dev-dependencies]
+serial_test.workspace = true
+tempfile.workspace    = true
+
+[lints]
+workspace = true

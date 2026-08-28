@@ -1,0 +1,11 @@
+[profile.default]
+# Run tests in parallel (default: number of CPUs)
+test-threads = "num-cpus"
+
+# Fail fast: stop after the first test failure (default: false)
+fail-fast = false
+
+# Show output for failed tests only
+status-level = "fail"
+
+retries = { backoff = "fixed", count = 2, delay = "1s" }

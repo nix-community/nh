@@ -1,0 +1,29 @@
+[package]
+name                   = "nh-clean"
+description            = "This is an internal component crate of nh"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+publish                = true
+
+[lib]
+path = "src/clean.rs"
+
+[dependencies]
+clap.workspace       = true
+color-eyre.workspace = true
+humantime.workspace  = true
+inquire.workspace    = true
+nh-core.workspace    = true
+nix.workspace        = true
+regex.workspace      = true
+tracing.workspace    = true
+walkdir.workspace    = true
+yansi.workspace      = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

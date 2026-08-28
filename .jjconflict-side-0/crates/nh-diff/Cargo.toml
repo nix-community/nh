@@ -1,0 +1,19 @@
+[package]
+name                   = "nh-diff"
+description            = "This is an internal component crate of nh"
+version.workspace      = true
+publish                = true
+edition.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+
+[dependencies]
+color-eyre.workspace = true
+dix.workspace        = true
+nh-core.workspace    = true
+nh-remote.workspace  = true
+tracing.workspace    = true
+yansi.workspace      = true
+
+[lints]
+workspace = true
