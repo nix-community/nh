@@ -25,6 +25,7 @@ use nh_core::{
     get_cached_password,
     get_sudo_opts,
   },
+  monitor,
   util::NixVariant,
 };
 use nh_installable::Installable;
@@ -1486,8 +1487,8 @@ pub struct RemoteBuildConfig {
   /// When set, copies directly from `build_host` to `target_host`.
   pub target_host: Option<RemoteHost>,
 
-  /// Whether to use nix-output-monitor for build output
-  pub use_nom: bool,
+  /// Whether to use ROM for build output
+  pub use_rom: bool,
 
   /// Whether to use substitutes when copying closures
   pub use_substitutes: bool,
@@ -1641,15 +1642,9 @@ fn build_on_remote(
   // Build command: nix build <drv>^* --print-out-paths [extra_args...]
   let drv_with_outputs = format!("{}^*", drv_path.display());
 
-  if config.use_nom {
-    // Check that nom is available before attempting to use it
-    which::which("nom")
-      .wrap_err("nom (nix-output-monitor) is required but not found in PATH")?;
-
-    // With nom: pipe through nix-output-monitor
-    build_on_remote_with_nom(host, &drv_with_outputs, config)
+  if config.use_rom {
+    build_on_remote_with_rom(host, &drv_with_outputs, config)
   } else {
-    // Without nom: simple remote execution
     build_on_remote_simple(host, &drv_with_outputs, config)
   }
 }
@@ -1692,7 +1687,7 @@ fn profile_nix_command(
   )
 }
 
-/// Build on remote without nom - just capture output.
+/// Build on remote without ROM - just capture output.
 fn build_on_remote_simple(
   host: &RemoteHost,
   drv_with_outputs: &str,
@@ -1785,8 +1780,8 @@ fn build_on_remote_simple(
   Ok(out_path)
 }
 
-/// Build on remote with nom - pipe through nix-output-monitor.
-fn build_on_remote_with_nom(
+/// Build on remote while presenting output through the ROM library.
+fn build_on_remote_with_rom(
   host: &RemoteHost,
   drv_with_outputs: &str,
   config: &RemoteBuildConfig,
@@ -1796,7 +1791,7 @@ fn build_on_remote_with_nom(
 
   let ssh_opts = get_ssh_opts();
 
-  // Build the remote command with JSON output for nom
+  // Build the remote command with internal-JSON output for ROM.
   let remote_args = build_nix_command(
     drv_with_outputs,
     &["--log-format", "internal-json", "--verbose"],
@@ -1823,71 +1818,42 @@ fn build_on_remote_with_nom(
     .stdout(Redirection::Pipe)
     .stderr(Redirection::Merge);
 
-  // Pipe through nom
-  let nom_cmd = Exec::cmd("nom").arg("--json");
-  let pipeline = (ssh_cmd | nom_cmd).stdout(Redirection::None);
-
-  debug!(?pipeline, "Running remote build with nom");
-
-  // Use popen() to get access to individual processes so we can check
-  // ssh's exit status, not nom's. The pipeline's join() only returns
-  // the exit status of the last command (nom), which always succeeds
-  // even when the remote nix command fails.
-  let job = pipeline.start().wrap_err("Remote build with nom failed")?;
+  debug!(?ssh_cmd, "Running remote build with ROM");
+  let mut job = ssh_cmd.start().wrap_err("Remote build with ROM failed")?;
+  let output = job
+    .stdout
+    .take()
+    .ok_or_else(|| eyre!("Failed to capture remote build output"))?;
+  let monitor_thread = std::thread::spawn(move || monitor::run(output));
 
   // Use wait_timeout in a polling loop to check interrupt flag every 100ms
   let poll_interval = Duration::from_millis(100);
 
-  for proc in &job.processes {
-    #[allow(
-      clippy::needless_continue,
-      reason = "Better for explicitness and consistency"
-    )]
-    loop {
-      // Check interrupt flag before waiting
-      if get_interrupt_flag().load(Ordering::Relaxed) {
-        debug!("Interrupt detected during build with nom");
-        // Kill remaining local processes. This will cause SSH to terminate
-        // the remote command automatically
-        for p in &job.processes {
-          let _ = p.kill();
-          let _ = p.wait(); // reap zombie
-        }
-
-        // Attempt remote cleanup if enabled
-        attempt_remote_cleanup(host, &remote_cmd);
-
-        bail!("Operation interrupted by user");
-      }
-
-      // Poll process with timeout
-      match proc.wait_timeout(poll_interval)? {
-        Some(_) => {
-          // Process has exited, exit status is automatically cached in the
-          // Process handle. Move to next process.
-          break;
-        },
-
-        None => {
-          // Timeout elapsed, process still running - loop continues
-          // and will check interrupt flag again
-          continue;
-        },
-      }
+  let exit_status = loop {
+    if get_interrupt_flag().load(Ordering::Relaxed) {
+      debug!("Interrupt detected during build with ROM");
+      let _ = job.kill();
+      let _ = job.wait();
+      attempt_remote_cleanup(host, &remote_cmd);
+      let _ = monitor_thread.join();
+      bail!("Operation interrupted by user");
     }
-  }
 
-  // Check the exit status of the FIRST process (ssh -> nix build)
-  // This is the one that matters. If the remote build fails, we should fail
-  // too
-  if let Some(ssh_proc) = job.processes.first() {
-    let exit_status = ssh_proc.wait()?;
-    if !exit_status.success() {
-      bail!("Remote build failed with exit status: {exit_status:?}");
+    if let Some(status) = job.wait_timeout(poll_interval)? {
+      break status;
     }
-  }
+  };
 
-  // nom consumed the output, so we need to query the output path separately
+  let monitor_result = monitor_thread
+    .join()
+    .map_err(|_| eyre!("ROM monitor thread panicked"))?;
+
+  if !exit_status.success() {
+    bail!("Remote build failed with exit status: {exit_status:?}");
+  }
+  monitor_result.wrap_err("ROM failed to monitor the remote build")?;
+
+  // ROM consumed the output, so query the output path separately.
   // Run nix build again with --print-out-paths (it will be a no-op since
   // already built)
   let query_args =

@@ -243,11 +243,9 @@ substituters.
 
 ## Build Output
 
-### nix-output-monitor
+### ROM
 
-By default, build output is shown directly. While the NH package is wrapped with
-nix-output-monitor, you will need `nix-output-monitor` available on the build
-host if you want NH to be able to use it.
+By default, build output is presented in-process by ROM. ROM runs locally even
+when the Nix build runs on a remote host.
 
-If `nix-output-monitor` creates issues for whatever reason, you may disable it
-with `--no-nom`.
+If ROM creates issues for whatever reason, you may disable it with `--no-rom`.
