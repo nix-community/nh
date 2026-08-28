@@ -88,20 +88,27 @@ fn store_uri(host: &RemoteHost) -> String {
 fn build_nix_copy_command<P: Into<OsString>>(
   direction: CopyDirection<'_>,
   path: P,
+  nix_args: &[String],
 ) -> Exec {
   NixCommand::new(CommandKind::Copy)
     .global_args(get_flake_flags())
     .args(direction.args())
     .arg(path.into())
+    .args(nix_args)
     .env("NIX_SSHOPTS", get_nix_sshopts_env())
     .to_exec()
 }
 
 /// Copy a Nix closure from a remote host to localhost.
-pub fn copy_closure_from(host: &RemoteHost, path: &str) -> Result<()> {
+pub fn copy_closure_from_with_args(
+  host: &RemoteHost,
+  path: &str,
+  nix_args: &[String],
+) -> Result<()> {
   info!("Copying result from build host '{host}'");
 
-  let cmd = build_nix_copy_command(CopyDirection::FromRemote(host), path);
+  let cmd =
+    build_nix_copy_command(CopyDirection::FromRemote(host), path, nix_args);
   debug!(?cmd, "nix copy --from");
 
   let (exit_status, _stdout, stderr) = exec_with_streaming(cmd, true)
@@ -241,12 +248,27 @@ pub fn copy_to_remote(
   path: &Path,
   use_substitutes: bool,
 ) -> Result<()> {
+  copy_to_remote_with_args(host, path, use_substitutes, &[])
+}
+
+/// Copy a closure while applying Nix arguments to the copy command.
+///
+/// # Errors
+///
+/// Returns an error if the copy command fails.
+pub fn copy_to_remote_with_args(
+  host: &RemoteHost,
+  path: &Path,
+  use_substitutes: bool,
+  nix_args: &[String],
+) -> Result<()> {
   let cmd = build_nix_copy_command(
     CopyDirection::ToRemote {
       host,
       use_substitutes,
     },
     path,
+    nix_args,
   );
   debug!(?cmd, "nix copy --to");
 
@@ -277,11 +299,12 @@ pub fn copy_to_remote(
 
 /// Copy a Nix closure from one remote host to another.
 /// Uses `nix copy --from <source-store-uri> --to <dest-store-uri>`.
-pub fn copy_closure_between_remotes(
+pub fn copy_closure_between_remotes_with_args(
   from_host: &RemoteHost,
   to_host: &RemoteHost,
   path: &str,
   use_substitutes: bool,
+  nix_args: &[String],
 ) -> Result<()> {
   info!("Copying closure from '{}' to '{}'", from_host, to_host);
 
@@ -292,6 +315,7 @@ pub fn copy_closure_between_remotes(
       use_substitutes,
     },
     path,
+    nix_args,
   );
   debug!(?cmd, "nix copy between remotes");
 

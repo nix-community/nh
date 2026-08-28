@@ -10,7 +10,7 @@ use color_eyre::{
 use nh_core::{
   args::DiffType,
   command::{Command, CommandKind, ElevationStrategy, NixCommand},
-  update::update,
+  update::update_with_args,
   util::get_hostname,
 };
 use nh_diff::print_dix_diff;
@@ -94,10 +94,10 @@ impl DarwinRebuildArgs {
       .resolve_or_default(CommandContext::Darwin)?;
 
     if self.update_args.update_all || self.update_args.update_input.is_some() {
-      update(
+      update_with_args(
         &installable,
         self.update_args.update_input,
-        self.common.passthrough.commit_lock_file,
+        &self.common.passthrough,
       )?;
     }
 
@@ -111,8 +111,9 @@ impl DarwinRebuildArgs {
         build_host,
         target_host: None,
         use_nom: !self.common.no_nom,
-        use_substitutes: self.common.passthrough.use_substitutes,
-        extra_args: self
+        use_substitutes: self.common.passthrough.use_substitutes
+          && !self.common.passthrough.network_restricted(),
+        execution_args: self
           .extra_args
           .iter()
           .map(Into::into)
@@ -120,7 +121,7 @@ impl DarwinRebuildArgs {
             self
               .common
               .passthrough
-              .generate_passthrough_args()
+              .generate_remote_build_args()
               .into_iter()
               .map(Into::into),
           )
@@ -130,8 +131,13 @@ impl DarwinRebuildArgs {
       // Initialize SSH control - guard will cleanup connections on drop
       let _ssh_guard = nh_remote::init_ssh_control();
 
-      nh_remote::build_remote(&toplevel, &config, Some(&out_path))
-        .wrap_err("Failed to build Darwin configuration")?;
+      nh_remote::build_remote_with_args(
+        &toplevel,
+        &config,
+        Some(&out_path),
+        &self.common.passthrough.generate_evaluation_args(),
+      )
+      .wrap_err("Failed to build Darwin configuration")?;
     } else {
       nh_core::command::Build::new(toplevel)
         .extra_arg("--out-link")
@@ -175,9 +181,14 @@ impl DarwinRebuildArgs {
     }
 
     if matches!(variant, Switch) {
-      Command::new("nix")
-        .args(["build", "--no-link", "--profile", SYSTEM_PROFILE])
+      let (binary, args, _) = NixCommand::new(CommandKind::Build)
+        .print_build_logs(false)
+        .args(["--no-link", "--profile", SYSTEM_PROFILE])
         .arg(&out_path)
+        .args(self.common.passthrough.generate_passthrough_args())
+        .into_parts();
+      Command::new(binary)
+        .args(args)
         .elevate(Some(elevation.clone()))
         .dry(self.common.dry)
         .with_required_env()
