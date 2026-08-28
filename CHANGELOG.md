@@ -16,6 +16,16 @@ functionality, under the "Removed" section.
 
 ## Unreleased
 
+### Added
+
+- `nh os switch`/`nh os boot` now accept `--continue-on-activation-failure`
+  (`NH_CONTINUE_ON_ACTIVATION_FAILURE`). During a switch, activation runs before
+  the new generation is added to the bootloader; a failed activation previously
+  aborted before the bootloader step, leaving nothing new to boot into. With
+  this flag set, nh warns and still adds the generation to the bootloader so it
+  is available on the next reboot. Without it, nh now emits an explicit warning
+  that the generation was not added to the bootloader.
+
 ### Fixed
 
 - `nh os`, `nh home`, and `nh darwin` now preserve applicable Nix passthrough
@@ -24,6 +34,12 @@ functionality, under the "Removed" section.
   restrictions such as `--offline` and `--no-net`, and flags such as
   `--recreate-lock-file` now affect the evaluation that selects the derivation
   ([#768](https://github.com/nix-community/nh/issues/768)).
+- `nh os switch`/`nh os boot` no longer fail at the bootloader step with "Failed
+  to resolve base output path to store path" when activation applies a mount
+  that shadows nh's temporary build directory (for example bind-mounting over
+  `/tmp`). nh now resolves the base store path before activation runs, while the
+  result symlink is still visible, instead of canonicalizing it afterwards
+  ([#659](https://github.com/nix-community/nh/issues/659)).
 
 ## 4.4.2
 

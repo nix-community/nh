@@ -310,6 +310,19 @@ impl OsRebuildActivateArgs {
         .context("Failed to resolve output path to actual store path")?
     };
 
+    // Resolve the base store path before activation. Activation can bind-mount
+    // over /tmp, shadowing our tempdir so out_path stops resolving afterwards.
+    // The bootloader step below reuses this.
+    let base_store_path: Option<PathBuf> = if out_path.exists() {
+      Some(
+        out_path
+          .canonicalize()
+          .context("Failed to resolve base output path to store path")?,
+      )
+    } else {
+      None
+    };
+
     let should_skip = self.rebuild.no_validate;
 
     if should_skip {
@@ -355,40 +368,62 @@ impl OsRebuildActivateArgs {
       })?;
 
     if let Test | Switch = variant {
-      if let Some(target_host) = &self.rebuild.target_host {
-        let activation_type = match variant {
-          Test => nh_remote::ActivationType::Test,
-          Switch => nh_remote::ActivationType::Switch,
-          #[allow(clippy::unreachable, reason = "Should never happen.")]
-          _ => unreachable!(),
-        };
+      let activation_result = self.rebuild.target_host.as_ref().map_or_else(
+        || {
+          Command::new(canonical_out_path)
+            .arg("test")
+            .message("Activating configuration")
+            .elevate(elevate.then_some(elevation.clone()))
+            .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
+            .with_required_env()
+            .show_output(self.show_activation_logs)
+            .run()
+            .wrap_err("Activation (test) failed")
+        },
+        |target_host| {
+          let activation_type = match variant {
+            Test => nh_remote::ActivationType::Test,
+            Switch => nh_remote::ActivationType::Switch,
+            #[allow(clippy::unreachable, reason = "Should never happen.")]
+            _ => unreachable!(),
+          };
 
-        nh_remote::activate_remote_with_build_args(
-          target_host,
-          &resolved_profile,
-          &nh_remote::ActivateRemoteConfig {
-            platform: nh_remote::Platform::NixOS,
-            activation_type,
-            install_bootloader: false,
-            show_logs: self.show_activation_logs,
-            elevation: elevate.then_some(elevation.clone()),
-          },
-          &self.rebuild.common.passthrough.generate_passthrough_args(),
-        )
-        .wrap_err(format!(
-          "Activation ({}) failed",
-          activation_type.as_str()
-        ))?;
-      } else {
-        Command::new(canonical_out_path)
-          .arg("test")
-          .message("Activating configuration")
-          .elevate(elevate.then_some(elevation.clone()))
-          .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
-          .with_required_env()
-          .show_output(self.show_activation_logs)
-          .run()
-          .wrap_err("Activation (test) failed")?;
+          nh_remote::activate_remote_with_build_args(
+            target_host,
+            &resolved_profile,
+            &nh_remote::ActivateRemoteConfig {
+              platform: nh_remote::Platform::NixOS,
+              activation_type,
+              install_bootloader: false,
+              show_logs: self.show_activation_logs,
+              elevation: elevate.then_some(elevation.clone()),
+            },
+            &self.rebuild.common.passthrough.generate_passthrough_args(),
+          )
+          .wrap_err(format!("Activation ({}) failed", activation_type.as_str()))
+        },
+      );
+
+      if let Err(e) = activation_result {
+        // On `switch`, activation runs before the bootloader step, so a failure
+        // here normally skips it and leaves nothing new to boot into. `test`
+        // has no bootloader step, so its failures are always fatal.
+        let is_switch = matches!(variant, Switch);
+        if is_switch && self.continue_on_activation_failure {
+          warn!("{e:?}");
+          warn!(
+            "Activation failed; adding the generation to the bootloader \
+             anyway (NH_CONTINUE_ON_ACTIVATION_FAILURE set)."
+          );
+        } else {
+          if is_switch {
+            warn!(
+              "Activation failed; the new generation will not be added to the \
+               bootloader. Pass --continue-on-activation-failure to override."
+            );
+          }
+          return Err(e);
+        }
       }
 
       if let Some(store_path) = actual_store_path {
@@ -419,12 +454,18 @@ impl OsRebuildActivateArgs {
         )
         .wrap_err("Bootloader activation failed")?;
       } else {
-        // Use the base system closure instead of the specialisation one.
-        // This is what makes all specialisations visible in the bootloader
-        // instead of only the generation with the specialisation.
-        let base_store_path = out_path
-          .canonicalize()
-          .context("Failed to resolve base output path to store path")?;
+        // Use the base system closure instead of the specialisation one. This
+        // is what makes all specialisations visible in the bootloader instead
+        // of only the generation with the specialisation. Resolved before
+        // activation; fall back only if it wasn't captured.
+        let base_store_path = base_store_path.map_or_else(
+          || {
+            out_path
+              .canonicalize()
+              .context("Failed to resolve base output path to store path")
+          },
+          Ok,
+        )?;
 
         let (binary, args, _) = NixCommand::new(CommandKind::Build)
           .print_build_logs(false)

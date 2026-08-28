@@ -183,6 +183,13 @@ pub struct OsRebuildActivateArgs {
   /// Show activation logs
   #[arg(long, env = "NH_SHOW_ACTIVATION_LOGS", value_parser = clap::builder::BoolishValueParser::new())]
   pub show_activation_logs: bool,
+
+  /// Add the generation to the bootloader even if activation fails
+  ///
+  /// During `switch`, activation runs before the bootloader step; by default a
+  /// failed activation aborts before it. This continues regardless.
+  #[arg(long, env = "NH_CONTINUE_ON_ACTIVATION_FAILURE", value_parser = clap::builder::BoolishValueParser::new())]
+  pub continue_on_activation_failure: bool,
 }
 
 impl OsRebuildArgs {
