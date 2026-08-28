@@ -295,7 +295,7 @@ Platform specific subcommands are those that implement CLI utilities for
 The `nh os` subcommand reimplements the Python script, `nixos-rebuild-ng`, [^1]
 from ground up _with the addition of_:
 
-- Build-tree displays via **nix-output-monitor** (nom).
+- Build-tree displays via **ROM**.
 - Pretty diffs of changes via **dix**
 - Confirmation
 
@@ -382,13 +382,6 @@ the common variables that you may encounter or choose to employ are as follows:
   - When set to a truthy value such as `1`, `true`, `yes`, or `on`, asks for
     confirmation before applying supported operations. Falsy values such as `0`,
     `false`, `no`, or `off` disable it. Equivalent to `--ask`.
-
-- `NH_NOM`
-  - Forces whether `nix-output-monitor` (nom) is used. Without it, nom runs only
-    when stdout is a terminal, and stays off when stdout is a pipe or file, such
-    as in CI or under an agent. Set to `1`, `true`, `yes`, or `on` to force nom
-    on, or `0`, `false`, `no`, or `off` to force it off. `--no-nom` still takes
-    precedence.
 
 - `NH_NO_CHECKS`
   - When set (any non-empty value), skips startup checks such as Nix version and
@@ -562,7 +555,7 @@ contributions are always welcome.
 [ViperML]: https://github.com/viperML
 [nvd]: https://sr.ht/~khumba/nvd/
 [dix]: https://github.com/faukah/dix
-[nix-output-monitor]: https://github.com/maralorn/nix-output-monitor
+[ROM]: https://github.com/manic-systems/rom
 [crates]: /Cargo.toml
 
 NH has had a long history, and it has grown a lot over the years. I, NotAShelf,
@@ -576,10 +569,7 @@ friend [faukah]. Compared to the previous diffing utility, [nvd], dix is more
 than twice as fast and has been a blessing to NH's diffing experience. Thank
 you!
 
-[nix-output-monitor], is also a very good utility worth a mention, which NH uses
-under the hood for the pretty tree of builds. A big shoutout to
-nix-output-monitor for providing many NH users such as myself with pretty build
-visuals.
+[ROM] provides NH's build tree and streaming build-log presentation.
 
 I also would like to extend my thanks to the many Rust [crates] that power NH
 under the hood and give it its signature UX. Without the beautiful Rust
