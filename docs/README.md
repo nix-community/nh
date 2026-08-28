@@ -425,6 +425,13 @@ the common variables that you may encounter or choose to employ are as follows:
     which is useful for debugging activation failures. Supported on all
     platforms (NixOS, Home Manager, and Darwin).
 
+- `NH_CONTINUE_ON_ACTIVATION_FAILURE`
+  - For `nh os switch`, activation runs before the new generation is added to
+    the bootloader. By default a failed activation aborts the switch, so the
+    generation is not added to the bootloader. Setting this to `"1"` (or passing
+    `--continue-on-activation-failure`) continues to the bootloader step
+    regardless, so the generation is still bootable on next reboot.
+
 - `NH_LOG`
   - Sets the tracing/log filter for NH. This uses the same format as
     `tracing_subscriber` env filters (for example: `nh=trace`).
