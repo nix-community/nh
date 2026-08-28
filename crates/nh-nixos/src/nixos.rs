@@ -13,7 +13,7 @@ use nh_core::{
     get_build_image_variants_flake_with_args,
     get_build_image_variants_with_args,
     get_hostname,
-    use_nom,
+    use_rom,
   },
 };
 use nh_diff::{handle_nixos_diff, print_dix_diff};
@@ -605,7 +605,7 @@ impl OsRebuildArgs {
       .extra_args(&self.extra_args)
       .passthrough(&self.common.passthrough)
       .message(message)
-      .nom(use_nom(self.common.no_nom));
+      .rom(use_rom(self.common.no_rom, self.common.no_nom));
 
     nh_remote::build(
       build,

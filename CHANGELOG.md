@@ -71,6 +71,14 @@ spellings like `on`, `y` or `TRUE` are rejected.
   localhost when the build host can copy it to the target directly. The result
   is copied straight to the host that activates it, before the diff and `--ask`,
   and a local out-link is only created when it reaches the local store.
+- Build progress is now shown by rom, which runs inside nh, instead of
+  nix-output-monitor (`nom`), so nh no longer needs `nom` at runtime. `--no-nom`
+  and `NH_NOM` are replaced by `--no-rom` and `NH_ROM`, which behave the same.
+  `--no-nom` and `NH_NOM` still work as deprecated aliases that print a warning,
+  and will be removed in 5.0. Unlike other boolean environment variables,
+  `NH_ROM` also accepts `on` and `off`, as `NH_NOM` did. rom honours `NO_COLOR`
+  and `TERM=dumb`, and `NH_ROM_LOG=<file>` records the build log stream so it
+  can be replayed through rom.
 
 ### Fixed
 

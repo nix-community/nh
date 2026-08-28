@@ -97,7 +97,7 @@ jobs:
 
       - name: Test Switching to NixOS Configuration
         run: |
-          nix run .#nh -- os switch --diff never --dry --no-nom --verbose --file ./test/nixos.nix
+          nix run .#nh -- os switch --diff never --dry --no-rom --verbose --file ./test/nixos.nix
 
   test-darwin:
     name: Test NH on Darwin
@@ -125,7 +125,7 @@ jobs:
           nix flake init -t nix-darwin
           git add flake.nix
           cd ..
-          nix run .#nh -- darwin switch --diff never --hostname simple --dry --no-nom --verbose ./flake
+          nix run .#nh -- darwin switch --diff never --hostname simple --dry --no-rom --verbose ./flake
 
   required-checks-passed:
     name: All required jobs passed

@@ -18,7 +18,6 @@ mkShell {
     yaml-language-server
     cargo-nextest
     just
-    nix-output-monitor
 
     # Markdown formatting
     deno
@@ -29,7 +28,7 @@ mkShell {
   ];
 
   env = {
-    NH_NOM = "1";
+    NH_ROM = "1";
     NH_LOG = "nh=trace";
     RUST_SRC_PATH = "${rustPlatform.rustLibSrc}";
   };

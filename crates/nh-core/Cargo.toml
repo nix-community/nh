@@ -17,6 +17,7 @@ nix.workspace            = true
 nix-command.workspace    = true
 pound.workspace          = true
 regex.workspace          = true
+rom.workspace            = true
 secrecy.workspace        = true
 semver.workspace         = true
 serde.workspace          = true

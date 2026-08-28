@@ -303,8 +303,12 @@ pub struct CommonRebuildArgs {
   #[pound(flatten)]
   pub installable: InstallableArgs,
 
-  /// Don't use nix-output-monitor for the build process
+  /// Don't use rom for the build process
   #[pound(long)]
+  pub no_rom: bool,
+
+  /// Deprecated alias for `--no-rom`
+  #[pound(long, hidden)]
   pub no_nom: bool,
 
   /// Path to save the result link, defaults to using a temporary directory
