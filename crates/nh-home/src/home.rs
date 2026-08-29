@@ -9,7 +9,7 @@ use color_eyre::{
 };
 use nh_core::{
   command::{self, Command, CommandKind, NixCommand},
-  update::update,
+  update::update_with_args,
   util::get_hostname,
 };
 use nh_diff::print_dix_diff;
@@ -96,19 +96,20 @@ impl HomeRebuildArgs {
       .resolve_or_default(CommandContext::Home)?;
 
     if self.update_args.update_all || self.update_args.update_input.is_some() {
-      update(
+      update_with_args(
         &installable,
         self.update_args.update_input,
-        self.common.passthrough.commit_lock_file,
+        &self.common.passthrough,
       )?;
     }
 
-    let toplevel = toplevel_for(
-      installable,
-      true,
-      &self.extra_args,
-      self.configuration.clone(),
-    )?;
+    let eval_args = self
+      .extra_args
+      .iter()
+      .cloned()
+      .chain(self.common.passthrough.generate_evaluation_args());
+    let toplevel =
+      toplevel_for(installable, true, eval_args, self.configuration.clone())?;
 
     // If a build host is specified, use remote build semantics
     if let Some(build_host) = self.build_host {
@@ -118,8 +119,9 @@ impl HomeRebuildArgs {
         build_host,
         target_host: None,
         use_nom: !self.common.no_nom,
-        use_substitutes: self.common.passthrough.use_substitutes,
-        extra_args: self
+        use_substitutes: self.common.passthrough.use_substitutes
+          && !self.common.passthrough.network_restricted(),
+        execution_args: self
           .extra_args
           .iter()
           .map(Into::into)
@@ -127,7 +129,7 @@ impl HomeRebuildArgs {
             self
               .common
               .passthrough
-              .generate_passthrough_args()
+              .generate_remote_build_args()
               .into_iter()
               .map(Into::into),
           )
@@ -137,8 +139,13 @@ impl HomeRebuildArgs {
       // Initialize SSH control - guard will cleanup connections on drop
       let _ssh_guard = nh_remote::init_ssh_control();
 
-      nh_remote::build_remote(&toplevel, &config, Some(&out_path))
-        .wrap_err("Failed to build Home-Manager configuration")?;
+      nh_remote::build_remote_with_args(
+        &toplevel,
+        &config,
+        Some(&out_path),
+        &self.common.passthrough.generate_evaluation_args(),
+      )
+      .wrap_err("Failed to build Home-Manager configuration")?;
     } else {
       command::Build::new(toplevel)
         .extra_arg("--out-link")
