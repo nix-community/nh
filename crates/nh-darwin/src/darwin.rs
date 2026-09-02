@@ -14,7 +14,12 @@ use nh_core::{
   util::{get_hostname, use_nom},
 };
 use nh_diff::print_dix_diff;
-use nh_installable::{CommandContext, Installable};
+use nh_installable::{
+  CommandContext,
+  ConfigurationInstallable,
+  ConfigurationLayout,
+  Installable,
+};
 use nh_remote::{self, RemoteBuildConfig};
 use tracing::{debug, info, warn};
 
@@ -236,17 +241,17 @@ impl DarwinReplArgs {
 
     let hostname = get_hostname(self.hostname)?;
 
-    if let Installable::Flake {
-      ref mut attribute, ..
-    } = target_installable
-      && attribute.is_empty()
-    {
-      attribute.push(String::from("darwinConfigurations"));
-      attribute.push(hostname);
-    }
+    // Enter the repl at the configuration itself, without a build attribute.
+    target_installable.resolve_configuration(
+      ConfigurationLayout {
+        set:        "darwinConfigurations",
+        build_attr: &[],
+      },
+      Some(&hostname),
+    )?;
 
     let status = NixCommand::new(CommandKind::Repl)
-      .args(target_installable.to_args())
+      .args(target_installable.to_args()?)
       .with_required_env()
       .run_with_logs()?;
     if !status.success() {
@@ -268,61 +273,18 @@ pub fn toplevel_for<S: AsRef<str>>(
   installable: Installable,
   final_attr: &str,
 ) -> Result<Installable> {
-  let mut res = installable;
-  let hostname_str = hostname.as_ref();
-
-  let toplevel = ["config", "system", "build", final_attr]
-    .into_iter()
-    .map(String::from);
-
-  match res {
-    Installable::Flake {
-      ref mut attribute, ..
-    } => {
-      if attribute.is_empty() {
-        attribute.push(String::from("darwinConfigurations"));
-        attribute.push(hostname_str.to_owned());
-      } else if attribute.len() == 1 && attribute[0] == "darwinConfigurations" {
-        info!("Inferring hostname '{hostname_str}' for darwinConfigurations");
-        attribute.push(hostname_str.to_owned());
-      } else if attribute[0] == "darwinConfigurations" {
-        if attribute.len() == 2 {
-          // darwinConfigurations.hostname - fine
-        } else if attribute.len() > 2 {
-          if attribute[2] == "config" {
-            bail!(
-              "Attribute path is too specific: {}. Please either:\n  1. Use \
-               the flake reference without attributes (e.g., '.')\n  2. \
-               Specify only the configuration name (e.g., '.#{}')",
-              attribute.join("."),
-              attribute[1]
-            );
-          } else {
-            bail!(
-              "Unexpected attribute path: {}. Please specify only the \
-               configuration name (e.g., '.#{}')",
-              attribute.join("."),
-              attribute[1]
-            );
-          }
-        }
-      } else {
-        // User provided ".#myhost" - prepend darwinConfigurations
-        attribute.insert(0, String::from("darwinConfigurations"));
-      }
-      attribute.extend(toplevel);
-    },
-    Installable::File {
-      ref mut attribute, ..
-    }
-    | Installable::Expression {
-      ref mut attribute, ..
-    } => attribute.extend(toplevel),
-
-    Installable::Store { .. } => {
-      bail!("Nix doesn't support nix store installables.");
-    },
+  if matches!(installable, Installable::Store { .. }) {
+    bail!("Nix doesn't support nix store installables.");
   }
+
+  let mut res = installable;
+  res.resolve_configuration(
+    ConfigurationLayout {
+      set:        "darwinConfigurations",
+      build_attr: &["config", "system", "build", final_attr],
+    },
+    Some(hostname.as_ref()),
+  )?;
 
   Ok(res)
 }
