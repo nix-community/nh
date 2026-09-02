@@ -1389,47 +1389,15 @@ fn eval_drv_path(
   evaluation_args: &[String],
 ) -> Result<PathBuf> {
   // Build the installable with .drvPath appended
-  let drv_installable = match installable {
-    Installable::Flake {
-      reference,
-      attribute,
-    } => {
-      let mut drv_attr = attribute.clone();
-      drv_attr.push("drvPath".to_string());
-      Installable::Flake {
-        reference: reference.clone(),
-        attribute: drv_attr,
-      }
-    },
-    Installable::File { path, attribute } => {
-      let mut drv_attr = attribute.clone();
-      drv_attr.push("drvPath".to_string());
-      Installable::File {
-        path:      path.clone(),
-        attribute: drv_attr,
-      }
-    },
-    Installable::Expression {
-      expression,
-      attribute,
-    } => {
-      let mut drv_attr = attribute.clone();
-      drv_attr.push("drvPath".to_string());
-      Installable::Expression {
-        expression: expression.clone(),
-        attribute:  drv_attr,
-      }
-    },
-    Installable::Store { path } => {
-      bail!(
-        "Cannot perform remote build with store path '{}'. Store paths are \
-         already built.",
-        path.display()
-      );
-    },
-  };
+  let drv_installable =
+    installable.with_attribute("drvPath").ok_or_else(|| {
+      eyre!(
+        "Cannot perform remote build with a store path. Store paths are \
+         already built."
+      )
+    })?;
 
-  let args = drv_installable.to_args();
+  let args = drv_installable.to_args()?;
   debug!("Evaluating drvPath: nix eval --raw {:?}", args);
 
   let cmd = NixCommand::new(CommandKind::Eval)
