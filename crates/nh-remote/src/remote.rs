@@ -62,14 +62,18 @@ static HANDLER_REGISTERED: OnceLock<()> = OnceLock::new();
 /// the appropriate elevation program (sudo/doas/etc) based on the strategy.
 ///
 /// # Arguments
+///
 /// * `strategy` - Optional elevation strategy to use
 /// * `base_cmd` - The base command to execute
 ///
 /// # Returns
+///
 /// The complete command string to execute on the remote
 ///
 /// # Errors
+///
 /// Returns error if:
+///
 /// - Elevation program cannot be resolved
 /// - Elevation program name cannot be determined
 fn build_remote_command(
@@ -81,7 +85,9 @@ fn build_remote_command(
       return Ok(base_cmd.to_string());
     }
 
-    let program = strategy.resolve()?;
+    // The elevation program runs on the remote host, so resolve it by name
+    // instead of probing the local PATH.
+    let program = strategy.resolve_remote()?;
     let program_name = program
       .file_name()
       .and_then(|name| name.to_str())

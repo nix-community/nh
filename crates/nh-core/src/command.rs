@@ -355,6 +355,30 @@ impl ElevationStrategy {
     }
   }
 
+  /// Resolves the elevation program for a command that runs on a remote host.
+  ///
+  /// [`Self::resolve`] probes the local `PATH`, which is wrong here: the
+  /// program runs on the remote machine. When the remote uses `doas` but the
+  /// local host only has `sudo`, a local `which` either picks `sudo` or fails.
+  /// This returns the program name as given and lets the remote shell resolve
+  /// it against its own `PATH`.
+  ///
+  /// `Auto` and `Passwordless` can't see the remote's `PATH`, so they default
+  /// to `sudo`, the same default `nixos-rebuild` assumes. Pass
+  /// `--elevation-strategy` to pick another program.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error for `None`, where elevation is disabled.
+  pub fn resolve_remote(&self) -> Result<PathBuf> {
+    match self {
+      Self::Force(program_name) => Ok(PathBuf::from(program_name)),
+      Self::Prefer(program) => Ok(program.clone()),
+      Self::Auto | Self::Passwordless => Ok(PathBuf::from("sudo")),
+      Self::None => bail!("Elevation disabled via --elevation-strategy=none"),
+    }
+  }
+
   /// Gets a path to a privilege elevation program based on what is available in
   /// the system.
   ///
@@ -812,7 +836,7 @@ impl Command {
         .ok_or_else(|| {
           eyre::eyre!("Elevation program is None but elevation is required")
         })?
-        .resolve()
+        .resolve_remote()
         .context("Failed to resolve elevation program")?;
 
       let program_name = elevation_program
@@ -1409,6 +1433,39 @@ mod tests {
     assert!(result.is_ok());
     let program = result.unwrap();
     assert!(!program.as_os_str().is_empty());
+  }
+
+  #[test]
+  fn test_resolve_remote_honors_forced_program_without_local_lookup() {
+    // A forced program must be passed through by name even when it is not
+    // installed locally, since it runs on the remote host (#561).
+    let program = ElevationStrategy::Force("doas")
+      .resolve_remote()
+      .expect("forced program should resolve for remote");
+    assert_eq!(program, PathBuf::from("doas"));
+  }
+
+  #[test]
+  fn test_resolve_remote_prefers_given_program() {
+    let program = ElevationStrategy::Prefer(PathBuf::from("doas"))
+      .resolve_remote()
+      .expect("preferred program should resolve for remote");
+    assert_eq!(program, PathBuf::from("doas"));
+  }
+
+  #[test]
+  fn test_resolve_remote_auto_defaults_to_sudo() {
+    for strategy in [ElevationStrategy::Auto, ElevationStrategy::Passwordless] {
+      let program = strategy
+        .resolve_remote()
+        .expect("auto should resolve for remote");
+      assert_eq!(program, PathBuf::from("sudo"));
+    }
+  }
+
+  #[test]
+  fn test_resolve_remote_none_errors() {
+    assert!(ElevationStrategy::None.resolve_remote().is_err());
   }
 
   #[test]
