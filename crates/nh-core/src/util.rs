@@ -308,6 +308,32 @@ pub fn get_hostname(supplied_hostname: Option<String>) -> Result<String> {
   }
 }
 
+/// Decide whether `nix-output-monitor` (nom) should be used for a build.
+///
+/// `--no-nom` always wins. Otherwise `NH_NOM` forces the choice if set. With
+/// neither, nom is on only when stdout is a terminal. nom's live rendering is
+/// just noise once stdout is a pipe or file, which is the usual case in CI or
+/// under an agent.
+///
+/// `NH_NOM` accepts `1`/`true`/`yes`/`on` to force nom on and
+/// `0`/`false`/`no`/`off` to force it off.
+#[must_use]
+pub fn use_nom(no_nom: bool) -> bool {
+  use std::io::IsTerminal;
+
+  if no_nom {
+    return false;
+  }
+
+  match std::env::var("NH_NOM").ok().as_deref().map(str::trim) {
+    Some("1" | "true" | "yes" | "on") => return true,
+    Some("0" | "false" | "no" | "off") => return false,
+    _ => {},
+  }
+
+  std::io::stdout().is_terminal()
+}
+
 /// Retrieves all enabled experimental features in Nix (cached).
 ///
 /// This function executes the `nix config show experimental-features` command
@@ -540,6 +566,12 @@ mod tests {
   use nh_installable::Installable;
 
   use super::*;
+
+  #[test]
+  fn use_nom_respects_explicit_no_nom_flag() {
+    // `--no-nom` must always win, regardless of TTY state or `NH_NOM`.
+    assert!(!use_nom(true));
+  }
 
   #[test]
   fn test_get_build_image_variants_expression() {

@@ -14,6 +14,7 @@ use nh_core::{
     get_build_image_variants_flake_with_args,
     get_build_image_variants_with_args,
     get_hostname,
+    use_nom,
   },
 };
 use nh_diff::{handle_nixos_diff, print_dix_diff};
@@ -631,7 +632,7 @@ impl OsRebuildArgs {
       let config = RemoteBuildConfig {
         build_host,
         target_host: self.target_host.clone(),
-        use_nom: !self.common.no_nom,
+        use_nom: use_nom(self.common.no_nom),
         use_substitutes: self.common.passthrough.use_substitutes
           && !self.common.passthrough.network_restricted(),
         execution_args: self
@@ -665,7 +666,7 @@ impl OsRebuildArgs {
         .extra_args(&self.extra_args)
         .passthrough(&self.common.passthrough)
         .message(message)
-        .nom(!self.common.no_nom)
+        .nom(use_nom(self.common.no_nom))
         .run()
         .wrap_err("Failed to build configuration")?;
 

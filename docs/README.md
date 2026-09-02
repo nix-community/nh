@@ -383,6 +383,13 @@ the common variables that you may encounter or choose to employ are as follows:
     confirmation before applying supported operations. Falsy values such as `0`,
     `false`, `no`, or `off` disable it. Equivalent to `--ask`.
 
+- `NH_NOM`
+  - Forces whether `nix-output-monitor` (nom) is used. Without it, nom runs
+    only when stdout is a terminal, and stays off when stdout is a pipe or file,
+    such as in CI or under an agent. Set to `1`, `true`, `yes`, or `on` to force
+    nom on, or `0`, `false`, `no`, or `off` to force it off. `--no-nom` still
+    takes precedence.
+
 - `NH_NO_CHECKS`
   - When set (any non-empty value), skips startup checks such as Nix version and
     experimental feature validation. Useful for generating completions or
@@ -486,10 +493,6 @@ the common variables that you may encounter or choose to employ are as follows:
     `nh search offline`. Each path is treated as a separate database. Equivalent
     to passing `--db` multiple times. Example:
     `NH_OFFLINE_DB=/var/cache/spam/nixpkgs.db:/var/cache/spam/hm.db`.
-
-- `NH_NOM`
-  - Control whether `nom` (nix-output-monitor) should be enabled for the build
-    processes. Equivalent of `--no-nom`.
 
 - `NH_REMOTE_CLEANUP`
   - Whether to initiate an attempt to clean up remote processes on interrupt via

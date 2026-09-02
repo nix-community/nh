@@ -11,7 +11,7 @@ use nh_core::{
   args::DiffType,
   command::{Command, CommandKind, ElevationStrategy, NixCommand},
   update::update_with_args,
-  util::get_hostname,
+  util::{get_hostname, use_nom},
 };
 use nh_diff::print_dix_diff;
 use nh_installable::{CommandContext, Installable};
@@ -110,7 +110,7 @@ impl DarwinRebuildArgs {
       let config = RemoteBuildConfig {
         build_host,
         target_host: None,
-        use_nom: !self.common.no_nom,
+        use_nom: use_nom(self.common.no_nom),
         use_substitutes: self.common.passthrough.use_substitutes
           && !self.common.passthrough.network_restricted(),
         execution_args: self
@@ -145,7 +145,7 @@ impl DarwinRebuildArgs {
         .extra_args(&self.extra_args)
         .passthrough(&self.common.passthrough)
         .message("Building Darwin configuration")
-        .nom(!self.common.no_nom)
+        .nom(use_nom(self.common.no_nom))
         .run()
         .wrap_err("Failed to build Darwin configuration")?;
     }
