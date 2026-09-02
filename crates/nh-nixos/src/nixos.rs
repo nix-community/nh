@@ -681,6 +681,11 @@ impl OsRebuildArgs {
       .ok()
       .map(|s| s.trim().to_owned());
 
+    // Did the user name a specialisation with `--specialisation`, or did we
+    // infer it from the running system? A named one that we can't build is a
+    // user error. An inferred one that we can't build should fall back instead.
+    let explicit_specialisation = self.specialisation.is_some();
+
     let target_specialisation = if self.no_specialisation {
       None
     } else {
@@ -696,15 +701,29 @@ impl OsRebuildArgs {
       Some(spec) => {
         let spec_path = out_path.join("specialisation").join(spec);
 
-        // For local builds, check if specialisation exists and fall back if not
+        // For local builds, check if the specialisation exists in the built
+        // configuration.
         if out_path.exists() && !spec_path.exists() {
-          bail!(
-            "Specialisation '{}' does not exist in the built configuration",
-            spec
-          );
-        }
+          if explicit_specialisation {
+            bail!(
+              "Specialisation '{}' does not exist in the built configuration",
+              spec
+            );
+          }
 
-        spec_path
+          // Inferred from the running system, but absent from the config being
+          // built. This happens with `nh os build-vm` while booted into a
+          // specialisation. Fall back to the base config instead of failing.
+          warn!(
+            "Booted specialisation '{spec}' does not exist in the built \
+             configuration. Falling back to the base configuration. Pass \
+             --specialisation to pick one, or --no-specialisation to silence \
+             this warning."
+          );
+          out_path.to_path_buf()
+        } else {
+          spec_path
+        }
       },
     };
 
