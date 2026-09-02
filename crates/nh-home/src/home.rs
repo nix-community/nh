@@ -13,7 +13,12 @@ use nh_core::{
   util::{get_hostname, use_nom},
 };
 use nh_diff::print_dix_diff;
-use nh_installable::{CommandContext, Installable};
+use nh_installable::{
+  CommandContext,
+  ConfigurationInstallable,
+  ConfigurationLayout,
+  Installable,
+};
 use nh_remote::{self, RemoteBuildConfig};
 use tracing::{debug, info, warn};
 
@@ -264,197 +269,114 @@ where
   I: IntoIterator<Item = S>,
   S: AsRef<std::ffi::OsStr>,
 {
-  let mut res = installable;
-  let extra_args: Vec<OsString> = {
-    let mut vec = Vec::new();
-    for elem in extra_args {
-      vec.push(elem.as_ref().to_owned());
-    }
-    vec
+  let extra_args: Vec<OsString> = extra_args
+    .into_iter()
+    .map(|a| a.as_ref().to_owned())
+    .collect();
+
+  // A build needs the activation package. `nh home repl` stops at the
+  // configuration itself.
+  let build_attr: &[&str] = if push_drv {
+    &["config", "home", "activationPackage"]
+  } else {
+    &[]
+  };
+  let layout = ConfigurationLayout {
+    set: "homeConfigurations",
+    build_attr,
   };
 
-  let toplevel = ["config", "home", "activationPackage"]
-    .into_iter()
-    .map(String::from);
+  let mut res = installable;
 
-  match res {
-    Installable::Flake {
-      ref reference,
-      ref mut attribute,
-    } => {
-      if !attribute.is_empty() {
-        // Check if the path is too specific
-        if attribute[0] == "homeConfigurations" {
-          if attribute.len() > 2 {
-            bail!(
-              "Attribute path is too specific: {}. Home Manager only allows \
-               configuration names. Please either:\n  1. Use the flake \
-               reference without attributes (e.g., '.')\n  2. Specify only \
-               the configuration name (e.g., '.#{}')",
-              attribute.join("."),
-              attribute.get(1).map_or("<unknown>", String::as_str)
-            );
-          }
-        } else if attribute.len() > 1 {
-          // User provided ".#myconfig" or similar - prepend homeConfigurations
-          attribute.insert(0, String::from("homeConfigurations"));
-          // Re-validate after prepending
-          if attribute.len() > 2 {
-            bail!(
-              "Attribute path is too specific: {}. Home Manager only allows \
-               configuration names. Please either:\n  1. Use the flake \
-               reference without attributes (e.g., '.')\n  2. Specify only \
-               the configuration name (e.g., '.#{}')",
-              attribute.join("."),
-              attribute.get(1).map_or("<unknown>", String::as_str)
-            );
-          }
-        }
-
-        debug!(
-          "Using explicit attribute path from installable: {:?}",
-          attribute
-        );
-        return Ok(res);
-      }
-
-      attribute.push(String::from("homeConfigurations"));
-
-      let flake_reference = reference.clone();
-      let mut found_config = false;
-
-      // Check if an explicit configuration name was provided via the flag
-      if let Some(config_name) = configuration_name {
-        // Verify the provided configuration exists
-        let func = format!(r#" x: x ? "{config_name}" "#);
-        let check_res = capture_nix_stdout(
-          &NixCommand::new(CommandKind::Eval)
-            .with_required_env()
-            .args(&extra_args)
-            .arg("--apply")
-            .arg(func)
-            .args(
-              (Installable::Flake {
-                reference: flake_reference.clone(),
-                attribute: attribute.clone(),
-              })
-              .to_args(),
-            ),
-        )
-        .wrap_err(format!(
-          "Failed running nix eval to check for explicit configuration \
-           '{config_name}'"
-        ))?;
-
-        if check_res.trim() == "true" {
-          debug!("Using explicit configuration from flag: {config_name:?}");
-
-          attribute.push(config_name);
-          if push_drv {
-            attribute.extend(toplevel.clone());
-          }
-
-          found_config = true;
-        } else {
-          // Explicit config provided but not found
-          let tried_attr_path = {
-            let mut attr_path = attribute.clone();
-            attr_path.push(config_name);
-            Installable::Flake {
-              reference: flake_reference,
-              attribute: attr_path,
-            }
-            .to_args()
-            .join(" ")
-          };
-          bail!(
-            "Explicitly specified home-manager configuration not found: \
-             {tried_attr_path}"
-          );
-        }
-      }
-
-      // If no explicit config was found via flag, try automatic detection
-      if !found_config {
-        let username =
-          std::env::var("USER").map_err(|_| eyre!("Couldn't get username"))?;
-        let hostname = get_hostname(None)?;
-        let mut tried = vec![];
-
-        for attr_name in [format!("{username}@{hostname}"), username] {
-          let func = format!(r#" x: x ? "{attr_name}" "#);
-          let check_res = capture_nix_stdout(
-            &NixCommand::new(CommandKind::Eval)
-              .with_required_env()
-              .args(&extra_args)
-              .arg("--apply")
-              .arg(func)
-              .args(
-                (Installable::Flake {
-                  reference: flake_reference.clone(),
-                  attribute: attribute.clone(),
-                })
-                .to_args(),
-              ),
-          )
-          .wrap_err(format!(
-            "Failed running nix eval to check for automatic configuration \
-             '{attr_name}'"
-          ))?;
-
-          let current_try_attr = {
-            let mut attr_path = attribute.clone();
-            attr_path.push(attr_name.clone());
-            attr_path
-          };
-          tried.push(current_try_attr.clone());
-
-          if check_res.trim() == "true" {
-            debug!("Using automatically detected configuration: {}", attr_name);
-            attribute.push(attr_name);
-            if push_drv {
-              attribute.extend(toplevel.clone());
-            }
-            found_config = true;
-            break;
-          }
-        }
-
-        // If still not found after automatic detection, error out
-        if !found_config {
-          let tried_str = tried
-            .into_iter()
-            .map(|a| {
-              Installable::Flake {
-                reference: flake_reference.clone(),
-                attribute: a,
-              }
-              .to_args()
-              .join(" ")
-            })
-            .collect::<Vec<_>>()
-            .join(", ");
-          bail!(
-            "Couldn't find home-manager configuration automatically, tried: \
-             {tried_str}"
-          );
-        }
-      }
-    },
-    Installable::File {
-      ref mut attribute, ..
-    }
-    | Installable::Expression {
-      ref mut attribute, ..
-    } => {
-      if push_drv {
-        attribute.extend(toplevel);
-      }
-    },
-    Installable::Store { .. } => {},
+  // A flake without a configuration name in its attribute needs the name
+  // discovered (from the `--configuration` flag or the current user/host)
+  // before it can be resolved. Every other case, including an explicit
+  // `.#name`, is a pure rewrite.
+  if let Installable::Flake {
+    reference,
+    attribute,
+  } = &res
+    && !names_a_configuration(attribute)
+  {
+    let name =
+      discover_home_configuration(reference, &extra_args, configuration_name)?;
+    res.resolve_configuration(layout, Some(&name))?;
+  } else {
+    res.resolve_configuration(layout, None)?;
   }
 
   Ok(res)
+}
+
+/// Whether a flake attribute already names a Home Manager configuration, as
+/// opposed to being empty or a bare `homeConfigurations`.
+fn names_a_configuration(attribute: &[String]) -> bool {
+  match attribute.split_first() {
+    Some((first, rest)) if first == "homeConfigurations" => !rest.is_empty(),
+    Some(_) => true,
+    None => false,
+  }
+}
+
+/// Finds the Home Manager configuration to build when the flake attribute does
+/// not name one.
+///
+/// A name given via `--configuration` must exist. Otherwise this tries
+/// `user@host`, then `user`, against the flake's `homeConfigurations`.
+///
+/// # Errors
+///
+/// Returns an error when a `nix eval` probe fails, when an explicitly named
+/// configuration is absent, or when no configuration matches the current user
+/// and host.
+fn discover_home_configuration(
+  reference: &str,
+  extra_args: &[OsString],
+  configuration_name: Option<String>,
+) -> Result<String> {
+  let exists = |candidate: &str| -> Result<bool> {
+    let probe = Installable::Flake {
+      reference: reference.to_owned(),
+      attribute: vec![String::from("homeConfigurations")],
+    };
+    let output = capture_nix_stdout(
+      &NixCommand::new(CommandKind::Eval)
+        .with_required_env()
+        .args(extra_args)
+        .arg("--apply")
+        .arg(format!(r#" x: x ? "{candidate}" "#))
+        .args(probe.to_args()?),
+    )
+    .wrap_err(format!(
+      "Failed running nix eval to check for configuration '{candidate}'"
+    ))?;
+    Ok(output.trim() == "true")
+  };
+
+  if let Some(name) = configuration_name {
+    if exists(&name)? {
+      debug!("Using explicit configuration from flag: {name:?}");
+      return Ok(name);
+    }
+    bail!("Explicitly specified home-manager configuration not found: {name}");
+  }
+
+  let username =
+    std::env::var("USER").map_err(|_| eyre!("Couldn't get username"))?;
+  let hostname = get_hostname(None)?;
+  let candidates = [format!("{username}@{hostname}"), username];
+
+  for candidate in &candidates {
+    if exists(candidate)? {
+      debug!("Using automatically detected configuration: {candidate}");
+      return Ok(candidate.clone());
+    }
+  }
+
+  bail!(
+    "Couldn't find home-manager configuration automatically, tried: {}",
+    candidates.join(", ")
+  )
 }
 
 impl HomeReplArgs {
@@ -470,7 +392,7 @@ impl HomeReplArgs {
     )?;
 
     let status = NixCommand::new(CommandKind::Repl)
-      .args(toplevel.to_args())
+      .args(toplevel.to_args()?)
       .with_required_env()
       .run_with_logs()?;
     if !status.success() {
@@ -478,5 +400,69 @@ impl HomeReplArgs {
     }
 
     Ok(())
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use nh_installable::Installable;
+
+  use super::toplevel_for;
+
+  fn flake(attribute: &[&str]) -> Installable {
+    Installable::Flake {
+      reference: String::from("."),
+      attribute: attribute.iter().map(|s| (*s).to_string()).collect(),
+    }
+  }
+
+  fn resolve(attribute: &[&str], push_drv: bool) -> Installable {
+    toplevel_for(flake(attribute), push_drv, Vec::<String>::new(), None)
+      .expect("explicit attribute should resolve")
+  }
+
+  fn attribute_of(installable: &Installable) -> Vec<String> {
+    match installable {
+      Installable::Flake { attribute, .. } => attribute.clone(),
+      other => panic!("expected a flake installable, got {other:?}"),
+    }
+  }
+
+  #[test]
+  fn single_name_gets_home_configurations_prefix_and_activation_package() {
+    let resolved = resolve(&["jacob@odyssey"], true);
+    assert_eq!(attribute_of(&resolved), [
+      "homeConfigurations",
+      "jacob@odyssey",
+      "config",
+      "home",
+      "activationPackage",
+    ]);
+  }
+
+  #[test]
+  fn repl_stops_at_the_configuration_without_activation_package() {
+    let resolved = resolve(&["jacob@odyssey"], false);
+    assert_eq!(attribute_of(&resolved), [
+      "homeConfigurations",
+      "jacob@odyssey"
+    ]);
+  }
+
+  #[test]
+  fn explicit_home_configurations_prefix_is_accepted() {
+    let resolved = resolve(&["homeConfigurations", "jacob@odyssey"], false);
+    assert_eq!(attribute_of(&resolved), [
+      "homeConfigurations",
+      "jacob@odyssey"
+    ]);
+  }
+
+  #[test]
+  fn nested_attribute_is_rejected_as_too_specific() {
+    let err =
+      toplevel_for(flake(&["foo", "bar"]), true, Vec::<String>::new(), None)
+        .expect_err("nested attribute should be rejected");
+    assert!(err.to_string().contains("too specific"));
   }
 }
