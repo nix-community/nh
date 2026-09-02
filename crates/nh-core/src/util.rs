@@ -549,7 +549,7 @@ pub fn get_build_image_variants_flake_with_args(
     &NixCommand::new(CommandKind::Eval)
       .args(evaluation_args)
       .arg("--json")
-      .args(installable.to_args())
+      .args(installable.to_args()?)
       .arg("--apply")
       .arg("builtins.attrNames"),
   )?;
