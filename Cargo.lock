@@ -1402,6 +1402,7 @@ version = "4.4.2"
 dependencies = [
  "clap",
  "color-eyre",
+ "nix-installable",
  "serial_test",
  "tempfile",
  "tracing",
@@ -1489,6 +1490,10 @@ dependencies = [
  "subprocess",
  "thiserror",
 ]
+
+[[package]]
+name = "nix-installable"
+version = "0.1.0"
 
 [[package]]
 name = "nu-ansi-term"

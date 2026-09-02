@@ -1,0 +1,12 @@
+[package]
+name                   = "nix-installable"
+description            = "Parsing and rendering of Nix installables"
+version                = "0.1.0"
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+homepage.workspace     = true
+publish                = true
+
+[lints]
+workspace = true
