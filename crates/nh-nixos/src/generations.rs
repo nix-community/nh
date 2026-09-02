@@ -362,7 +362,20 @@ pub fn describe(
     });
   };
 
-  let current = run_current_target == gen_store_path;
+  // When booted into a specialisation, `/run/current-system` resolves to the
+  // specialisation's store path rather than the base generation, so a direct
+  // comparison against the generation's store path never matches. Also check
+  // whether the running system corresponds to one of this generation's
+  // specialisations so `nh os info` can still identify the current generation.
+  let current = run_current_target == gen_store_path
+    || fs::read_dir(generation_dir.join("specialisation"))
+      .into_iter()
+      .flatten()
+      .filter_map(Result::ok)
+      .any(|entry| {
+        fs::canonicalize(entry.path()).ok().as_deref()
+          == Some(run_current_target.as_path())
+      });
 
   Some(GenerationInfo {
     number: generation_number,
