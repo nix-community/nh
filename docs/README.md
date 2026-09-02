@@ -494,6 +494,10 @@ the common variables that you may encounter or choose to employ are as follows:
     to passing `--db` multiple times. Example:
     `NH_OFFLINE_DB=/var/cache/spam/nixpkgs.db:/var/cache/spam/hm.db`.
 
+- `NH_NOM`
+  - Control whether `nom` (nix-output-monitor) should be enabled for the build
+    processes. Equivalent of `--no-nom`.
+
 - `NH_REMOTE_CLEANUP`
   - Whether to initiate an attempt to clean up remote processes on interrupt via
     pkill. This is implemented to match nixos-rebuild's behaviour, but due to
