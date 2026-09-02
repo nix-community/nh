@@ -28,7 +28,9 @@
 //!   reference,
 //!   attribute,
 //! };
-//! assert_eq!(installable.to_args(), ["github:NixOS/nixpkgs#hello"]);
+//! assert_eq!(installable.to_args().unwrap(), [
+//!   "github:NixOS/nixpkgs#hello"
+//! ]);
 //! ```
 
 use std::path::PathBuf;
@@ -79,13 +81,13 @@ pub type ParseError = &'static str;
 /// Splits an attribute path into its components.
 ///
 /// Components are separated by unquoted `.`. A component may be wrapped in
-/// double quotes to contain literal `.` characters, and inside quotes `\`
-/// escapes the following character. An empty input yields an empty path.
+/// double quotes to contain literal `.` characters. Following Nix, there is no
+/// escape mechanism: every other character, including `\`, is literal, and a
+/// `"` always toggles quoting. An empty input yields an empty path.
 ///
 /// # Errors
 ///
-/// Returns an error when a quoted segment is left unclosed, or when a `\`
-/// escape inside quotes has no following character.
+/// Returns an error when a quoted segment is left unclosed.
 ///
 /// # Examples
 ///
@@ -96,6 +98,7 @@ pub type ParseError = &'static str;
 /// assert_eq!(parse_attribute(r#"pkgs."foo.bar""#).unwrap(), [
 ///   "pkgs", "foo.bar"
 /// ]);
+/// assert_eq!(parse_attribute(r"a\b").unwrap(), [r"a\b"]);
 /// assert!(parse_attribute(r#"pkgs."unterminated"#).is_err());
 /// ```
 pub fn parse_attribute(input: &str) -> Result<Vec<String>, ParseError> {
@@ -107,20 +110,11 @@ pub fn parse_attribute(input: &str) -> Result<Vec<String>, ParseError> {
 
   let mut in_quote = false;
   let mut current = String::new();
-  let mut chars = input.chars();
 
-  while let Some(ch) = chars.next() {
+  for ch in input.chars() {
     match ch {
-      '.' if !in_quote => {
-        components.push(std::mem::take(&mut current));
-      },
+      '.' if !in_quote => components.push(std::mem::take(&mut current)),
       '"' => in_quote = !in_quote,
-      '\\' if in_quote => {
-        let escaped = chars
-          .next()
-          .ok_or("contains an incomplete quoted attribute escape")?;
-        current.push(escaped);
-      },
       _ => current.push(ch),
     }
   }
@@ -178,12 +172,46 @@ pub fn parse_flake_reference(
   Ok((reference.to_owned(), parse_attribute(attribute)?))
 }
 
-/// Renders an attribute path back into a single Nix-quoted string.
+/// Error returned when an [`Installable`] cannot be rendered to command-line
+/// arguments.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RenderError {
+  /// A file or store path was not valid UTF-8.
+  NonUtf8Path,
+
+  /// An attribute component contains a `"`. Nix attribute paths have no escape
+  /// mechanism, so such a component cannot be expressed on the command line.
+  UnrepresentableAttribute(String),
+}
+
+impl std::fmt::Display for RenderError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::NonUtf8Path => f.write_str("path is not valid UTF-8"),
+      Self::UnrepresentableAttribute(component) => {
+        write!(
+          f,
+          "attribute component {component:?} contains a `\"`, which Nix \
+           attribute paths cannot represent"
+        )
+      },
+    }
+  }
+}
+
+impl std::error::Error for RenderError {}
+
+/// Renders an attribute path back into a single Nix attribute-path string.
 ///
-/// Components that are empty or contain `.`, `"`, or `\` are wrapped in double
-/// quotes with `"` and `\` escaped, so the result round-trips through
-/// [`parse_attribute`].
-fn render_attribute<I>(attribute: I) -> String
+/// Wraps a component in double quotes when it is empty or contains `.`. All
+/// other characters, including `\`, are written literally, because Nix has no
+/// escape mechanism. The result round-trips through [`parse_attribute`].
+///
+/// # Errors
+///
+/// Returns [`RenderError::UnrepresentableAttribute`] when a component contains
+/// a `"`, which has no representation in a Nix attribute path.
+fn render_attribute<I>(attribute: I) -> Result<String, RenderError>
 where
   I: IntoIterator,
   I::Item: AsRef<str>,
@@ -196,35 +224,35 @@ where
     }
 
     let component = component.as_ref();
-    let needs_quoting =
-      component.is_empty() || component.contains(['.', '"', '\\']);
+    if component.contains('"') {
+      return Err(RenderError::UnrepresentableAttribute(component.to_owned()));
+    }
 
-    if needs_quoting {
+    if component.is_empty() || component.contains('.') {
       rendered.push('"');
-      for ch in component.chars() {
-        if matches!(ch, '"' | '\\') {
-          rendered.push('\\');
-        }
-        rendered.push(ch);
-      }
+      rendered.push_str(component);
       rendered.push('"');
     } else {
       rendered.push_str(component);
     }
   }
 
-  rendered
+  Ok(rendered)
 }
 
 impl Installable {
   /// Renders the installable into the arguments Nix expects on its command
   /// line.
   ///
-  /// `Flake` renders as a single `reference#attrpath` argument; `File` and
+  /// `Flake` renders as a single `reference#attrpath` argument. `File` and
   /// `Expression` render as `--file`/`--expr` followed by their source and
-  /// attribute path; `Store` renders as the bare path. A `File` or `Store`
-  /// path that is not valid UTF-8 cannot be expressed as an argument and yields
-  /// an empty vector.
+  /// attribute path. `Store` renders as the bare path.
+  ///
+  /// # Errors
+  ///
+  /// Returns a [`RenderError`] when a file or store path is not valid UTF-8, or
+  /// when an attribute component cannot be represented (see
+  /// [`RenderError::UnrepresentableAttribute`]).
   ///
   /// # Examples
   ///
@@ -235,23 +263,27 @@ impl Installable {
   ///   reference: ".".to_string(),
   ///   attribute: vec!["packages".to_string(), "x86_64-linux".to_string()],
   /// };
-  /// assert_eq!(installable.to_args(), [".#packages.x86_64-linux"]);
+  /// assert_eq!(installable.to_args().unwrap(), [".#packages.x86_64-linux"]);
   /// ```
-  #[must_use]
-  pub fn to_args(&self) -> Vec<String> {
-    match self {
+  pub fn to_args(&self) -> Result<Vec<String>, RenderError> {
+    let path_str = |path: &std::path::Path| {
+      path
+        .to_str()
+        .map(str::to_owned)
+        .ok_or(RenderError::NonUtf8Path)
+    };
+
+    Ok(match self {
       Self::Flake {
         reference,
         attribute,
-      } => vec![format!("{reference}#{}", render_attribute(attribute))],
+      } => vec![format!("{reference}#{}", render_attribute(attribute)?)],
       Self::File { path, attribute } => {
-        path.to_str().map_or_else(Vec::new, |path| {
-          vec![
-            String::from("--file"),
-            path.to_string(),
-            render_attribute(attribute),
-          ]
-        })
+        vec![
+          String::from("--file"),
+          path_str(path)?,
+          render_attribute(attribute)?,
+        ]
       },
       Self::Expression {
         expression,
@@ -260,15 +292,11 @@ impl Installable {
         vec![
           String::from("--expr"),
           expression.clone(),
-          render_attribute(attribute),
+          render_attribute(attribute)?,
         ]
       },
-      Self::Store { path } => {
-        path
-          .to_str()
-          .map_or_else(Vec::new, |path| vec![path.to_string()])
-      },
-    }
+      Self::Store { path } => vec![path_str(path)?],
+    })
   }
 
   /// Returns a short human-readable name for the installable's kind, suitable
@@ -281,6 +309,34 @@ impl Installable {
       Self::Store { .. } => "store path",
       Self::Expression { .. } => "expression",
     }
+  }
+
+  /// Returns the installable with `component` appended to its attribute path.
+  ///
+  /// A store path has no attribute path, so `None` is returned for it.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// use nix_installable::Installable;
+  ///
+  /// let installable = Installable::Flake {
+  ///   reference: ".".to_string(),
+  ///   attribute: vec!["config".to_string()],
+  /// };
+  /// let drv = installable.with_attribute("drvPath").unwrap();
+  /// assert_eq!(drv.to_args().unwrap(), [".#config.drvPath"]);
+  /// ```
+  #[must_use]
+  pub fn with_attribute(&self, component: impl Into<String>) -> Option<Self> {
+    let mut next = self.clone();
+    match &mut next {
+      Self::Flake { attribute, .. }
+      | Self::File { attribute, .. }
+      | Self::Expression { attribute, .. } => attribute.push(component.into()),
+      Self::Store { .. } => return None,
+    }
+    Some(next)
   }
 }
 
@@ -308,22 +364,16 @@ mod tests {
   }
 
   #[test]
-  fn parse_attribute_unquotes_escaped_characters() {
-    assert_eq!(parse_attribute(r#"foo."bar\"baz"."bar\\baz""#).unwrap(), [
-      "foo",
-      r#"bar"baz"#,
-      r"bar\baz"
-    ]);
+  fn parse_attribute_treats_backslash_as_literal() {
+    // Nix attribute paths have no escape mechanism, so `\` is an ordinary
+    // character both inside and outside quotes.
+    assert_eq!(parse_attribute(r"a\b").unwrap(), [r"a\b"]);
+    assert_eq!(parse_attribute(r#"a."b\c""#).unwrap(), ["a", r"b\c"]);
   }
 
   #[test]
   fn parse_attribute_rejects_unclosed_quote() {
     assert!(parse_attribute(r#"foo."bar"#).is_err());
-  }
-
-  #[test]
-  fn parse_attribute_rejects_trailing_escape() {
-    assert!(parse_attribute(r#"foo."bar\"#).is_err());
   }
 
   #[test]
@@ -354,9 +404,15 @@ mod tests {
 
   #[test]
   fn render_attribute_round_trips_through_parse() {
-    let path = ["foo", "bar.baz", r#"has"quote"#, r"has\slash", ""];
-    let rendered = render_attribute(path);
+    let path = ["foo", "bar.baz", r"has\slash", ""];
+    let rendered = render_attribute(path).unwrap();
     assert_eq!(parse_attribute(&rendered).unwrap(), path);
+  }
+
+  #[test]
+  fn render_attribute_rejects_unrepresentable_double_quote() {
+    let err = render_attribute([r#"has"quote"#]).unwrap_err();
+    assert!(matches!(err, RenderError::UnrepresentableAttribute(_)));
   }
 
   #[test]
@@ -365,7 +421,7 @@ mod tests {
       reference: "w".to_string(),
       attribute: ["x", "y.z"].into_iter().map(str::to_string).collect(),
     };
-    assert_eq!(installable.to_args(), [r#"w#x."y.z""#]);
+    assert_eq!(installable.to_args().unwrap(), [r#"w#x."y.z""#]);
   }
 
   #[test]
@@ -374,7 +430,7 @@ mod tests {
       reference: ".".to_string(),
       attribute: vec![],
     };
-    assert_eq!(installable.to_args(), [".#"]);
+    assert_eq!(installable.to_args().unwrap(), [".#"]);
   }
 
   #[test]
@@ -383,7 +439,11 @@ mod tests {
       path:      PathBuf::from("w"),
       attribute: ["x", "y.z"].into_iter().map(str::to_string).collect(),
     };
-    assert_eq!(installable.to_args(), ["--file", "w", r#"x."y.z""#]);
+    assert_eq!(installable.to_args().unwrap(), [
+      "--file",
+      "w",
+      r#"x."y.z""#
+    ]);
   }
 
   #[test]
@@ -392,7 +452,7 @@ mod tests {
       expression: "{ }".to_string(),
       attribute:  vec!["out".to_string()],
     };
-    assert_eq!(installable.to_args(), ["--expr", "{ }", "out"]);
+    assert_eq!(installable.to_args().unwrap(), ["--expr", "{ }", "out"]);
   }
 
   #[test]
@@ -400,7 +460,26 @@ mod tests {
     let installable = Installable::Store {
       path: PathBuf::from("/nix/store/abc-hello"),
     };
-    assert_eq!(installable.to_args(), ["/nix/store/abc-hello"]);
+    assert_eq!(installable.to_args().unwrap(), ["/nix/store/abc-hello"]);
+  }
+
+  #[test]
+  fn with_attribute_appends_to_flake_attribute() {
+    let appended = Installable::Flake {
+      reference: ".".to_string(),
+      attribute: vec!["config".to_string()],
+    }
+    .with_attribute("drvPath")
+    .expect("flake should accept an appended attribute");
+    assert_eq!(appended.to_args().unwrap(), [".#config.drvPath"]);
+  }
+
+  #[test]
+  fn with_attribute_returns_none_for_store_path() {
+    let store = Installable::Store {
+      path: PathBuf::from("/nix/store/abc"),
+    };
+    assert!(store.with_attribute("drvPath").is_none());
   }
 
   #[test]
