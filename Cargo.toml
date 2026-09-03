@@ -50,7 +50,7 @@ secrecy = { features = [ "serde" ], version = "0.10.3" }
 semver = "1.0.27"
 serde = { features = [ "derive" ], version = "1.0.228" }
 serde_json = "1.0.145"
-serial_test = "3.2.0"
+serial_test = "4.0.1"
 shlex = "2.0.1"
 signal-hook = "0.4.1"
 spam-db = "0.2.4"
