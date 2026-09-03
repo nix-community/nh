@@ -22,6 +22,7 @@ nh-nixos       = { path = "crates/nh-nixos", version = "4.4.2" }
 nh-remote      = { path = "crates/nh-remote", version = "4.4.2" }
 nh-search      = { path = "crates/nh-search", version = "4.4.2" }
 nix-command    = { path = "crates/nix-command", version = "0.2.3" }
+nix-installable = { path = "crates/nix-installable", version = "0.1.0" }
 
 anstyle               = "1.0.13"
 clap                  = { features = [ "cargo", "color", "derive", "env", "unstable-styles" ], version = "4.5.51" }

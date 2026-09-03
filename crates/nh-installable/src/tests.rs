@@ -64,7 +64,7 @@ fn test_resolve_non_unspecified_returns_unchanged() {
     .resolve(CommandContext::Os)
     .unwrap()
     .unwrap();
-  assert_eq!(flake.to_args(), resolved.to_args());
+  assert_eq!(flake.to_args().unwrap(), resolved.to_args().unwrap());
 
   let file = Installable::File {
     path:      PathBuf::from("/path/to/file.nix"),
@@ -74,7 +74,7 @@ fn test_resolve_non_unspecified_returns_unchanged() {
     .resolve(CommandContext::Home)
     .unwrap()
     .unwrap();
-  assert_eq!(file.to_args(), resolved.to_args());
+  assert_eq!(file.to_args().unwrap(), resolved.to_args().unwrap());
 
   let store = Installable::Store {
     path: PathBuf::from("/nix/store/abc"),
@@ -83,7 +83,7 @@ fn test_resolve_non_unspecified_returns_unchanged() {
     .resolve(CommandContext::Darwin)
     .unwrap()
     .unwrap();
-  assert_eq!(store.to_args(), resolved.to_args());
+  assert_eq!(store.to_args().unwrap(), resolved.to_args().unwrap());
 
   let expr = Installable::Expression {
     expression: String::from("{ pkgs }: pkgs.hello"),
@@ -93,7 +93,7 @@ fn test_resolve_non_unspecified_returns_unchanged() {
     .resolve(CommandContext::Os)
     .unwrap()
     .unwrap();
-  assert_eq!(expr.to_args(), resolved.to_args());
+  assert_eq!(expr.to_args().unwrap(), resolved.to_args().unwrap());
 }
 
 #[test]
@@ -107,7 +107,7 @@ fn test_resolve_or_default_non_unspecified_returns_unchanged() {
     .resolve_or_default(CommandContext::Os)
     .unwrap();
 
-  assert_eq!(flake.to_args(), resolved.to_args());
+  assert_eq!(flake.to_args().unwrap(), resolved.to_args().unwrap());
 }
 
 #[test]
@@ -151,7 +151,7 @@ fn test_resolve_or_default_accepts_existing_local_flake_path() {
     .resolve_or_default(CommandContext::Os)
     .unwrap();
 
-  assert_eq!(resolved.to_args(), vec![format!(
+  assert_eq!(resolved.to_args().unwrap(), vec![format!(
     "{}#",
     flake_dir.path().display()
   )]);
@@ -252,7 +252,7 @@ fn test_resolve_or_default_defers_parameterized_local_flake_refs_to_nix() {
       .resolve_or_default(CommandContext::Os)
       .unwrap();
 
-    assert_eq!(resolved.to_args(), vec![format!("{reference}#")]);
+    assert_eq!(resolved.to_args().unwrap(), vec![format!("{reference}#")]);
   }
 }
 
@@ -684,4 +684,124 @@ fn test_resolve_command_specific_isolation() {
     },
     _ => panic!("Expected Flake, got {resolved:?}"),
   }
+}
+
+const NIXOS: ConfigurationLayout<'static> = ConfigurationLayout {
+  set:        "nixosConfigurations",
+  build_attr: &["config", "system", "build", "toplevel"],
+};
+
+fn flake(attribute: &[&str]) -> Installable {
+  Installable::Flake {
+    reference: String::from("."),
+    attribute: attribute.iter().map(|s| (*s).to_string()).collect(),
+  }
+}
+
+fn resolved_attribute(
+  mut installable: Installable,
+  inferred: Option<&str>,
+) -> Vec<String> {
+  installable
+    .resolve_configuration(NIXOS, inferred)
+    .expect("configuration should resolve");
+  match installable {
+    Installable::Flake { attribute, .. } => attribute,
+    other => panic!("expected a flake, got {other:?}"),
+  }
+}
+
+#[test]
+fn resolve_configuration_infers_name_for_empty_attribute() {
+  assert_eq!(resolved_attribute(flake(&[]), Some("host")), [
+    "nixosConfigurations",
+    "host",
+    "config",
+    "system",
+    "build",
+    "toplevel"
+  ]);
+}
+
+#[test]
+fn resolve_configuration_infers_name_for_bare_set() {
+  assert_eq!(
+    resolved_attribute(flake(&["nixosConfigurations"]), Some("host")),
+    [
+      "nixosConfigurations",
+      "host",
+      "config",
+      "system",
+      "build",
+      "toplevel"
+    ]
+  );
+}
+
+#[test]
+fn resolve_configuration_prefixes_a_bare_name() {
+  assert_eq!(resolved_attribute(flake(&["other"]), Some("host")), [
+    "nixosConfigurations",
+    "other",
+    "config",
+    "system",
+    "build",
+    "toplevel"
+  ]);
+}
+
+#[test]
+fn resolve_configuration_keeps_set_qualified_name() {
+  assert_eq!(
+    resolved_attribute(flake(&["nixosConfigurations", "other"]), Some("host")),
+    [
+      "nixosConfigurations",
+      "other",
+      "config",
+      "system",
+      "build",
+      "toplevel"
+    ]
+  );
+}
+
+#[test]
+fn resolve_configuration_rejects_overly_specific_attribute() {
+  let mut installable = flake(&["nixosConfigurations", "host", "config"]);
+  let err = installable
+    .resolve_configuration(NIXOS, Some("host"))
+    .expect_err("too specific attribute should be rejected");
+  assert!(err.to_string().contains("too specific"));
+}
+
+#[test]
+fn resolve_configuration_requires_a_name_when_none_can_be_inferred() {
+  let err = flake(&[])
+    .resolve_configuration(NIXOS, None)
+    .expect_err("a missing name without a fallback should be rejected");
+  assert!(err.to_string().contains("configuration name"));
+}
+
+#[test]
+fn resolve_configuration_appends_build_attr_to_expression() {
+  let mut installable = Installable::Expression {
+    expression: "{ }".to_string(),
+    attribute:  vec![],
+  };
+  installable.resolve_configuration(NIXOS, None).unwrap();
+  match installable {
+    Installable::Expression { attribute, .. } => {
+      assert_eq!(attribute, ["config", "system", "build", "toplevel"]);
+    },
+    other => panic!("expected an expression, got {other:?}"),
+  }
+}
+
+#[test]
+fn resolve_configuration_leaves_store_path_untouched() {
+  let mut installable = Installable::Store {
+    path: std::path::PathBuf::from("/nix/store/abc"),
+  };
+  installable.resolve_configuration(NIXOS, None).unwrap();
+  assert!(matches!(installable, Installable::Store { .. }));
 }
