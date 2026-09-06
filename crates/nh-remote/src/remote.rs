@@ -1961,7 +1961,7 @@ mod tests {
       }
     }
 
-    fn clear(&self) {
+    fn clear() {
       unsafe {
         env::remove_var("NH_SSHOPTS");
         env::remove_var("NIX_SSHOPTS");
@@ -2351,8 +2351,8 @@ mod tests {
   #[test]
   #[serial]
   fn test_get_ssh_opts_default() {
-    let env_guard = SshOptsEnvGuard::new();
-    env_guard.clear();
+    let _env_guard = SshOptsEnvGuard::new();
+    SshOptsEnvGuard::clear();
 
     let opts = get_ssh_opts();
     assert!(opts.contains(&"-o".to_string()));
@@ -2365,8 +2365,8 @@ mod tests {
   #[test]
   #[serial]
   fn test_get_ssh_opts_with_simple_nix_sshopts() {
-    let env_guard = SshOptsEnvGuard::new();
-    env_guard.clear();
+    let _env_guard = SshOptsEnvGuard::new();
+    SshOptsEnvGuard::clear();
 
     unsafe {
       env::set_var("NIX_SSHOPTS", "-p 2222 -i /path/to/key");
@@ -2384,8 +2384,8 @@ mod tests {
   #[test]
   #[serial]
   fn test_get_ssh_opts_with_quoted_nix_sshopts() {
-    let env_guard = SshOptsEnvGuard::new();
-    env_guard.clear();
+    let _env_guard = SshOptsEnvGuard::new();
+    SshOptsEnvGuard::clear();
 
     // Test that quoted paths with spaces are handled correctly
     unsafe {
@@ -2402,8 +2402,8 @@ mod tests {
   #[test]
   #[serial]
   fn test_get_ssh_opts_with_option_value_nix_sshopts() {
-    let env_guard = SshOptsEnvGuard::new();
-    env_guard.clear();
+    let _env_guard = SshOptsEnvGuard::new();
+    SshOptsEnvGuard::clear();
 
     // Test -o with quoted value containing spaces
     unsafe {
@@ -2417,8 +2417,8 @@ mod tests {
   #[test]
   #[serial]
   fn test_get_ssh_opts_with_nh_sshopts() {
-    let env_guard = SshOptsEnvGuard::new();
-    env_guard.clear();
+    let _env_guard = SshOptsEnvGuard::new();
+    SshOptsEnvGuard::clear();
 
     unsafe {
       env::set_var("NH_SSHOPTS", "-p 2222 -i /path/to/key");
@@ -2434,8 +2434,8 @@ mod tests {
   #[test]
   #[serial]
   fn test_get_ssh_opts_nh_sshopts_takes_precedence() {
-    let env_guard = SshOptsEnvGuard::new();
-    env_guard.clear();
+    let _env_guard = SshOptsEnvGuard::new();
+    SshOptsEnvGuard::clear();
 
     unsafe {
       env::set_var("NH_SSHOPTS", "-p 2222");
@@ -2523,8 +2523,8 @@ mod tests {
   #[test]
   #[serial]
   fn test_get_nix_sshopts_env_empty() {
-    let env_guard = SshOptsEnvGuard::new();
-    env_guard.clear();
+    let _env_guard = SshOptsEnvGuard::new();
+    SshOptsEnvGuard::clear();
 
     let result = get_nix_sshopts_env();
     // Should contain our defaults as space-separated values
@@ -2538,8 +2538,8 @@ mod tests {
   #[test]
   #[serial]
   fn test_get_nix_sshopts_env_simple() {
-    let env_guard = SshOptsEnvGuard::new();
-    env_guard.clear();
+    let _env_guard = SshOptsEnvGuard::new();
+    SshOptsEnvGuard::clear();
 
     unsafe {
       env::set_var("NIX_SSHOPTS", "-p 2222");
@@ -2554,8 +2554,8 @@ mod tests {
   #[test]
   #[serial]
   fn test_get_nix_sshopts_env_preserves_user_opts() {
-    let env_guard = SshOptsEnvGuard::new();
-    env_guard.clear();
+    let _env_guard = SshOptsEnvGuard::new();
+    SshOptsEnvGuard::clear();
 
     // User options are preserved as-is.
     unsafe {
@@ -2571,8 +2571,8 @@ mod tests {
   #[test]
   #[serial]
   fn test_get_nix_sshopts_env_no_extra_quoting() {
-    let env_guard = SshOptsEnvGuard::new();
-    env_guard.clear();
+    let _env_guard = SshOptsEnvGuard::new();
+    SshOptsEnvGuard::clear();
 
     // Verify we don't add shell quotes around NIX_SSHOPTS.
     let result = get_nix_sshopts_env();
@@ -2586,8 +2586,8 @@ mod tests {
   #[test]
   #[serial]
   fn test_get_nix_sshopts_env_nh_sshopts() {
-    let env_guard = SshOptsEnvGuard::new();
-    env_guard.clear();
+    let _env_guard = SshOptsEnvGuard::new();
+    SshOptsEnvGuard::clear();
 
     unsafe {
       env::set_var("NH_SSHOPTS", "-p 2222");
@@ -2600,8 +2600,8 @@ mod tests {
   #[test]
   #[serial]
   fn test_get_nix_sshopts_env_nh_sshopts_takes_precedence() {
-    let env_guard = SshOptsEnvGuard::new();
-    env_guard.clear();
+    let _env_guard = SshOptsEnvGuard::new();
+    SshOptsEnvGuard::clear();
 
     unsafe {
       env::set_var("NH_SSHOPTS", "-p 2222");
