@@ -1377,15 +1377,10 @@ impl OsReplArgs {
       bail!("Nix doesn't support nix store installables.");
     }
 
-    let hostname = get_hostname(self.hostname)?;
-
-    // Enter the repl at the configuration itself, without a build attribute.
-    target_installable.resolve_configuration(
-      ConfigurationLayout {
-        set:        "nixosConfigurations",
-        build_attr: &[],
-      },
-      Some(&hostname),
+    resolve_repl_installable(
+      &mut target_installable,
+      self.hostname,
+      "nixosConfigurations",
     )?;
 
     let status = NixCommand::new(CommandKind::Repl)
@@ -1398,6 +1393,25 @@ impl OsReplArgs {
 
     Ok(())
   }
+}
+
+fn resolve_repl_installable(
+  installable: &mut Installable,
+  hostname: Option<String>,
+  set: &str,
+) -> Result<()> {
+  if matches!(installable, Installable::Flake { attribute, .. } if attribute.is_empty())
+  {
+    let hostname = get_hostname(hostname)?;
+    installable.resolve_configuration(
+      ConfigurationLayout {
+        set,
+        build_attr: &[],
+      },
+      Some(&hostname),
+    )?;
+  }
+  Ok(())
 }
 
 impl OsGenerationsArgs {
@@ -1447,6 +1461,45 @@ impl OsGenerationsArgs {
 
     generations::print_info(descriptions, self.fields.as_deref())?;
 
+    Ok(())
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn repl_resolves_only_empty_flake_attributes() -> Result<()> {
+    for attribute in [
+      vec![],
+      vec!["host"],
+      vec!["nixosConfigurations"],
+      vec!["nixosConfigurations", "host"],
+      vec!["nixosConfigurations", "host", "config"],
+    ] {
+      let expected: Vec<String> = if attribute.is_empty() {
+        vec!["nixosConfigurations", "test-host"]
+      } else {
+        attribute.clone()
+      }
+      .into_iter()
+      .map(ToString::to_string)
+      .collect();
+      let mut installable = Installable::Flake {
+        reference: ".".to_owned(),
+        attribute: attribute.iter().map(ToString::to_string).collect(),
+      };
+      resolve_repl_installable(
+        &mut installable,
+        Some("test-host".to_owned()),
+        "nixosConfigurations",
+      )?;
+      let Installable::Flake { attribute, .. } = installable else {
+        bail!("test installable is not a flake");
+      };
+      assert_eq!(attribute, expected);
+    }
     Ok(())
   }
 }

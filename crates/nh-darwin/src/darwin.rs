@@ -239,15 +239,10 @@ impl DarwinReplArgs {
       bail!("Nix doesn't support nix store installables.");
     }
 
-    let hostname = get_hostname(self.hostname)?;
-
-    // Enter the repl at the configuration itself, without a build attribute.
-    target_installable.resolve_configuration(
-      ConfigurationLayout {
-        set:        "darwinConfigurations",
-        build_attr: &[],
-      },
-      Some(&hostname),
+    resolve_repl_installable(
+      &mut target_installable,
+      self.hostname,
+      "darwinConfigurations",
     )?;
 
     let status = NixCommand::new(CommandKind::Repl)
@@ -260,6 +255,25 @@ impl DarwinReplArgs {
 
     Ok(())
   }
+}
+
+fn resolve_repl_installable(
+  installable: &mut Installable,
+  hostname: Option<String>,
+  set: &str,
+) -> Result<()> {
+  if matches!(installable, Installable::Flake { attribute, .. } if attribute.is_empty())
+  {
+    let hostname = get_hostname(hostname)?;
+    installable.resolve_configuration(
+      ConfigurationLayout {
+        set,
+        build_attr: &[],
+      },
+      Some(&hostname),
+    )?;
+  }
+  Ok(())
 }
 
 /// Resolve a nix-darwin installable to the requested system build attribute.
@@ -287,4 +301,43 @@ pub fn toplevel_for<S: AsRef<str>>(
   )?;
 
   Ok(res)
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn repl_resolves_only_empty_flake_attributes() -> Result<()> {
+    for attribute in [
+      vec![],
+      vec!["host"],
+      vec!["darwinConfigurations"],
+      vec!["darwinConfigurations", "host"],
+      vec!["darwinConfigurations", "host", "config"],
+    ] {
+      let expected: Vec<String> = if attribute.is_empty() {
+        vec!["darwinConfigurations", "test-host"]
+      } else {
+        attribute.clone()
+      }
+      .into_iter()
+      .map(ToString::to_string)
+      .collect();
+      let mut installable = Installable::Flake {
+        reference: ".".to_owned(),
+        attribute: attribute.iter().map(ToString::to_string).collect(),
+      };
+      resolve_repl_installable(
+        &mut installable,
+        Some("test-host".to_owned()),
+        "darwinConfigurations",
+      )?;
+      let Installable::Flake { attribute, .. } = installable else {
+        bail!("test installable is not a flake");
+      };
+      assert_eq!(attribute, expected);
+    }
+    Ok(())
+  }
 }
