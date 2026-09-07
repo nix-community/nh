@@ -461,32 +461,14 @@ pub fn get_build_image_variants_with_args(
   hostname: &str,
   evaluation_args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
 ) -> Result<Vec<String>> {
-  let expr = match installable {
-    nh_installable::Installable::File { path, .. } => {
-      format!(
-        r#"
-let
-  value = import "{}";
-  set = if builtins.isFunction value then value {{}} else value;
-  config = set.nixosConfigurations."{hostname}" or set;
-in
-  builtins.attrNames config.config.system.build.images
-        "#,
-        path.display(),
-      )
+  let (value, attribute) = match installable {
+    nh_installable::Installable::File { path, attribute } => {
+      (format!("import \"{}\"", path.display()), attribute)
     },
-    nh_installable::Installable::Expression { expression, .. } => {
-      format!(
-        r#"
-let
-  value = {expression};
-  set = if builtins.isFunction value then value {{}} else value;
-  config = set.nixosConfigurations."{hostname}" or set;
-in
-  builtins.attrNames config.config.system.build.images
-        "#
-      )
-    },
+    nh_installable::Installable::Expression {
+      expression,
+      attribute,
+    } => (expression.clone(), attribute),
     _ => {
       return Err(eyre!(
         "get_build_image_variants only supports file and expression \
@@ -494,6 +476,30 @@ in
       ));
     },
   };
+
+  let config = if attribute.is_empty() {
+    format!("set.nixosConfigurations.\"{hostname}\" or set")
+  } else {
+    attribute
+      .iter()
+      .fold("set".to_owned(), |selection, component| {
+        let component = component
+          .replace('\\', "\\\\")
+          .replace('"', "\\\"")
+          .replace("${", "\\${");
+        format!("{selection}.\"{component}\"")
+      })
+  };
+  let expr = format!(
+    r"
+let
+  value = {value};
+  set = if builtins.isFunction value then value {{}} else value;
+  config = {config};
+in
+  builtins.attrNames config.config.system.build.images
+    "
+  );
 
   let result = capture_nix_stdout(
     &NixCommand::nix_instantiate()
@@ -635,6 +641,24 @@ mod tests {
     assert!(variants.contains(&"iso".to_string()));
     assert!(variants.contains(&"disk".to_string()));
     assert!(variants.contains(&"container".to_string()));
+  }
+
+  #[test]
+  fn test_get_build_image_variants_file_attribute() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    std::fs::write(
+      directory.path().join("default.nix"),
+      "{}: { obsidian.config.system.build.images.iso = {}; }",
+    )?;
+    let installable = Installable::File {
+      path:      directory.path().to_path_buf(),
+      attribute: vec!["obsidian".to_owned()],
+    };
+
+    assert_eq!(get_build_image_variants(&installable, "other-host")?, [
+      "iso"
+    ]);
+    Ok(())
   }
 
   #[test]
