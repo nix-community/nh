@@ -680,7 +680,19 @@ fn get_default_ssh_opts() -> Vec<String> {
 }
 
 /// Shell-quote a string for safe passing through SSH to remote shell.
+///
+/// The remote login shell may not be POSIX (e.g. xonsh). shlex quotes only the
+/// unsafe run of a string, so nix's extended-output selector comes out as
+/// `prefix'^*'`. POSIX shells concatenate that back to `prefix^*`, but xonsh
+/// keeps the quotes literal, and backslash-escaping fares no better there:
+/// xonsh forwards `\*` verbatim, which nix rejects as an invalid outputs
+/// specifier. A single quote spanning the whole token survives both, so quote
+/// the selector that way rather than deferring to shlex.
 fn shell_quote(s: &str) -> String {
+  if s.ends_with("^*") && !s.contains('\'') {
+    return format!("'{s}'");
+  }
+
   // Use shlex::try_quote for battle-tested quoting
   // Returns Cow::Borrowed if no quoting needed, Cow::Owned if quoted
   shlex::try_quote(s).map_or_else(
@@ -2447,9 +2459,12 @@ mod tests {
 
   #[test]
   fn test_shell_quote_nix_drv_output() {
-    // Test the drv^* syntax used by nix
+    // The extended-output wildcard must be single-quoted, not
+    // backslash-escaped: xonsh keeps a literal `\*`, which nix rejects.
     let drv_path = "/nix/store/abc123.drv^*";
     let quoted = shell_quote(drv_path);
+    assert_eq!(quoted, "'/nix/store/abc123.drv^*'");
+    assert!(!quoted.contains('\\'));
     let parsed = shlex::split(&quoted).expect("should parse");
     assert_eq!(parsed.len(), 1);
     assert_eq!(parsed[0], drv_path);

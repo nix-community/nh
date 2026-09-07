@@ -40,6 +40,12 @@ functionality, under the "Removed" section.
   `/tmp`). nh now resolves the base store path before activation runs, while the
   result symlink is still visible, instead of canonicalizing it afterwards
   ([#659](https://github.com/nix-community/nh/issues/659)).
+- Remote builds via `--build-host` no longer fail when the remote login shell is
+  non-POSIX (e.g. xonsh). The `<drv>^*` extended-output selector was quoted as
+  `prefix'^*'`, which such shells pass through literally (and backslash escaping
+  fares no better, as `\*` is forwarded verbatim and rejected by Nix as an
+  invalid outputs specifier). nh now single-quotes the whole selector
+  (`'<drv>^*'`), which survives both POSIX and non-POSIX shells.
 
 ## 4.4.2
 
