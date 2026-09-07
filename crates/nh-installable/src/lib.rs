@@ -5,10 +5,10 @@ use std::{
 };
 
 use clap::{Arg, ArgAction, Args, FromArgMatches, ValueHint, error::ErrorKind};
+pub use nix_installable::Installable;
+use nix_installable::{parse_attribute, parse_flake_reference};
 use tracing::debug;
 use yansi::{Color, Paint};
-
-// Reference: https://nix.dev/manual/nix/2.18/command-ref/new-cli/nix
 
 /// Command context for resolving installable env var priority
 #[derive(Debug, Clone, Copy)]
@@ -76,25 +76,6 @@ impl EnvInstallableSource {
       },
     }
   }
-}
-
-#[derive(Debug, Clone)]
-pub enum Installable {
-  Flake {
-    reference: String,
-    attribute: Vec<String>,
-  },
-  File {
-    path:      PathBuf,
-    attribute: Vec<String>,
-  },
-  Store {
-    path: PathBuf,
-  },
-  Expression {
-    expression: String,
-    attribute:  Vec<String>,
-  },
 }
 
 impl FromArgMatches for InstallableArgs {
@@ -238,95 +219,6 @@ Nix accepts various kinds of installables:
   }
 }
 
-fn parse_attribute(s: &str) -> Result<Vec<String>, &'static str> {
-  let mut res = Vec::new();
-
-  if s.is_empty() {
-    return Ok(res);
-  }
-
-  let mut in_quote = false;
-  let mut elem = String::new();
-
-  let mut chars = s.chars();
-  while let Some(char) = chars.next() {
-    match char {
-      '.' => {
-        if in_quote {
-          elem.push(char);
-        } else {
-          res.push(elem.clone());
-          elem = String::new();
-        }
-      },
-      '"' => {
-        in_quote = !in_quote;
-      },
-      '\\' if in_quote => {
-        let escaped = chars
-          .next()
-          .ok_or("contains an incomplete quoted attribute escape")?;
-        elem.push(escaped);
-      },
-      _ => elem.push(char),
-    }
-  }
-
-  res.push(elem);
-
-  if in_quote {
-    return Err("contains an unclosed quoted attribute segment");
-  }
-
-  Ok(res)
-}
-
-fn parse_flake_reference(
-  value: &str,
-) -> Result<(String, Vec<String>), &'static str> {
-  // CLI installables and NH_*_FLAKE values share the same flakeref grammar.
-  // Reject empty references here so Nix never turns `""` or `#attr` into an
-  // implicit search from the current directory.
-  if value.is_empty() {
-    return Err("is empty. Set it to a flake reference or remove it.");
-  }
-
-  let (reference, attribute) = value
-    .split_once('#')
-    .map_or((value, ""), |(reference, attribute)| (reference, attribute));
-
-  if reference.is_empty() {
-    return Err("missing reference part before `#`");
-  }
-
-  let attribute = parse_attribute(attribute)?;
-  Ok((reference.to_owned(), attribute))
-}
-
-#[test]
-fn test_parse_attribute() {
-  assert_eq!(
-    parse_attribute(r"foo.bar"),
-    Ok(vec!["foo".to_string(), "bar".to_string()])
-  );
-  assert_eq!(
-    parse_attribute(r#"foo."bar.baz""#),
-    Ok(vec!["foo".to_string(), "bar.baz".to_string()])
-  );
-  assert_eq!(
-    parse_attribute(r#"foo."bar\"baz"."bar\\baz""#),
-    Ok(vec![
-      "foo".to_string(),
-      "bar\"baz".to_string(),
-      "bar\\baz".to_string()
-    ])
-  );
-  let v: Vec<String> = vec![];
-  assert_eq!(parse_attribute(""), Ok(v));
-  assert!(parse_attribute(r#"foo."bar"#).is_err());
-  assert!(parse_attribute(r#"foo."bar\"#).is_err());
-}
-
 impl InstallableArgs {
   /// Returns whether the parsed CLI input or non-empty flake environment
   /// variables select flake mode for the command context.
@@ -393,9 +285,107 @@ impl InstallableArgs {
       return default_installable_for(context);
     };
 
-    installable.validate_local_flake_ref(context)?;
+    validate_local_flake_ref(&installable, context)?;
     Ok(installable)
   }
+}
+
+/// Describes where a platform's configurations live in a flake and how to reach
+/// a configuration's build output.
+#[derive(Clone, Copy, Debug)]
+pub struct ConfigurationLayout<'a> {
+  /// Flake output set holding the configurations, e.g.
+  /// `"nixosConfigurations"`.
+  pub set: &'a str,
+
+  /// Attribute path appended after the configuration name to reach the build
+  /// output, e.g. `["config", "system", "build", "toplevel"]`.
+  pub build_attr: &'a [&'a str],
+}
+
+/// Resolution of a flake output set (`nixosConfigurations`,
+/// `homeConfigurations`, `darwinConfigurations`) down to a single
+/// configuration's build output.
+pub trait ConfigurationInstallable {
+  /// Rewrites the installable to point at one configuration's build output as
+  /// described by `layout`.
+  ///
+  /// For a flake, the attribute is normalized to `<set>.<name>` followed by
+  /// `layout.build_attr`. The configuration name is taken from the attribute
+  /// when present (`.#name` or `.#<set>.name`), otherwise `inferred_name` is
+  /// used. File and expression installables only gain the build attribute, and
+  /// a store path is left untouched.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error when the flake attribute is more specific than a single
+  /// configuration name, or when it names no configuration and `inferred_name`
+  /// is `None`.
+  fn resolve_configuration(
+    &mut self,
+    layout: ConfigurationLayout<'_>,
+    inferred_name: Option<&str>,
+  ) -> color_eyre::Result<()>;
+}
+
+impl ConfigurationInstallable for Installable {
+  fn resolve_configuration(
+    &mut self,
+    layout: ConfigurationLayout<'_>,
+    inferred_name: Option<&str>,
+  ) -> color_eyre::Result<()> {
+    let build_attr = || layout.build_attr.iter().copied().map(String::from);
+
+    match self {
+      Self::Flake { attribute, .. } => {
+        let mut resolved =
+          configuration_selector(attribute, layout.set, inferred_name)?;
+        resolved.extend(build_attr());
+        *attribute = resolved;
+      },
+      Self::File { attribute, .. } | Self::Expression { attribute, .. } => {
+        attribute.extend(build_attr());
+      },
+      Self::Store { .. } => {},
+    }
+
+    Ok(())
+  }
+}
+
+/// Reduces a flake attribute to the `<set>.<name>` selector for a single
+/// configuration, taking the name from the attribute or `inferred_name`.
+fn configuration_selector(
+  attribute: &[String],
+  set: &str,
+  inferred_name: Option<&str>,
+) -> color_eyre::Result<Vec<String>> {
+  let name_part = match attribute.split_first() {
+    Some((first, rest)) if first.as_str() == set => rest,
+    _ => attribute,
+  };
+
+  let name = match name_part {
+    [name] => name.clone(),
+    [] => {
+      inferred_name
+        .ok_or_else(|| {
+          color_eyre::eyre::eyre!(
+            "No configuration name given. Specify one, e.g. '.#name'."
+          )
+        })?
+        .to_owned()
+    },
+    [first, ..] => {
+      return Err(color_eyre::eyre::eyre!(
+        "Attribute path is too specific: {}. Specify only the configuration \
+         name, e.g. '.#{first}'.",
+        attribute.join(".")
+      ));
+    },
+  };
+
+  Ok(vec![set.to_owned(), name])
 }
 
 fn env_installable_source(
@@ -445,151 +435,61 @@ fn flake_from_env_var(
   })
 }
 
-impl Installable {
-  #[must_use]
-  pub fn to_args(&self) -> Vec<String> {
-    let mut res = Vec::new();
-    match self {
-      Self::Flake {
+/// Validates an explicit local flake reference before Nix is invoked.
+///
+/// Nix would otherwise search parent directories for `flake.nix`. Failing here
+/// instead points the error at the reference the user supplied.
+///
+/// # Errors
+///
+/// Returns an error when the reference names a local path that does not exist
+/// or does not contain a `flake.nix`.
+fn validate_local_flake_ref(
+  installable: &Installable,
+  context: CommandContext,
+) -> color_eyre::Result<()> {
+  let Installable::Flake { reference, .. } = installable else {
+    return Ok(());
+  };
+
+  let Some(path) = local_flake_reference_path(reference) else {
+    return Ok(());
+  };
+
+  // For explicit local refs, fail before invoking Nix so the error points at
+  // the bad configuration instead of Nix's parent-directory search.
+  match resolve_fallback_flake_dir(&path) {
+    Ok(_) => Ok(()),
+    Err(FallbackError::NotFound) => {
+      Err(color_eyre::eyre::eyre!(
+        "Flake reference `{}` points to local path `{}`, but that path does \
+         not exist or does not contain a flake.nix file.\nPass an existing \
+         flake path or update NH_FLAKE/{} if this value came from the \
+         environment.",
         reference,
-        attribute,
-      } => {
-        res.push(format!("{reference}#{}", join_attribute(attribute)));
-      },
-      Self::File { path, attribute } => {
-        if let Some(path_str) = path.to_str() {
-          res.push(String::from("--file"));
-          res.push(path_str.to_string());
-          res.push(join_attribute(attribute));
-        } else {
-          // Return empty args if path contains invalid UTF-8
-          return Vec::new();
-        }
-      },
-      Self::Expression {
-        expression,
-        attribute,
-      } => {
-        res.push(String::from("--expr"));
-        res.push(expression.clone());
-        res.push(join_attribute(attribute));
-      },
-      Self::Store { path } => {
-        if let Some(path_str) = path.to_str() {
-          res.push(path_str.to_string());
-        } else {
-          // Return empty args if path contains invalid UTF-8
-          return Vec::new();
-        }
-      },
-    }
-
-    res
-  }
-
-  fn validate_local_flake_ref(
-    &self,
-    context: CommandContext,
-  ) -> color_eyre::Result<()> {
-    let Self::Flake { reference, .. } = self else {
-      return Ok(());
-    };
-
-    let Some(path) = local_flake_reference_path(reference) else {
-      return Ok(());
-    };
-
-    // For explicit local refs, fail before invoking Nix so the error points at
-    // the bad configuration instead of Nix's parent-directory search.
-    match resolve_fallback_flake_dir(&path) {
-      Ok(_) => Ok(()),
-      Err(FallbackError::NotFound) => {
-        Err(color_eyre::eyre::eyre!(
-          "Flake reference `{}` points to local path `{}`, but that path does \
-           not exist or does not contain a flake.nix file.\nPass an existing \
-           flake path or update NH_FLAKE/{} if this value came from the \
-           environment.",
-          reference,
-          path.display(),
-          context.specific_flake_env_var()
-        ))
-      },
-      Err(FallbackError::PermissionDenied(path)) => {
-        Err(color_eyre::eyre::eyre!(
-          "Permission denied accessing {} while checking flake reference `{}`.",
-          path.display(),
-          reference
-        ))
-      },
-      Err(FallbackError::Io(source)) => {
-        Err(color_eyre::eyre::eyre!(
-          "I/O error checking flake reference `{}` at {}: {}",
-          reference,
-          path.display(),
-          source
-        ))
-      },
-    }
+        path.display(),
+        context.specific_flake_env_var()
+      ))
+    },
+    Err(FallbackError::PermissionDenied(path)) => {
+      Err(color_eyre::eyre::eyre!(
+        "Permission denied accessing {} while checking flake reference `{}`.",
+        path.display(),
+        reference
+      ))
+    },
+    Err(FallbackError::Io(source)) => {
+      Err(color_eyre::eyre::eyre!(
+        "I/O error checking flake reference `{}` at {}: {}",
+        reference,
+        path.display(),
+        source
+      ))
+    },
   }
 }
 
-#[test]
-fn test_installable_to_args() {
-  assert_eq!(
-    (Installable::Flake {
-      reference: String::from("w"),
-      attribute: ["x", "y.z"].into_iter().map(str::to_string).collect(),
-    })
-    .to_args(),
-    vec![r#"w#x."y.z""#]
-  );
-
-  assert_eq!(
-    (Installable::File {
-      path:      PathBuf::from("w"),
-      attribute: ["x", "y.z"].into_iter().map(str::to_string).collect(),
-    })
-    .to_args(),
-    vec!["--file", "w", r#"x."y.z""#]
-  );
-}
-
-fn join_attribute<I>(attribute: I) -> String
-where
-  I: IntoIterator,
-  I::Item: AsRef<str>,
-{
-  let mut res = String::new();
-  let mut first = true;
-  for elem in attribute {
-    if first {
-      first = false;
-    } else {
-      res.push('.');
-    }
-
-    let s = elem.as_ref();
-
-    if s.is_empty() || s.contains(['.', '"', '\\']) {
-      res.push('"');
-      for char in s.chars() {
-        match char {
-          '"' | '\\' => {
-            res.push('\\');
-            res.push(char);
-          },
-          _ => res.push(char),
-        }
-      }
-      res.push('"');
-    } else {
-      res.push_str(s);
-    }
-  }
-
-  res
-}
-
+/// Only preflight references that are unmistakably filesystem paths.
 fn local_flake_reference_path(reference: &str) -> Option<PathBuf> {
   // Only preflight references that are unmistakably filesystem paths. Bare
   // names like `nixpkgs`, plus URL/registry-style refs, stay in Nix's hands.
@@ -615,16 +515,6 @@ fn local_flake_reference_path(reference: &str) -> Option<PathBuf> {
   }
 
   None
-}
-
-#[test]
-fn test_join_attribute() {
-  assert_eq!(join_attribute(vec!["foo", "bar"]), "foo.bar");
-  assert_eq!(join_attribute(vec!["foo", "bar.baz"]), r#"foo."bar.baz""#);
-  assert_eq!(
-    join_attribute(vec!["foo", r#"bar"baz"#, r"bar\baz", ""]),
-    "foo.\"bar\\\"baz\".\"bar\\\\baz\".\"\""
-  );
 }
 
 enum FallbackError {
@@ -737,18 +627,6 @@ fn resolve_fallback_flake_dir(
 
 const FALLBACK_HELP_HINT: &str =
   "See 'man nh' or https://github.com/nix-community/nh for more details.";
-
-impl Installable {
-  #[must_use]
-  pub const fn str_kind(&self) -> &str {
-    match self {
-      Self::Flake { .. } => "flake",
-      Self::File { .. } => "file",
-      Self::Store { .. } => "store path",
-      Self::Expression { .. } => "expression",
-    }
-  }
-}
 
 /// Attempts to find a default installable for `NixOS` builds.
 ///

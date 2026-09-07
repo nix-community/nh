@@ -1030,7 +1030,7 @@ impl Build {
       info!("{m}");
     }
 
-    let installable_args = self.installable.to_args();
+    let installable_args = self.installable.to_args()?;
 
     let base_command = NixCommand::new(CommandKind::Build)
       .print_build_logs(false)
@@ -1615,7 +1615,10 @@ mod tests {
     let build = Build::new(installable.clone());
 
     assert!(build.message.is_none());
-    assert_eq!(build.installable.to_args(), installable.to_args());
+    assert_eq!(
+      build.installable.to_args().unwrap(),
+      installable.to_args().unwrap()
+    );
     assert!(build.extra_args.is_empty());
     assert!(!build.nom);
   }

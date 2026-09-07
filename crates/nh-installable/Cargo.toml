@@ -8,6 +8,8 @@ license.workspace      = true
 rust-version.workspace = true
 
 [dependencies]
+nix-installable.workspace = true
+
 clap.workspace       = true
 color-eyre.workspace = true
 tracing.workspace    = true

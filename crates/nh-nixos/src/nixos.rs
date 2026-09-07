@@ -18,7 +18,12 @@ use nh_core::{
   },
 };
 use nh_diff::{handle_nixos_diff, print_dix_diff};
-use nh_installable::{CommandContext, Installable};
+use nh_installable::{
+  CommandContext,
+  ConfigurationInstallable,
+  ConfigurationLayout,
+  Installable,
+};
 use nh_remote::{self, RemoteBuildConfig, RemoteHost};
 use tracing::{debug, info, warn};
 
@@ -1348,54 +1353,17 @@ pub fn toplevel_for<S: AsRef<str>>(
   installable: Installable,
   final_attrs: &[&str],
 ) -> Result<Installable> {
+  let mut build_attr = vec!["config", "system", "build"];
+  build_attr.extend_from_slice(final_attrs);
+
   let mut res = installable;
-  let hostname_str = hostname.as_ref();
-
-  let toplevel = vec!["config", "system", "build"]
-    .into_iter()
-    .map(String::from)
-    .chain(final_attrs.iter().map(|&s| String::from(s)));
-
-  match res {
-    Installable::Flake {
-      ref mut attribute, ..
-    } => {
-      if attribute.is_empty() {
-        attribute.push(String::from("nixosConfigurations"));
-        attribute.push(hostname_str.to_owned());
-      } else if attribute.len() == 1 && attribute[0] == "nixosConfigurations" {
-        info!(
-          "Inferring hostname '{}' for nixosConfigurations",
-          hostname_str
-        );
-        attribute.push(hostname_str.to_owned());
-      } else if attribute[0] == "nixosConfigurations" {
-        if attribute.len() == 2 {
-          // nixosConfigurations.hostname - fine
-        } else if attribute.len() > 2 {
-          bail!(
-            "Attribute path is too specific: {}. Please either:\n  1. Use the \
-             flake reference without attributes (e.g., '.')\n  2. Specify \
-             only the configuration name (e.g., '.#{}')",
-            attribute.join("."),
-            attribute[1]
-          );
-        }
-      } else {
-        // User provided ".#myhost" - prepend nixosConfigurations
-        attribute.insert(0, String::from("nixosConfigurations"));
-      }
-      attribute.extend(toplevel);
+  res.resolve_configuration(
+    ConfigurationLayout {
+      set:        "nixosConfigurations",
+      build_attr: &build_attr,
     },
-    Installable::File {
-      ref mut attribute, ..
-    }
-    | Installable::Expression {
-      ref mut attribute, ..
-    } => attribute.extend(toplevel),
-
-    Installable::Store { .. } => {},
-  }
+    Some(hostname.as_ref()),
+  )?;
 
   Ok(res)
 }
@@ -1409,19 +1377,14 @@ impl OsReplArgs {
       bail!("Nix doesn't support nix store installables.");
     }
 
-    let hostname = get_hostname(self.hostname)?;
-
-    if let Installable::Flake {
-      ref mut attribute, ..
-    } = target_installable
-      && attribute.is_empty()
-    {
-      attribute.push(String::from("nixosConfigurations"));
-      attribute.push(hostname);
-    }
+    resolve_repl_installable(
+      &mut target_installable,
+      self.hostname,
+      "nixosConfigurations",
+    )?;
 
     let status = NixCommand::new(CommandKind::Repl)
-      .args(target_installable.to_args())
+      .args(target_installable.to_args()?)
       .with_required_env()
       .run_with_logs()?;
     if !status.success() {
@@ -1430,6 +1393,25 @@ impl OsReplArgs {
 
     Ok(())
   }
+}
+
+fn resolve_repl_installable(
+  installable: &mut Installable,
+  hostname: Option<String>,
+  set: &str,
+) -> Result<()> {
+  if matches!(installable, Installable::Flake { attribute, .. } if attribute.is_empty())
+  {
+    let hostname = get_hostname(hostname)?;
+    installable.resolve_configuration(
+      ConfigurationLayout {
+        set,
+        build_attr: &[],
+      },
+      Some(&hostname),
+    )?;
+  }
+  Ok(())
 }
 
 impl OsGenerationsArgs {
@@ -1479,6 +1461,45 @@ impl OsGenerationsArgs {
 
     generations::print_info(descriptions, self.fields.as_deref())?;
 
+    Ok(())
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn repl_resolves_only_empty_flake_attributes() -> Result<()> {
+    for attribute in [
+      vec![],
+      vec!["host"],
+      vec!["nixosConfigurations"],
+      vec!["nixosConfigurations", "host"],
+      vec!["nixosConfigurations", "host", "config"],
+    ] {
+      let expected: Vec<String> = if attribute.is_empty() {
+        vec!["nixosConfigurations", "test-host"]
+      } else {
+        attribute.clone()
+      }
+      .into_iter()
+      .map(ToString::to_string)
+      .collect();
+      let mut installable = Installable::Flake {
+        reference: ".".to_owned(),
+        attribute: attribute.iter().map(ToString::to_string).collect(),
+      };
+      resolve_repl_installable(
+        &mut installable,
+        Some("test-host".to_owned()),
+        "nixosConfigurations",
+      )?;
+      let Installable::Flake { attribute, .. } = installable else {
+        bail!("test installable is not a flake");
+      };
+      assert_eq!(attribute, expected);
+    }
     Ok(())
   }
 }
