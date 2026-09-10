@@ -119,25 +119,32 @@ mod tests {
   use std::{env, ffi::OsString};
 
   use nh_clean::args::CleanMode;
+  use nh_nixos::args::OsSubcommand;
   use pound::{ErrorKind, Parse};
   use serial_test::serial;
 
   use super::{Main, NHCommand};
 
-  struct EnvGuard(Option<OsString>);
+  struct EnvGuard {
+    key:   &'static str,
+    value: Option<OsString>,
+  }
 
   impl EnvGuard {
-    fn new() -> Self {
-      Self(env::var_os("NH_ASK"))
+    fn new(key: &'static str) -> Self {
+      Self {
+        key,
+        value: env::var_os(key),
+      }
     }
   }
 
   impl Drop for EnvGuard {
     fn drop(&mut self) {
       unsafe {
-        match &self.0 {
-          Some(value) => env::set_var("NH_ASK", value),
-          None => env::remove_var("NH_ASK"),
+        match &self.value {
+          Some(value) => env::set_var(self.key, value),
+          None => env::remove_var(self.key),
         }
       }
     }
@@ -146,7 +153,7 @@ mod tests {
   #[test]
   #[serial]
   fn nh_ask_parses_boolish_environment_values() -> Result<(), pound::Error> {
-    let _guard = EnvGuard::new();
+    let _guard = EnvGuard::new("NH_ASK");
     let clean_all_ask = |parsed: Main| {
       match parsed.command {
         NHCommand::Clean { args: proxy } => {
@@ -228,10 +235,10 @@ mod tests {
       parsed.command,
       NHCommand::Os {
         args: nh_nixos::args::OsArgs {
-          subcommand: nh_nixos::args::OsSubcommand::Build { args },
+          subcommand: OsSubcommand::Build { args },
         },
-      } if args.common.passthrough.option == ["sandbox", "false"]
-        && args.extra_args == ["--cores", "8"]
+      } if args.rebuild.common.passthrough.option == ["sandbox", "false"]
+        && args.rebuild.extra_args == ["--cores", "8"]
     ));
     Ok(())
   }
@@ -245,6 +252,74 @@ mod tests {
     assert!(
       matches!(Main::try_parse_from(["-v", "clean", "all", "-q"]), Err(error) if matches!(error.kind, ErrorKind::Conflict { .. }))
     );
+    Ok(())
+  }
+
+  fn os_label(parsed: Main) -> Option<String> {
+    let NHCommand::Os { args: os } = parsed.command else {
+      return None;
+    };
+    match os.subcommand {
+      OsSubcommand::Build { args } => args.label.label().map(ToOwned::to_owned),
+      OsSubcommand::Test { args }
+      | OsSubcommand::Boot { args }
+      | OsSubcommand::Switch { args } => {
+        args.label.label().map(ToOwned::to_owned)
+      },
+      _ => None,
+    }
+  }
+
+  #[test]
+  #[serial]
+  fn nixos_label_is_scoped_to_generation_build_commands()
+  -> Result<(), pound::Error> {
+    let _guard = EnvGuard::new("NIXOS_LABEL");
+    unsafe {
+      env::remove_var("NIXOS_LABEL");
+    }
+
+    for command in ["build", "test", "boot", "switch"] {
+      let parsed =
+        Main::try_parse_from(["os", command, "--label", "  try new driver  "])?;
+      assert_eq!(os_label(parsed).as_deref(), Some("try-new-driver"));
+    }
+
+    for command in [
+      "dry-activate",
+      "build-vm",
+      "build-image",
+      "repl",
+      "info",
+      "rollback",
+    ] {
+      assert!(matches!(
+        Main::try_parse_from(["os", command, "--label", "test-label"]),
+        Err(error) if matches!(error.kind, ErrorKind::Unknown { .. })
+      ));
+    }
+
+    Ok(())
+  }
+
+  #[test]
+  #[serial]
+  fn explicit_nixos_label_overrides_environment() -> Result<(), pound::Error> {
+    let _guard = EnvGuard::new("NIXOS_LABEL");
+    unsafe {
+      env::set_var("NIXOS_LABEL", "environment label");
+    }
+
+    let from_environment = Main::try_parse_from(["os", "build"])?;
+    assert_eq!(
+      os_label(from_environment).as_deref(),
+      Some("environment-label")
+    );
+
+    let explicit =
+      Main::try_parse_from(["os", "build", "--label", "explicit label"])?;
+    assert_eq!(os_label(explicit).as_deref(), Some("explicit-label"));
+
     Ok(())
   }
 }

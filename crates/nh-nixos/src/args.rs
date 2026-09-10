@@ -11,7 +11,7 @@ use nh_installable::{CommandContext, InstallableArgs};
 use nh_remote::RemoteHost;
 use pound::Parse;
 
-use crate::generations::Field;
+use crate::{generations::Field, label::GenerationLabel};
 
 #[derive(Parse, Debug)]
 /// `NixOS` functionality
@@ -39,7 +39,9 @@ impl OsArgs {
           Box::new(LegacyFeatures)
         }
       },
-      OsSubcommand::Build { args }
+      OsSubcommand::Build {
+        args: OsBuildArgs { rebuild: args, .. },
+      }
       | OsSubcommand::DryActivate {
         args: OsDryActivateArgs { rebuild: args, .. },
       } => {
@@ -100,7 +102,7 @@ pub enum OsSubcommand {
   /// Build the new configuration
   Build {
     #[pound(flatten)]
-    args: OsRebuildArgs,
+    args: OsBuildArgs,
   },
 
   /// Load system in a repl
@@ -132,6 +134,42 @@ pub enum OsSubcommand {
     #[pound(flatten)]
     args: OsBuildImageArgs,
   },
+}
+
+#[derive(Debug, Parse)]
+pub struct OsBuildArgs {
+  #[pound(flatten)]
+  pub rebuild: OsRebuildArgs,
+
+  #[pound(flatten)]
+  pub label: OsLabelArgs,
+}
+
+#[derive(Debug, Default, Parse)]
+pub struct OsLabelArgs {
+  /// Set the NixOS system label for this build
+  ///
+  /// Whitespace is converted to `-`. The label otherwise accepts only letters,
+  /// numbers, and `:`, `_`, `.`, or `-`, as required by NixOS. This uses the
+  /// native `NIXOS_LABEL` evaluation variable and makes evaluation impure. An
+  /// explicit `system.nixos.label` module definition takes precedence.
+  #[pound(long, env = "NIXOS_LABEL", value_name = "LABEL")]
+  label: Option<GenerationLabel>,
+}
+
+impl OsLabelArgs {
+  /// Return the normalized generation label, if one was requested.
+  #[must_use]
+  pub fn label(&self) -> Option<&str> {
+    self.label.as_ref().map(GenerationLabel::as_str)
+  }
+
+  pub(crate) fn label_with_report(&self) -> Option<&GenerationLabel> {
+    if let Some(label) = &self.label {
+      label.report_normalization();
+    }
+    self.label.as_ref()
+  }
 }
 
 #[derive(Debug, Parse)]
@@ -225,6 +263,9 @@ pub struct OsDryActivateArgs {
 pub struct OsRebuildActivateArgs {
   #[pound(flatten)]
   pub rebuild: OsRebuildArgs,
+
+  #[pound(flatten)]
+  pub label: OsLabelArgs,
 
   /// Install bootloader for switch and boot commands
   #[pound(long)]
