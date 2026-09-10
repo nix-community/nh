@@ -376,6 +376,11 @@ the common variables that you may encounter or choose to employ are as follows:
 - `NIXOS_NO_CHECK` - Forwarded to `switch-to-configuration` during activation.
   Inhibits certain NixOS service checks.
 
+- `NIXOS_LABEL`
+  - Label used by `nh os build`, `test`, `boot`, and `switch`. Equivalent to
+    `--label`. Leading and trailing whitespace is stripped, the rest replaced by
+    `-`. The resulting label must only contain ASCII characters.
+
 ### NH Specific
 
 - `NH_ASK`
@@ -384,11 +389,11 @@ the common variables that you may encounter or choose to employ are as follows:
     `false`, `no`, or `off` disable it. Equivalent to `--ask`.
 
 - `NH_NOM`
-  - Forces whether `nix-output-monitor` (nom) is used. Without it, nom runs
-    only when stdout is a terminal, and stays off when stdout is a pipe or file,
-    such as in CI or under an agent. Set to `1`, `true`, `yes`, or `on` to force
-    nom on, or `0`, `false`, `no`, or `off` to force it off. `--no-nom` still
-    takes precedence.
+  - Forces whether `nix-output-monitor` (nom) is used. Without it, nom runs only
+    when stdout is a terminal, and stays off when stdout is a pipe or file, such
+    as in CI or under an agent. Set to `1`, `true`, `yes`, or `on` to force nom
+    on, or `0`, `false`, `no`, or `off` to force it off. `--no-nom` still takes
+    precedence.
 
 - `NH_NO_CHECKS`
   - When set (any non-empty value), skips startup checks such as Nix version and

@@ -13,7 +13,7 @@ use nh_core::{
 use nh_installable::{CommandContext, InstallableArgs};
 use nh_remote::RemoteHost;
 
-use crate::generations::Field;
+use crate::{generations::Field, label::GenerationLabel};
 
 #[derive(Args, Debug)]
 #[clap(verbatim_doc_comment)]
@@ -43,7 +43,7 @@ impl OsArgs {
         }
       },
       OsSubcommand::Build(args) => {
-        if args.uses_flakes() {
+        if args.rebuild.uses_flakes() {
           Box::new(FlakeFeatures)
         } else {
           Box::new(LegacyFeatures)
@@ -83,7 +83,7 @@ pub enum OsSubcommand {
   Test(OsRebuildActivateArgs),
 
   /// Build the new configuration
-  Build(OsRebuildArgs),
+  Build(OsBuildArgs),
 
   /// Load system in a repl
   Repl(OsReplArgs),
@@ -99,6 +99,42 @@ pub enum OsSubcommand {
 
   /// Build a `NixOS` disk-image variant
   BuildImage(OsBuildImageArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct OsBuildArgs {
+  #[command(flatten)]
+  pub rebuild: OsRebuildArgs,
+
+  #[command(flatten)]
+  pub label: OsLabelArgs,
+}
+
+#[derive(Debug, Args)]
+pub struct OsLabelArgs {
+  /// Set the NixOS system label for this build
+  ///
+  /// Whitespace is converted to `-`. The label otherwise accepts only letters,
+  /// numbers, and `:`, `_`, `.`, or `-`, as required by NixOS. This uses the
+  /// native `NIXOS_LABEL` evaluation variable and makes evaluation impure. An
+  /// explicit `system.nixos.label` module definition takes precedence.
+  #[arg(long, env = "NIXOS_LABEL", value_name = "LABEL")]
+  label: Option<GenerationLabel>,
+}
+
+impl OsLabelArgs {
+  /// Return the normalized generation label, if one was requested.
+  #[must_use]
+  pub fn label(&self) -> Option<&str> {
+    self.label.as_ref().map(GenerationLabel::as_str)
+  }
+
+  pub(crate) fn label_with_report(&self) -> Option<&GenerationLabel> {
+    if let Some(label) = &self.label {
+      label.report_normalization();
+    }
+    self.label.as_ref()
+  }
 }
 
 #[derive(Debug, Args)]
@@ -179,6 +215,9 @@ pub struct OsRebuildArgs {
 pub struct OsRebuildActivateArgs {
   #[command(flatten)]
   pub rebuild: OsRebuildArgs,
+
+  #[command(flatten)]
+  pub label: OsLabelArgs,
 
   /// Show activation logs
   #[arg(long, env = "NH_SHOW_ACTIVATION_LOGS", value_parser = clap::builder::BoolishValueParser::new())]

@@ -19,12 +19,13 @@ use nh_core::{
 };
 use nh_diff::{handle_nixos_diff, print_dix_diff};
 use nh_installable::{CommandContext, Installable};
-use nh_remote::{self, RemoteBuildConfig, RemoteHost};
+use nh_remote::{self, EvaluationOptions, RemoteBuildConfig, RemoteHost};
 use tracing::{debug, info, warn};
 
 use crate::{
   args::{
     self,
+    OsBuildArgs,
     OsBuildImageArgs,
     OsBuildVmArgs,
     OsGenerationsArgs,
@@ -35,6 +36,7 @@ use crate::{
     OsSubcommand::{self},
   },
   generations,
+  label::GenerationLabel,
 };
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
@@ -85,7 +87,7 @@ impl args::OsArgs {
         args.rebuild_and_activate(&Switch, None, elevation)
       },
       OsSubcommand::Build(args) => {
-        if args.common.ask || args.common.dry {
+        if args.rebuild.common.ask || args.rebuild.common.dry {
           warn!("`--ask` and `--dry` have no effect for `nh os build`");
         }
         args.build_only(&Build, None, &elevation)
@@ -138,6 +140,7 @@ impl OsBuildVmArgs {
       &OsRebuildVariant::BuildVm,
       Some(&[attr]),
       elevation,
+      None,
     )?;
 
     // If --run flag is set, execute the VM
@@ -146,6 +149,20 @@ impl OsBuildVmArgs {
     }
 
     Ok(())
+  }
+}
+
+impl OsBuildArgs {
+  fn build_only(
+    self,
+    variant: &OsRebuildVariant,
+    final_attrs: Option<&[&str]>,
+    elevation: &ElevationStrategy,
+  ) -> Result<()> {
+    let label = self.label.label_with_report();
+    self
+      .rebuild
+      .build_only(variant, final_attrs, elevation, label)
   }
 }
 
@@ -159,15 +176,19 @@ impl OsRebuildActivateArgs {
   ) -> Result<()> {
     use OsRebuildVariant::{Build, BuildVm};
 
+    let label = self.label.label_with_report();
+
     let (local_elevate, target_hostname) =
       self.rebuild.setup_build_context(&elevation)?;
 
     let (out_path, _tempdir_guard) =
       self.rebuild.determine_output_path(variant)?;
 
-    let toplevel = self
-      .rebuild
-      .resolve_installable_and_toplevel(&target_hostname, final_attrs)?;
+    let toplevel = self.rebuild.resolve_installable_and_toplevel(
+      &target_hostname,
+      final_attrs,
+      label,
+    )?;
 
     if self.rebuild.update_args.update_all
       || self.rebuild.update_args.update_input.is_some()
@@ -217,8 +238,9 @@ impl OsRebuildActivateArgs {
       local_elevate
     };
 
-    let actual_store_path =
-      self.rebuild.execute_build(toplevel, &out_path, message)?;
+    let actual_store_path = self
+      .rebuild
+      .execute_build(toplevel, &out_path, message, label)?;
 
     let target_profile =
       self.rebuild.resolve_specialisation_and_profile(&out_path)?;
@@ -601,12 +623,17 @@ impl OsRebuildArgs {
     &self,
     target_hostname: &str,
     final_attrs: Option<&[&str]>,
+    label: Option<&GenerationLabel>,
   ) -> Result<Installable> {
     let installable = self
       .common
       .installable
       .clone()
       .resolve_or_default(CommandContext::Os)?;
+
+    if let Some(label) = label {
+      label.ensure_evaluable(&installable)?;
+    }
 
     toplevel_for(
       target_hostname,
@@ -620,6 +647,7 @@ impl OsRebuildArgs {
     toplevel: Installable,
     out_path: &Path,
     message: &str,
+    label: Option<&GenerationLabel>,
   ) -> Result<Option<PathBuf>> {
     // If a build host is specified, use proper remote build semantics:
     //
@@ -650,25 +678,38 @@ impl OsRebuildArgs {
           .collect(),
       };
 
-      let actual_store_path = nh_remote::build_remote_with_args(
+      let evaluation_args = self.common.passthrough.generate_evaluation_args();
+      let evaluation = label.map_or_else(
+        || EvaluationOptions::new(&evaluation_args),
+        |label| {
+          let (key, value) = label.environment();
+          EvaluationOptions::new(&evaluation_args)
+            .env(key, value)
+            .impure(true)
+        },
+      );
+      let actual_store_path = nh_remote::build_remote_with_options(
         &toplevel,
         &config,
         Some(out_path),
-        &self.common.passthrough.generate_evaluation_args(),
+        &evaluation,
       )?;
 
       Ok(Some(actual_store_path))
     } else {
-      // Local build - use the existing path
-      command::Build::new(toplevel)
+      let mut build = command::Build::new(toplevel)
         .extra_arg("--out-link")
         .extra_arg(out_path)
         .extra_args(&self.extra_args)
         .passthrough(&self.common.passthrough)
         .message(message)
-        .nom(use_nom(self.common.no_nom))
-        .run()
-        .wrap_err("Failed to build configuration")?;
+        .nom(use_nom(self.common.no_nom));
+
+      if let Some(label) = label {
+        build = label.configure_build(build);
+      }
+
+      build.run().wrap_err("Failed to build configuration")?;
 
       Ok(None) // Local builds don't have separate store path
     }
@@ -749,6 +790,7 @@ impl OsRebuildArgs {
     variant: &OsRebuildVariant,
     final_attrs: Option<&[&str]>,
     elevation: &ElevationStrategy,
+    label: Option<&GenerationLabel>,
   ) -> Result<()> {
     use OsRebuildVariant::{Build, BuildIso, BuildVm};
 
@@ -756,8 +798,11 @@ impl OsRebuildArgs {
 
     let (out_path, _tempdir_guard) = self.determine_output_path(variant)?;
 
-    let toplevel =
-      self.resolve_installable_and_toplevel(&target_hostname, final_attrs)?;
+    let toplevel = self.resolve_installable_and_toplevel(
+      &target_hostname,
+      final_attrs,
+      label,
+    )?;
 
     if self.update_args.update_all || self.update_args.update_input.is_some() {
       update_with_args(
@@ -778,7 +823,8 @@ impl OsRebuildArgs {
       _ => "Building NixOS configuration",
     };
 
-    let actual_store_path = self.execute_build(toplevel, &out_path, message)?;
+    let actual_store_path =
+      self.execute_build(toplevel, &out_path, message, label)?;
 
     let target_profile = self.resolve_specialisation_and_profile(&out_path)?;
 
@@ -1018,6 +1064,7 @@ impl OsBuildImageArgs {
       &OsRebuildVariant::BuildIso,
       Some(&attrs),
       elevation,
+      None,
     )?;
 
     Ok(())
