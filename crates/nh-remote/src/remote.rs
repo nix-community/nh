@@ -1503,7 +1503,7 @@ pub struct RemoteBuildConfig {
 /// This implements the `build_remote_flake` workflow from nixos-rebuild-ng:
 /// 1. Evaluate drvPath locally via `nix eval --raw`
 /// 2. Copy the derivation to the build host via `nix copy`
-/// 3. Build on remote host via `nix build <drv>^* --print-out-paths`
+/// 3. Build on remote host via `nix build <drv>^* --no-link --print-out-paths`
 /// 4. Copy the result back (to localhost or `target_host`)
 ///
 /// Returns the output path in the Nix store.
@@ -1640,7 +1640,7 @@ fn build_on_remote(
   drv_path: &Path,
   config: &RemoteBuildConfig,
 ) -> Result<String> {
-  // Build command: nix build <drv>^* --print-out-paths [extra_args...]
+  // Build command: nix build <drv>^* --no-link --print-out-paths [extra_args...]
   let drv_with_outputs = format!("{}^*", drv_path.display());
 
   if config.use_nom {
@@ -1676,6 +1676,7 @@ fn build_nix_command(
       .print_build_logs(false)
       .global_args(get_flake_flags())
       .arg(drv_with_outputs)
+      .args(["--no-link"])
       .args(extra_args_strings)
       .args(extra_flags),
   )
@@ -1984,7 +1985,21 @@ mod tests {
       .unwrap();
 
     assert!(build.iter().any(|arg| arg == "--no-net"));
+    assert!(build.iter().any(|arg| arg == "--no-link"));
     assert!(profile.iter().any(|arg| arg == "--no-net"));
+  }
+
+  #[test]
+  fn remote_print_out_paths_build_includes_no_link() {
+    let build = build_nix_command(
+      "/nix/store/example.drv^*",
+      &["--print-out-paths"],
+      &[],
+    )
+    .unwrap();
+
+    assert!(build.iter().any(|arg| arg == "--print-out-paths"));
+    assert!(build.iter().any(|arg| arg == "--no-link"));
   }
 
   #[test]

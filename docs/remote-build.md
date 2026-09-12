@@ -182,8 +182,11 @@ When you use `--build-host`, `nh` follows this process:
 1. **Evaluate** the derivation path locally using
    `nix eval --raw <flake>.drvPath`
 2. **Copy derivation** to the build host using `nix copy --to`
-3. **Build remotely** by running `nix build <drv>^* --print-out-paths` on the
-   build host
+3. **Build remotely** by running
+   `nix build <drv>^* --no-link --print-out-paths` on the build host.
+   `--print-out-paths` does not suppress the default `./result` link; `--no-link`
+   does. That matters when the build host is also the target and the invoking
+   user has no writable home.
 4. **Copy result** back based on the deployment scenario (see below)
 
 ### Copy Optimization
