@@ -18,6 +18,10 @@ functionality, under the "Removed" section.
 
 ### Added
 
+- `nh darwin rollback` activates the previous retained system generation without
+  rebuilding. Use `--to <generation>` to select a specific generation, `--dry`
+  to preview the operation, or `--ask` to confirm it
+  ([#784](https://github.com/nix-community/nh/issues/784)).
 - `nh os switch`/`nh os boot` now accept `--continue-on-activation-failure`
   (`NH_CONTINUE_ON_ACTIVATION_FAILURE`). During a switch, activation runs before
   the new generation is added to the bootloader; a failed activation previously
