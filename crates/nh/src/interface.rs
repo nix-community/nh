@@ -68,6 +68,9 @@ pub enum NHCommand {
   Darwin(nh_darwin::args::DarwinArgs),
   Search(nh_search::args::SearchArgs),
   Clean(nh_clean::args::CleanProxy),
+
+  #[command(name = "__single-elevation", hide = true)]
+  SingleElevation(nh_nixos::args::SingleElevationArgs),
 }
 
 impl NHCommand {
@@ -77,7 +80,9 @@ impl NHCommand {
       Self::Os(args) => args.get_feature_requirements(),
       Self::Home(args) => args.get_feature_requirements(),
       Self::Darwin(args) => args.get_feature_requirements(),
-      Self::Search(..) | Self::Clean(..) => Box::new(NoFeatures),
+      Self::Search(..) | Self::Clean(..) | Self::SingleElevation(..) => {
+        Box::new(NoFeatures)
+      },
     }
   }
 
@@ -98,6 +103,7 @@ impl NHCommand {
       Self::Clean(proxy) => proxy.command.run(elevation),
       Self::Home(args) => args.run(),
       Self::Darwin(args) => args.run(elevation),
+      Self::SingleElevation(args) => args.run(),
     }
   }
 }
@@ -106,26 +112,33 @@ impl NHCommand {
 mod tests {
   use std::{env, ffi::OsString};
 
-  use clap::{Parser, error::ErrorKind};
+  use clap::{CommandFactory, Parser, error::ErrorKind};
   use nh_clean::args::CleanMode;
+  use nh_nixos::args::OsSubcommand;
   use serial_test::serial;
 
   use super::{Main, NHCommand};
 
-  struct EnvGuard(Option<OsString>);
+  struct EnvGuard {
+    name:  &'static str,
+    value: Option<OsString>,
+  }
 
   impl EnvGuard {
-    fn new() -> Self {
-      Self(env::var_os("NH_ASK"))
+    fn new(name: &'static str) -> Self {
+      Self {
+        name,
+        value: env::var_os(name),
+      }
     }
   }
 
   impl Drop for EnvGuard {
     fn drop(&mut self) {
       unsafe {
-        match &self.0 {
-          Some(value) => env::set_var("NH_ASK", value),
-          None => env::remove_var("NH_ASK"),
+        match &self.value {
+          Some(value) => env::set_var(self.name, value),
+          None => env::remove_var(self.name),
         }
       }
     }
@@ -134,7 +147,7 @@ mod tests {
   #[test]
   #[serial]
   fn nh_ask_parses_boolish_environment_values() -> clap::error::Result<()> {
-    let _guard = EnvGuard::new();
+    let _guard = EnvGuard::new("NH_ASK");
 
     for (value, expected) in
       [("1", true), ("true", true), ("0", false), ("false", false)]

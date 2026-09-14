@@ -135,8 +135,9 @@ set the following configuration:
 ```nix
 {
   programs.nh = {
-    enable = true;
-    clean.enable = true;
+      enable = true;
+      singleElevation = true;
+      clean.enable = true;
     clean.extraArgs = "--keep-since 4d --keep 3";
     flake = "/home/user/my-nixos-config"; # sets NH_OS_FLAKE variable for you
   };
@@ -438,6 +439,12 @@ the common variables that you may encounter or choose to employ are as follows:
     generation is not added to the bootloader. Setting this to `"1"` (or passing
     `--continue-on-activation-failure`) continues to the bootloader step
     regardless, so the generation is still bootable on next reboot.
+
+- `NH_SINGLE_ELEVATION`
+  - Runs the privileged local steps of `nh os switch` under one elevation
+    command. Setting this to `"1"` has the same effect as passing
+    `--single-elevation`. Pass `--no-single-elevation` for remote switches when
+    the variable is enabled globally.
 
 - `NH_LOG`
   - Sets the tracing/log filter for NH. This uses the same format as

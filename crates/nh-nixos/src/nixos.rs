@@ -1,5 +1,7 @@
 use std::{
   convert::Into,
+  env,
+  ffi::OsString,
   fs,
   path::{Path, PathBuf},
 };
@@ -38,6 +40,7 @@ use crate::{
     OsReplArgs,
     OsRollbackArgs,
     OsSubcommand::{self},
+    SingleElevationArgs,
   },
   generations,
 };
@@ -81,13 +84,18 @@ impl args::OsArgs {
     use OsRebuildVariant::{Boot, Build, Switch, Test};
     match self.subcommand {
       OsSubcommand::Boot(args) => {
-        args.rebuild_and_activate(&Boot, None, elevation)
+        args.rebuild_and_activate(&Boot, None, elevation, false)
       },
       OsSubcommand::Test(args) => {
-        args.rebuild_and_activate(&Test, None, elevation)
+        args.rebuild_and_activate(&Test, None, elevation, false)
       },
       OsSubcommand::Switch(args) => {
-        args.rebuild_and_activate(&Switch, None, elevation)
+        args.activate.rebuild_and_activate(
+          &Switch,
+          None,
+          elevation,
+          args.single_elevation && !args.no_single_elevation,
+        )
       },
       OsSubcommand::Build(args) => {
         if args.common.ask || args.common.dry {
@@ -112,6 +120,161 @@ enum OsRebuildVariant {
   Test,
   BuildVm,
   BuildIso,
+}
+
+struct SwitchCommands {
+  activation: Command,
+  profile:    Command,
+  boot:       Command,
+}
+
+impl SingleElevationArgs {
+  /// Run the privileged switch steps in the already elevated process.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error when the process is not root or a switch step fails.
+  pub fn run(self) -> Result<()> {
+    if !nix::unistd::Uid::effective().is_root() {
+      bail!("The internal single-elevation command requires root privileges");
+    }
+
+    run_switch_commands(
+      &build_switch_commands(&self, None),
+      self.continue_on_activation_failure,
+    )
+  }
+
+  fn run_elevated(&self, elevation: ElevationStrategy) -> Result<()> {
+    let current_exe =
+      env::current_exe().context("Failed to get current executable path")?;
+    Command::new(current_exe)
+      .args(self.command_args())
+      .elevate(Some(elevation))
+      .message("Activating and installing configuration")
+      .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
+      .with_required_env()
+      .show_output(true)
+      .run()
+      .wrap_err("NixOS switch failed")
+  }
+
+  fn command_args(&self) -> Vec<OsString> {
+    self.command_args_with_verbosity(forwarded_verbosity_args(env::args_os()))
+  }
+
+  fn command_args_with_verbosity(
+    &self,
+    mut command_args: Vec<OsString>,
+  ) -> Vec<OsString> {
+    command_args.extend([
+      OsString::from("__single-elevation"),
+      OsString::from("--switch-to-configuration"),
+      self.switch_to_configuration.as_os_str().to_owned(),
+      OsString::from("--system"),
+      self.system.as_os_str().to_owned(),
+    ]);
+
+    if self.continue_on_activation_failure {
+      command_args.push(OsString::from("--continue-on-activation-failure"));
+    }
+    if self.install_bootloader {
+      command_args.push(OsString::from("--install-bootloader"));
+    }
+    if self.show_activation_logs {
+      command_args.push(OsString::from("--show-activation-logs"));
+    }
+    command_args.push(OsString::from("--"));
+    command_args.extend(self.nix_args.iter().cloned());
+    command_args
+  }
+}
+
+fn forwarded_verbosity_args(
+  args: impl IntoIterator<Item = OsString>,
+) -> Vec<OsString> {
+  args
+    .into_iter()
+    .take_while(|arg| arg != "--")
+    .filter(|arg| {
+      arg.to_str().is_some_and(|arg| {
+        matches!(arg, "--verbose" | "--quiet")
+          || arg.strip_prefix('-').is_some_and(|short| {
+            !short.is_empty()
+              && short.chars().all(|flag| matches!(flag, 'v' | 'q'))
+          })
+      })
+    })
+    .collect()
+}
+
+fn build_switch_commands(
+  args: &SingleElevationArgs,
+  elevation: Option<ElevationStrategy>,
+) -> SwitchCommands {
+  let activation = Command::new(&args.switch_to_configuration)
+    .arg("test")
+    .message("Activating configuration")
+    .elevate(elevation.clone())
+    .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
+    .with_required_env()
+    .show_output(args.show_activation_logs);
+
+  let (binary, profile_args, _) = NixCommand::new(CommandKind::Build)
+    .print_build_logs(false)
+    .args(["--no-link", "--profile", SYSTEM_PROFILE])
+    .arg(&args.system)
+    .args(&args.nix_args)
+    .into_parts();
+  let profile = Command::new(binary)
+    .args(profile_args)
+    .elevate(elevation.clone())
+    .with_required_env();
+
+  let mut boot = Command::new(&args.switch_to_configuration)
+    .arg("boot")
+    .elevate(elevation)
+    .message("Adding configuration to bootloader")
+    .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"]);
+  if args.install_bootloader {
+    boot = boot.set_env("NIXOS_INSTALL_BOOTLOADER", "1");
+  }
+
+  SwitchCommands {
+    activation,
+    profile,
+    boot: boot.with_required_env(),
+  }
+}
+
+fn run_switch_commands(
+  commands: &SwitchCommands,
+  continue_on_activation_failure: bool,
+) -> Result<()> {
+  if let Err(error) = commands
+    .activation
+    .run()
+    .wrap_err("Activation (test) failed")
+  {
+    if continue_on_activation_failure {
+      warn!("{error:?}");
+      warn!(
+        "Activation failed, adding the generation to the bootloader anyway"
+      );
+    } else {
+      warn!(
+        "Activation failed, the new generation will not be added to the \
+         bootloader. Pass --continue-on-activation-failure to override"
+      );
+      return Err(error);
+    }
+  }
+
+  commands
+    .profile
+    .run()
+    .wrap_err("Failed to set system profile")?;
+  commands.boot.run().wrap_err("Bootloader activation failed")
 }
 
 impl OsBuildVmArgs {
@@ -161,8 +324,13 @@ impl OsRebuildActivateArgs {
     variant: &OsRebuildVariant,
     final_attrs: Option<&[&str]>,
     elevation: ElevationStrategy,
+    single_elevation: bool,
   ) -> Result<()> {
     use OsRebuildVariant::{Build, BuildVm};
+
+    if single_elevation && self.rebuild.target_host.is_some() {
+      bail!("--single-elevation is not supported with --target-host");
+    }
 
     let (local_elevate, target_hostname) =
       self.rebuild.setup_build_context(&elevation)?;
@@ -255,6 +423,7 @@ impl OsRebuildActivateArgs {
       &target_profile,
       actual_store_path.as_deref(),
       elevate.then_some(elevation),
+      single_elevation,
     )?;
 
     Ok(())
@@ -267,6 +436,7 @@ impl OsRebuildActivateArgs {
     target_profile: &Path,
     actual_store_path: Option<&Path>,
     elevation: Option<ElevationStrategy>,
+    single_elevation: bool,
   ) -> Result<()> {
     use OsRebuildVariant::{Boot, Switch, Test};
 
@@ -366,15 +536,45 @@ impl OsRebuildActivateArgs {
         .context("Failed to resolve switch-to-configuration path")?
     };
 
-    let canonical_out_path =
-      switch_to_configuration.to_str().ok_or_else(|| {
-        eyre!("switch-to-configuration path contains invalid UTF-8")
-      })?;
+    if self.rebuild.target_host.is_none() && matches!(variant, Switch) {
+      let base_store_path = base_store_path.as_ref().map_or_else(
+        || {
+          out_path
+            .canonicalize()
+            .context("Failed to resolve base output path to store path")
+        },
+        |path| Ok(path.clone()),
+      )?;
+      let switch_args = SingleElevationArgs {
+        switch_to_configuration,
+        system: base_store_path,
+        continue_on_activation_failure: self.continue_on_activation_failure,
+        install_bootloader: self.rebuild.install_bootloader,
+        show_activation_logs: self.show_activation_logs,
+        nix_args: self
+          .rebuild
+          .common
+          .passthrough
+          .generate_passthrough_args()
+          .into_iter()
+          .map(OsString::from)
+          .collect(),
+      };
+
+      if single_elevation && let Some(elevation) = elevation.clone() {
+        return switch_args.run_elevated(elevation);
+      }
+
+      return run_switch_commands(
+        &build_switch_commands(&switch_args, elevation),
+        self.continue_on_activation_failure,
+      );
+    }
 
     if let Test | Switch = variant {
       let activation_result = self.rebuild.target_host.as_ref().map_or_else(
         || {
-          Command::new(canonical_out_path)
+          Command::new(&switch_to_configuration)
             .arg("test")
             .message("Activating configuration")
             .elevate(elevation.clone())
@@ -448,11 +648,11 @@ impl OsRebuildActivateArgs {
           target_host,
           &resolved_profile,
           &nh_remote::ActivateRemoteConfig {
-            platform:           nh_remote::Platform::NixOS,
-            activation_type:    nh_remote::ActivationType::Boot,
+            platform: nh_remote::Platform::NixOS,
+            activation_type: nh_remote::ActivationType::Boot,
             install_bootloader: self.rebuild.install_bootloader,
-            show_logs:          false,
-            elevation:          elevation.clone(),
+            show_logs: false,
+            elevation,
           },
           &self.rebuild.common.passthrough.generate_passthrough_args(),
         )

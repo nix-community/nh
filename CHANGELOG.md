@@ -18,6 +18,11 @@ functionality, under the "Removed" section.
 
 ### Added
 
+- `nh os switch` now accepts `--single-elevation` (`NH_SINGLE_ELEVATION`). It
+  runs activation, profile installation, and the bootloader update under one
+  elevation command. Elevation programs without cached authorization now require
+  only one authentication prompt.
+
 - `nh os switch`/`nh os boot` now accept `--continue-on-activation-failure`
   (`NH_CONTINUE_ON_ACTIVATION_FAILURE`). During a switch, activation runs before
   the new generation is added to the bootloader; a failed activation previously
