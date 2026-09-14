@@ -254,8 +254,7 @@ impl OsRebuildActivateArgs {
       &out_path,
       &target_profile,
       actual_store_path.as_deref(),
-      elevate,
-      elevation,
+      elevate.then_some(elevation),
     )?;
 
     Ok(())
@@ -267,8 +266,7 @@ impl OsRebuildActivateArgs {
     out_path: &Path,
     target_profile: &Path,
     actual_store_path: Option<&Path>,
-    elevate: bool,
-    elevation: ElevationStrategy,
+    elevation: Option<ElevationStrategy>,
   ) -> Result<()> {
     use OsRebuildVariant::{Boot, Switch, Test};
 
@@ -379,7 +377,7 @@ impl OsRebuildActivateArgs {
           Command::new(canonical_out_path)
             .arg("test")
             .message("Activating configuration")
-            .elevate(elevate.then_some(elevation.clone()))
+            .elevate(elevation.clone())
             .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
             .with_required_env()
             .show_output(self.show_activation_logs)
@@ -402,7 +400,7 @@ impl OsRebuildActivateArgs {
               activation_type,
               install_bootloader: false,
               show_logs: self.show_activation_logs,
-              elevation: elevate.then_some(elevation.clone()),
+              elevation: elevation.clone(),
             },
             &self.rebuild.common.passthrough.generate_passthrough_args(),
           )
@@ -454,7 +452,7 @@ impl OsRebuildActivateArgs {
             activation_type:    nh_remote::ActivationType::Boot,
             install_bootloader: self.rebuild.install_bootloader,
             show_logs:          false,
-            elevation:          elevate.then_some(elevation),
+            elevation:          elevation.clone(),
           },
           &self.rebuild.common.passthrough.generate_passthrough_args(),
         )
@@ -481,14 +479,14 @@ impl OsRebuildActivateArgs {
           .into_parts();
         Command::new(binary)
           .args(args)
-          .elevate(elevate.then_some(elevation.clone()))
+          .elevate(elevation.clone())
           .with_required_env()
           .run()
           .wrap_err("Failed to set system profile")?;
 
         let mut cmd = Command::new(switch_to_configuration)
           .arg("boot")
-          .elevate(elevate.then_some(elevation))
+          .elevate(elevation)
           .message("Adding configuration to bootloader")
           .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"]);
 
