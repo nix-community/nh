@@ -25,9 +25,15 @@ functionality, under the "Removed" section.
   this flag set, nh warns and still adds the generation to the bootloader so it
   is available on the next reboot. Without it, nh now emits an explicit warning
   that the generation was not added to the bootloader.
+- `nix-installable` now provides reusable parsing and argument rendering for
+  flake references, Nix files, expressions, and store paths. The previous
+  `nh-installable` crate reuses this public crate.
 
 ### Fixed
 
+- Image variant discovery for Nix files now escapes backslashes, double quotes,
+  and `${` in file paths before generating Nix source
+  ([#785](https://github.com/nix-community/nh/pull/785)).
 - `nh os`, `nh home`, and `nh darwin` now preserve applicable Nix passthrough
   arguments across evaluation, updates, remote copying and builds, and profile
   installation. Multi-step and remote rebuilds no longer drop network
