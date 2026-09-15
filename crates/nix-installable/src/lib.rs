@@ -131,7 +131,9 @@ pub fn parse_attribute(input: &str) -> Result<Vec<String>, ParseError> {
 ///
 /// The reference is everything before the first `#`; the remainder is parsed as
 /// an attribute path with [`parse_attribute`]. When there is no `#`, the whole
-/// input is the reference and the attribute path is empty.
+/// input is the reference and the attribute path is empty. Query parameters
+/// belong before `#` and are preserved in the reference. A `?` after `#` is
+/// part of the attribute name, not a query delimiter.
 ///
 /// # Errors
 ///
@@ -390,6 +392,36 @@ mod tests {
       parse_flake_reference("nixpkgs#legacyPackages.hello").unwrap();
     assert_eq!(reference, "nixpkgs");
     assert_eq!(attribute, ["legacyPackages", "hello"]);
+  }
+
+  #[test]
+  fn parse_flake_reference_preserves_query_and_attribute_boundaries()
+  -> Result<(), Box<dyn std::error::Error>> {
+    for (input, expected_reference, expected_attribute) in [
+      (
+        "/path/to/flake?foo=bar#ref",
+        "/path/to/flake?foo=bar",
+        "ref",
+      ),
+      (
+        "/path/to/flake#ref?foo=bar",
+        "/path/to/flake",
+        "ref?foo=bar",
+      ),
+    ] {
+      let (reference, attribute) = parse_flake_reference(input)?;
+      assert_eq!(reference, expected_reference);
+      assert_eq!(attribute, [expected_attribute]);
+      assert_eq!(
+        (Installable::Flake {
+          reference,
+          attribute
+        })
+        .to_args()?,
+        [input]
+      );
+    }
+    Ok(())
   }
 
   #[test]
