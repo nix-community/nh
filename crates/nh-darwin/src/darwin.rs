@@ -1,6 +1,13 @@
 pub mod args;
+mod rollback;
 
-use std::{convert::Into, path::PathBuf};
+use std::{
+  convert::Into,
+  fs,
+  io,
+  os::unix::fs::PermissionsExt,
+  path::{Path, PathBuf},
+};
 
 use args::{DarwinArgs, DarwinRebuildArgs, DarwinReplArgs, DarwinSubcommand};
 use color_eyre::{
@@ -57,6 +64,7 @@ impl DarwinArgs {
         args.rebuild(&Build, elevation)
       },
       DarwinSubcommand::Repl(args) => args.run(),
+      DarwinSubcommand::Rollback(args) => args.rollback(elevation),
     }
   }
 }
@@ -79,6 +87,7 @@ impl DarwinRebuildArgs {
         "Don't run nh darwin as root. I will call sudo internally as needed"
       );
     }
+    let elevation = elevation_if_needed(elevation);
 
     let hostname = get_hostname(self.hostname)?;
 
@@ -157,7 +166,15 @@ impl DarwinRebuildArgs {
 
     let target_profile = out_path.clone();
 
-    target_profile.try_exists().context("Doesn't exist")?;
+    if !target_profile
+      .try_exists()
+      .context("Failed to check build output")?
+    {
+      bail!(
+        "Darwin build output does not exist: {}",
+        target_profile.display()
+      );
+    }
 
     debug!(
       "Comparing with target profile: {}",
@@ -186,6 +203,13 @@ impl DarwinRebuildArgs {
     }
 
     if matches!(variant, Switch) {
+      let activation = activation_command(
+        &out_path,
+        elevation.clone(),
+        self.show_activation_logs,
+      )?
+      .dry(self.common.dry);
+
       let (binary, args, _) = NixCommand::new(CommandKind::Build)
         .print_build_logs(false)
         .args(["--no-link", "--profile", SYSTEM_PROFILE])
@@ -194,38 +218,77 @@ impl DarwinRebuildArgs {
         .into_parts();
       Command::new(binary)
         .args(args)
-        .elevate(Some(elevation.clone()))
+        .elevate(elevation)
         .dry(self.common.dry)
         .with_required_env()
         .run()
         .wrap_err("Failed to set Darwin system profile")?;
 
-      let darwin_rebuild = out_path.join("sw/bin/darwin-rebuild");
-      let activate_user = out_path.join("activate-user");
-
-      // Determine if we need to elevate privileges
-      let needs_elevation = !activate_user
-        .try_exists()
-        .context("Failed to check if activate-user file exists")?
-        || std::fs::read_to_string(&activate_user)
-          .context("Failed to read activate-user file")?
-          .contains("# nix-darwin: deprecated");
-
-      // Create and run the activation command with or without elevation
-      Command::new(darwin_rebuild)
-        .arg("activate")
-        .message("Activating configuration")
-        .elevate(needs_elevation.then_some(elevation))
-        .dry(self.common.dry)
-        .show_output(self.show_activation_logs)
-        .with_required_env()
-        .run()
-        .wrap_err("Darwin activation failed")?;
+      activation.run().wrap_err("Darwin activation failed")?;
     }
 
     debug!("Completed operation with output path: {out_path:?}");
 
     Ok(())
+  }
+}
+
+/// Prepare activation before changing the system profile.
+fn activation_command(
+  system: &Path,
+  elevation: Option<ElevationStrategy>,
+  show_logs: bool,
+) -> Result<Command> {
+  let darwin_rebuild = system.join("sw/bin/darwin-rebuild");
+  for executable in [&darwin_rebuild, &system.join("activate")] {
+    let metadata = fs::metadata(executable).with_context(|| {
+      format!(
+        "Missing Darwin activation executable: {}",
+        executable.display()
+      )
+    })?;
+    if !metadata.is_file() || metadata.permissions().mode() & 0o111 == 0 {
+      bail!(
+        "Not a Darwin activation executable: {}",
+        executable.display()
+      );
+    }
+  }
+
+  let activate_user = system.join("activate-user");
+  let needs_elevation = match fs::read_to_string(&activate_user) {
+    Ok(script) => {
+      script
+        .lines()
+        .any(|line| line == "# nix-darwin: deprecated")
+    },
+    Err(error) if error.kind() == io::ErrorKind::NotFound => true,
+    Err(error) => {
+      return Err(error).with_context(|| {
+        format!("Failed to read {}", activate_user.display())
+      });
+    },
+  };
+
+  Ok(
+    Command::new(darwin_rebuild)
+      .arg("activate")
+      .message("Activating configuration")
+      .elevate(if needs_elevation { elevation } else { None })
+      .show_output(show_logs)
+      .with_required_env(),
+  )
+}
+
+fn elevation_if_needed(
+  elevation: ElevationStrategy,
+) -> Option<ElevationStrategy> {
+  if nix::unistd::Uid::effective().is_root()
+    || matches!(elevation, ElevationStrategy::None)
+  {
+    None
+  } else {
+    Some(elevation)
   }
 }
 

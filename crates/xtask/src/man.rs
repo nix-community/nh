@@ -167,6 +167,14 @@ const EXAMPLES: &[Entry] = &[
     "Switch to a darwin configuration",
     "nh darwin switch --hostname mymac",
   ),
+  (
+    "Roll back to the previous Darwin generation",
+    "nh darwin rollback",
+  ),
+  (
+    "Preview switching to a specific Darwin generation",
+    "nh darwin rollback --to 42 --dry",
+  ),
   ("Search for ripgrep", "nh search ripgrep"),
   (
     "Show supported platforms for a package",
