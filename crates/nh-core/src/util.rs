@@ -463,16 +463,21 @@ pub fn get_build_image_variants_with_args(
 ) -> Result<Vec<String>> {
   let expr = match installable {
     nh_installable::Installable::File { path, .. } => {
+      let path = path
+        .display()
+        .to_string()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace("${", "\\${");
       format!(
         r#"
 let
-  value = import "{}";
+  value = import "{path}";
   set = if builtins.isFunction value then value {{}} else value;
   config = set.nixosConfigurations."{hostname}" or set;
 in
   builtins.attrNames config.config.system.build.images
-        "#,
-        path.display(),
+        "#
       )
     },
     nh_installable::Installable::Expression { expression, .. } => {
@@ -604,7 +609,7 @@ mod tests {
   #[test]
   fn test_get_build_image_variants_file() {
     let test_file = tempfile::Builder::new()
-      .prefix("nh-test")
+      .prefix(r#"nh-test\"${throw "unexpected interpolation"}"#)
       .tempfile()
       .expect("Failed to create temp file");
     let test_content = r#"
