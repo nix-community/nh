@@ -18,6 +18,11 @@ functionality, under the "Removed" section.
 
 ### Added
 
+- `nh os` now supports a `--label` (`NIXOS_LABEL`) flag to label NixOS
+  generations with a custom label. E.g. one might want to label a generation
+  using `nh os switch --label "trying-my-new-feature"` to test out a new feature
+  and easily see the corresponding generation in the bootloader's generation
+  picker menu.
 - `nh os switch`/`nh os boot` now accept `--continue-on-activation-failure`
   (`NH_CONTINUE_ON_ACTIVATION_FAILURE`). During a switch, activation runs before
   the new generation is added to the bootloader; a failed activation previously

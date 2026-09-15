@@ -107,6 +107,13 @@ const ENVIRONMENT: &[Entry] = &[
      NixOS service checks.",
   ),
   (
+    "NIXOS_LABEL",
+    "One-shot NixOS system label for configurations built by nh os build, \
+     test, boot, or switch. Equivalent to --label, enables impure evaluation. \
+     Whitespace is normalized and the resulting label must only contain ASCII \
+     characters. An explicit system.nixos.label takes precedence.",
+  ),
+  (
     "NIX_SSHOPTS",
     "SSH options passed to Nix commands for remote builds. NH_SSHOPTS takes \
      precedence when both are set.",

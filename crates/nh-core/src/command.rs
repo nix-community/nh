@@ -971,6 +971,8 @@ pub struct Build {
   message:     Option<String>,
   installable: Installable,
   extra_args:  Vec<OsString>,
+  env:         Vec<(OsString, OsString)>,
+  impure:      bool,
   nom:         bool,
 }
 
@@ -981,6 +983,8 @@ impl Build {
       message: None,
       installable,
       extra_args: vec![],
+      env: vec![],
+      impure: false,
       nom: false,
     }
   }
@@ -1016,8 +1020,37 @@ impl Build {
   }
 
   #[must_use]
+  pub fn env<K: AsRef<OsStr>, V: AsRef<OsStr>>(
+    mut self,
+    key: K,
+    value: V,
+  ) -> Self {
+    self
+      .env
+      .push((key.as_ref().to_os_string(), value.as_ref().to_os_string()));
+    self
+  }
+
+  #[must_use]
+  pub const fn impure(mut self, yes: bool) -> Self {
+    self.impure = yes;
+    self
+  }
+
+  #[must_use]
   pub fn passthrough(self, passthrough: &NixBuildPassthroughArgs) -> Self {
     self.extra_args(passthrough.generate_passthrough_args())
+  }
+
+  /// Construct the underlying Nix command without executing it.
+  #[must_use]
+  pub fn to_nix_command(&self) -> NixCommand {
+    NixCommand::new(CommandKind::Build)
+      .print_build_logs(false)
+      .args(self.installable.to_args())
+      .args(&self.extra_args)
+      .envs(self.env.iter().map(|(key, value)| (key, value)))
+      .impure(self.impure)
   }
 
   /// Run the build command.
@@ -1030,13 +1063,7 @@ impl Build {
       info!("{m}");
     }
 
-    let installable_args = self.installable.to_args();
-
-    let base_command = NixCommand::new(CommandKind::Build)
-      .print_build_logs(false)
-      .args(&installable_args)
-      .args(&self.extra_args)
-      .to_exec();
+    let base_command = self.to_nix_command().to_exec();
 
     if self.nom {
       let pipeline = {
@@ -1617,7 +1644,13 @@ mod tests {
     assert!(build.message.is_none());
     assert_eq!(build.installable.to_args(), installable.to_args());
     assert!(build.extra_args.is_empty());
+    assert!(build.env.is_empty());
+    assert!(!build.impure);
     assert!(!build.nom);
+
+    let (_, args, env) = build.to_nix_command().into_parts();
+    assert!(!args.contains(&OsString::from("--impure")));
+    assert!(env.is_empty());
   }
 
   #[test]
@@ -1641,6 +1674,27 @@ mod tests {
       OsString::from("value")
     ]);
     assert!(build.nom);
+  }
+
+  #[test]
+  fn test_build_applies_environment_and_impurity() {
+    let installable = Installable::Flake {
+      reference: "github:user/repo".to_string(),
+      attribute: vec!["package".to_string()],
+    };
+
+    let command = Build::new(installable)
+      .env("TEST_KEY", "test-value")
+      .impure(true)
+      .nom(true)
+      .to_nix_command();
+    let (_, args, env) = command.into_parts();
+
+    assert!(args.contains(&OsString::from("--impure")));
+    assert_eq!(env, vec![(
+      OsString::from("TEST_KEY"),
+      OsString::from("test-value")
+    )]);
   }
 
   #[test]

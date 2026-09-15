@@ -1394,12 +1394,11 @@ fn activate_nixos_remote(
 /// Used by remote activation functions.
 const NIXOS_SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
 
-/// Evaluate a flake installable to get its derivation path.
-/// Matches nixos-rebuild-ng: `nix eval --raw <flake>.drvPath`
-fn eval_drv_path(
+/// Construct the command that evaluates an installable's derivation path.
+fn eval_drv_command(
   installable: &Installable,
-  evaluation_args: &[String],
-) -> Result<PathBuf> {
+  evaluation: &EvaluationOptions<'_>,
+) -> Result<NixCommand> {
   // Build the installable with .drvPath appended
   let drv_installable = match installable {
     Installable::Flake {
@@ -1444,11 +1443,24 @@ fn eval_drv_path(
   let args = drv_installable.to_args();
   debug!("Evaluating drvPath: nix eval --raw {:?}", args);
 
-  let cmd = NixCommand::new(CommandKind::Eval)
-    .global_args(get_flake_flags())
-    .args(evaluation_args)
-    .arg("--raw")
-    .args(&args)
+  Ok(
+    NixCommand::new(CommandKind::Eval)
+      .global_args(get_flake_flags())
+      .args(evaluation.args)
+      .arg("--raw")
+      .args(&args)
+      .envs(evaluation.env.iter().map(|(key, value)| (key, value)))
+      .impure(evaluation.impure),
+  )
+}
+
+/// Evaluate an installable to get its derivation path.
+/// Matches nixos-rebuild-ng: `nix eval --raw <installable>.drvPath`.
+fn eval_drv_path(
+  installable: &Installable,
+  evaluation: &EvaluationOptions<'_>,
+) -> Result<PathBuf> {
+  let cmd = eval_drv_command(installable, evaluation)?
     .to_exec()
     .stdout(Redirection::Pipe)
     .stderr(Redirection::Pipe);
@@ -1516,6 +1528,43 @@ pub struct RemoteBuildConfig {
   pub execution_args: Vec<OsString>,
 }
 
+/// Options used while locally evaluating an installable for a remote build.
+#[derive(Clone, Debug)]
+pub struct EvaluationOptions<'a> {
+  args:   &'a [String],
+  env:    Vec<(OsString, OsString)>,
+  impure: bool,
+}
+
+impl<'a> EvaluationOptions<'a> {
+  #[must_use]
+  pub const fn new(args: &'a [String]) -> Self {
+    Self {
+      args,
+      env: Vec::new(),
+      impure: false,
+    }
+  }
+
+  #[must_use]
+  pub fn env<K: AsRef<std::ffi::OsStr>, V: AsRef<std::ffi::OsStr>>(
+    mut self,
+    key: K,
+    value: V,
+  ) -> Self {
+    self
+      .env
+      .push((key.as_ref().to_os_string(), value.as_ref().to_os_string()));
+    self
+  }
+
+  #[must_use]
+  pub const fn impure(mut self, yes: bool) -> Self {
+    self.impure = yes;
+    self
+  }
+}
+
 /// Perform a remote build of a flake installable.
 ///
 /// This implements the `build_remote_flake` workflow from nixos-rebuild-ng:
@@ -1534,7 +1583,12 @@ pub fn build_remote(
   config: &RemoteBuildConfig,
   out_link: Option<&std::path::Path>,
 ) -> Result<PathBuf> {
-  build_remote_with_args(installable, config, out_link, &[])
+  build_remote_with_options(
+    installable,
+    config,
+    out_link,
+    &EvaluationOptions::new(&[]),
+  )
 }
 
 /// Build remotely while applying arguments to pre-build Nix operations.
@@ -1548,19 +1602,43 @@ pub fn build_remote_with_args(
   out_link: Option<&std::path::Path>,
   evaluation_args: &[String],
 ) -> Result<PathBuf> {
+  build_remote_with_options(
+    installable,
+    config,
+    out_link,
+    &EvaluationOptions::new(evaluation_args),
+  )
+}
+
+/// Build remotely using explicit options for the local evaluation step.
+///
+/// The installable is evaluated on the local machine before its derivation is
+/// copied to the build host. Environment variables and impurity configured in
+/// `evaluation` therefore apply to that local evaluation; the build host only
+/// realizes the resulting derivation.
+///
+/// # Errors
+///
+/// Returns an error if evaluation, copying, or building fails.
+pub fn build_remote_with_options(
+  installable: &Installable,
+  config: &RemoteBuildConfig,
+  out_link: Option<&std::path::Path>,
+  evaluation: &EvaluationOptions<'_>,
+) -> Result<PathBuf> {
   let build_host = &config.build_host;
   let use_substitutes = config.use_substitutes;
 
   // Step 1: Evaluate drvPath locally
   info!("Evaluating derivation path");
-  let drv_path = eval_drv_path(installable, evaluation_args)?;
+  let drv_path = eval_drv_path(installable, evaluation)?;
 
   // Step 2: Copy derivation to build host
   copy_to_remote_with_args(
     build_host,
     &drv_path,
     use_substitutes,
-    evaluation_args,
+    evaluation.args,
   )?;
 
   // Step 3: Build on remote
@@ -1602,7 +1680,7 @@ pub fn build_remote_with_args(
         target_host,
         &out_path,
         use_substitutes,
-        evaluation_args,
+        evaluation.args,
       ) {
         Ok(()) => {
           debug!(
@@ -1627,7 +1705,7 @@ pub fn build_remote_with_args(
   };
 
   if need_local_copy {
-    copy_closure_from_with_args(build_host, &out_path, evaluation_args)?;
+    copy_closure_from_with_args(build_host, &out_path, evaluation.args)?;
   }
 
   // Create local out-link if requested and the result is in local store
@@ -1985,6 +2063,33 @@ mod tests {
   }
 
   use super::*;
+
+  #[test]
+  fn remote_evaluation_options_reach_nix_command() {
+    let installable = Installable::Flake {
+      reference: ".".into(),
+      attribute: vec!["nixosConfigurations".into(), "host".into()],
+    };
+    let evaluation_args = vec!["--no-write-lock-file".into()];
+    let options = EvaluationOptions::new(&evaluation_args)
+      .env("TEST_KEY", "test-value")
+      .impure(true);
+
+    let command = eval_drv_command(&installable, &options).unwrap();
+    let (_, args, env) = command.into_parts();
+
+    assert!(args.contains(&OsString::from("--no-write-lock-file")));
+    assert!(args.contains(&OsString::from("--impure")));
+    assert!(
+      args
+        .iter()
+        .any(|arg| arg.to_string_lossy().ends_with(".drvPath"))
+    );
+    assert_eq!(env, vec![(
+      OsString::from("TEST_KEY"),
+      OsString::from("test-value")
+    )]);
+  }
 
   #[test]
   fn remote_build_and_profile_commands_preserve_no_net() {
