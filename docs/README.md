@@ -384,11 +384,11 @@ the common variables that you may encounter or choose to employ are as follows:
     `false`, `no`, or `off` disable it. Equivalent to `--ask`.
 
 - `NH_NOM`
-  - Forces whether `nix-output-monitor` (nom) is used. Without it, nom runs
-    only when stdout is a terminal, and stays off when stdout is a pipe or file,
-    such as in CI or under an agent. Set to `1`, `true`, `yes`, or `on` to force
-    nom on, or `0`, `false`, `no`, or `off` to force it off. `--no-nom` still
-    takes precedence.
+  - Forces whether `nix-output-monitor` (nom) is used. Without it, nom runs only
+    when stdout is a terminal, and stays off when stdout is a pipe or file, such
+    as in CI or under an agent. Set to `1`, `true`, `yes`, or `on` to force nom
+    on, or `0`, `false`, `no`, or `off` to force it off. `--no-nom` still takes
+    precedence.
 
 - `NH_NO_CHECKS`
   - When set (any non-empty value), skips startup checks such as Nix version and
