@@ -554,7 +554,12 @@ impl OsRebuildArgs {
       self
         .hostname
         .as_deref()
-        .or_else(|| self.target_host.as_ref().map(RemoteHost::hostname))
+        .or_else(|| {
+          self
+            .target_host
+            .as_ref()
+            .map(RemoteHost::hostname_without_domain)
+        })
         .map(ToOwned::to_owned),
     )?;
     Ok((elevate, target_hostname))

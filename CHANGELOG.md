@@ -56,6 +56,10 @@ functionality, under the "Removed" section.
   fares no better, as `\*` is forwarded verbatim and rejected by Nix as an
   invalid outputs specifier). nh now single-quotes the whole selector
   (`'<drv>^*'`), which survives both POSIX and non-POSIX shells.
+- The `.local` domain suffix is now stripped from remote hostnames when
+  selecting the NixOS configuration. When building a remote target (e.g.
+  `--target-host user@host.local`), `host` is now used to select the correct
+  nixosConfiguration, instead of `host.local`.
 
 ## 4.4.2
 

@@ -26,8 +26,14 @@ locally.
 
 NH supports a few workflows, indicated by a permutation of the flags described
 above. If `--target-host` is provided but `--hostname` or `-H` isn't, hostname
-will _instead default to the value provided in `--target-host`_. Below sections
-describe common workflows.
+will _instead default to the value provided in `--target-host`_. For mDNS
+targets, the `.local` domain suffix is stripped when selecting the NixOS
+configuration.
+
+For example, if your flake contains a `nixosConfiguration` named `host`, you can
+deploy to `user@host.local` without explicitly specifying `--hostname host`.
+
+Below sections describe common workflows.
 
 ### Build Remotely, Deploy Locally
 
