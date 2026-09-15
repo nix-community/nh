@@ -517,6 +517,18 @@ impl RemoteHost {
     self.host.rsplit('@').next().unwrap()
   }
 
+  /// Get the mDNS hostname without the `.local` domain.
+  ///
+  /// This is used to determine the NixOS configuration name for an mDNS remote.
+  /// For example, `user@host.local` returns `host`.
+  #[must_use]
+  pub fn hostname_without_domain(&self) -> &str {
+    self
+      .hostname()
+      .strip_suffix(".local")
+      .unwrap_or_else(|| self.hostname())
+  }
+
   /// Parse a host specification string.
   ///
   /// Accepts:
@@ -2595,6 +2607,17 @@ mod tests {
     assert_eq!(host1.hostname(), host2.hostname());
     assert_eq!(host1.hostname(), host3.hostname());
     assert_ne!(host1.hostname(), host4.hostname());
+  }
+
+  #[test]
+  fn test_hostname_without_domain() {
+    let host1 = RemoteHost::parse("user@host").unwrap();
+    let host2 = RemoteHost::parse("user@host.local").unwrap();
+    let host3 = RemoteHost::parse("user@host.example").unwrap();
+
+    assert_eq!(host1.hostname_without_domain(), "host");
+    assert_eq!(host2.hostname_without_domain(), "host");
+    assert_eq!(host3.hostname_without_domain(), "host.example");
   }
 
   #[test]
