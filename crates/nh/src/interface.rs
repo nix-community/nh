@@ -133,6 +133,79 @@ mod tests {
 
   #[test]
   #[serial]
+  fn darwin_rollback_parses_without_an_installable() -> color_eyre::Result<()> {
+    let parsed = Main::try_parse_from(["nh", "darwin", "rollback"])?;
+    let NHCommand::Darwin(darwin) = parsed.command else {
+      color_eyre::eyre::bail!("Expected Darwin command");
+    };
+    let nh_darwin::args::DarwinSubcommand::Rollback(args) = darwin.subcommand
+    else {
+      color_eyre::eyre::bail!("Expected rollback command");
+    };
+    assert_eq!(args.to, None);
+    assert!(!args.dry);
+    assert!(matches!(args.diff, nh_core::args::DiffType::Auto));
+    Ok(())
+  }
+
+  #[test]
+  #[serial]
+  fn darwin_rollback_parses_long_and_short_options() -> color_eyre::Result<()> {
+    for options in [
+      [
+        "--to",
+        "42",
+        "--dry",
+        "--ask",
+        "--diff",
+        "never",
+        "--bypass-root-check",
+      ],
+      ["-t", "42", "-n", "-a", "-d", "never", "-R"],
+    ] {
+      let parsed = Main::try_parse_from(
+        ["nh", "darwin", "rollback", "--show-activation-logs"]
+          .into_iter()
+          .chain(options),
+      )?;
+      let NHCommand::Darwin(darwin) = parsed.command else {
+        color_eyre::eyre::bail!("Expected Darwin command");
+      };
+      let nh_darwin::args::DarwinSubcommand::Rollback(args) = darwin.subcommand
+      else {
+        color_eyre::eyre::bail!("Expected rollback command");
+      };
+      assert_eq!(args.to, Some(42));
+      assert!(args.dry);
+      assert!(args.ask);
+      assert!(args.bypass_root_check);
+      assert!(args.show_activation_logs);
+      assert!(matches!(args.diff, nh_core::args::DiffType::Never));
+    }
+    Ok(())
+  }
+
+  #[test]
+  #[serial]
+  fn darwin_rollback_rejects_invalid_generations_and_installables() {
+    for options in [
+      vec!["--to=invalid"],
+      vec!["--to=-1"],
+      vec!["--to=18446744073709551616"],
+      vec!["--to"],
+      vec!["./flake"],
+    ] {
+      assert!(
+        Main::try_parse_from(
+          ["nh", "darwin", "rollback"].into_iter().chain(options),
+        )
+        .is_err()
+      );
+    }
+  }
+
+  #[test]
+  #[serial]
   fn nh_ask_parses_boolish_environment_values() -> clap::error::Result<()> {
     let _guard = EnvGuard::new();
 
