@@ -5,7 +5,6 @@ use std::{
   convert::Into,
   fs,
   io,
-  os::unix::fs::PermissionsExt,
   path::{Path, PathBuf},
 };
 
@@ -241,18 +240,12 @@ fn activation_command(
 ) -> Result<Command> {
   let darwin_rebuild = system.join("sw/bin/darwin-rebuild");
   for executable in [&darwin_rebuild, &system.join("activate")] {
-    let metadata = fs::metadata(executable).with_context(|| {
+    fs::metadata(executable).with_context(|| {
       format!(
         "Missing Darwin activation executable: {}",
         executable.display()
       )
     })?;
-    if !metadata.is_file() || metadata.permissions().mode() & 0o111 == 0 {
-      bail!(
-        "Not a Darwin activation executable: {}",
-        executable.display()
-      );
-    }
   }
 
   let activate_user = system.join("activate-user");
