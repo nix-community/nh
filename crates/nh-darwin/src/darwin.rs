@@ -200,7 +200,7 @@ impl DarwinRebuildArgs {
         .run()
         .wrap_err("Failed to set Darwin system profile")?;
 
-      let darwin_rebuild = out_path.join("sw/bin/darwin-rebuild");
+      let activate = out_path.join("activate");
       let activate_user = out_path.join("activate-user");
 
       // Determine if we need to elevate privileges
@@ -212,8 +212,7 @@ impl DarwinRebuildArgs {
           .contains("# nix-darwin: deprecated");
 
       // Create and run the activation command with or without elevation
-      Command::new(darwin_rebuild)
-        .arg("activate")
+      Command::new(activate)
         .message("Activating configuration")
         .elevate(needs_elevation.then_some(elevation))
         .dry(self.common.dry)
