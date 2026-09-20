@@ -681,7 +681,7 @@ mod tests {
       .expect("Failed to create temp file");
     let test_content = r#"
 {
-  obsidian = {
+  iso-system = {
     config.system.build.images = {
       iso = "test-iso";
     };
@@ -694,7 +694,7 @@ mod tests {
 
     let installable = Installable::File {
       path:      test_file.path().to_path_buf(),
-      attribute: vec!["obsidian".to_string()],
+      attribute: vec!["iso-system".to_string()],
     };
 
     let variants = get_build_image_variants(&installable, "obsidian")
