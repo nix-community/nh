@@ -462,31 +462,36 @@ pub fn get_build_image_variants_with_args(
   evaluation_args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
 ) -> Result<Vec<String>> {
   let expr = match installable {
-    nh_installable::Installable::File { path, .. } => {
+    nh_installable::Installable::File { path, attribute } => {
       let path = path
         .display()
         .to_string()
         .replace('\\', "\\\\")
         .replace('"', "\\\"")
         .replace("${", "\\${");
+      let config = legacy_config_expression(attribute, hostname);
       format!(
         r#"
 let
   value = import "{path}";
   set = if builtins.isFunction value then value {{}} else value;
-  config = set.nixosConfigurations."{hostname}" or set;
+  config = {config};
 in
   builtins.attrNames config.config.system.build.images
         "#
       )
     },
-    nh_installable::Installable::Expression { expression, .. } => {
+    nh_installable::Installable::Expression {
+      expression,
+      attribute,
+    } => {
+      let config = legacy_config_expression(attribute, hostname);
       format!(
         r#"
 let
   value = {expression};
   set = if builtins.isFunction value then value {{}} else value;
-  config = set.nixosConfigurations."{hostname}" or set;
+  config = {config};
 in
   builtins.attrNames config.config.system.build.images
         "#
@@ -514,6 +519,31 @@ in
     .wrap_err("Failed to parse image variants JSON")?;
 
   Ok(variants)
+}
+
+fn legacy_config_expression(attribute: &[String], hostname: &str) -> String {
+  if attribute.is_empty() {
+    let hostname = hostname
+      .replace('\\', "\\\\")
+      .replace('"', "\\\"")
+      .replace("${", "\\${");
+    return format!(
+      "if builtins.hasAttr \"nixosConfigurations\" set then builtins.getAttr \
+       \"{hostname}\" (builtins.getAttr \"nixosConfigurations\" set) else if \
+       builtins.hasAttr \"{hostname}\" set then builtins.getAttr \
+       \"{hostname}\" set else set"
+    );
+  }
+
+  attribute
+    .iter()
+    .fold(String::from("set"), |value, attribute| {
+      let attribute = attribute
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace("${", "\\${");
+      format!("builtins.getAttr \"{attribute}\" ({value})")
+    })
 }
 
 /// Gets the available image variants for a flake installable.
@@ -613,6 +643,7 @@ mod tests {
       .tempfile()
       .expect("Failed to create temp file");
     let test_content = r#"
+
 {
   nixosConfigurations.test = {
     config.system.build.images = {
@@ -640,6 +671,36 @@ mod tests {
     assert!(variants.contains(&"iso".to_string()));
     assert!(variants.contains(&"disk".to_string()));
     assert!(variants.contains(&"container".to_string()));
+  }
+  #[test]
+  fn test_get_build_image_variants_file_with_explicit_attribute() {
+    let test_file = tempfile::Builder::new()
+      .prefix("nh-test")
+      .suffix(".nix")
+      .tempfile()
+      .expect("Failed to create temp file");
+    let test_content = r#"
+{
+  obsidian = {
+    config.system.build.images = {
+      iso = "test-iso";
+    };
+  };
+}
+"#;
+
+    std::fs::write(&test_file, test_content)
+      .expect("Failed to write test file");
+
+    let installable = Installable::File {
+      path:      test_file.path().to_path_buf(),
+      attribute: vec!["obsidian".to_string()],
+    };
+
+    let variants = get_build_image_variants(&installable, "obsidian")
+      .expect("Failed to resolve explicitly selected image config");
+
+    assert_eq!(variants, ["iso"]);
   }
 
   #[test]
