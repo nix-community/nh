@@ -31,6 +31,10 @@ functionality, under the "Removed" section.
 
 ### Fixed
 
+- `nh darwin switch` now invokes the built configuration's `activate` script
+  directly instead of requiring `darwin-rebuild` in the target system
+  ([#801](https://github.com/nix-community/nh/pull/801)).
+
 - Image variant discovery for Nix files now escapes backslashes, double quotes,
   and `${` in file paths before generating Nix source
   ([#785](https://github.com/nix-community/nh/pull/785)).
