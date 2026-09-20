@@ -60,6 +60,10 @@ functionality, under the "Removed" section.
   selecting the NixOS configuration. When building a remote target (e.g.
   `--target-host user@host.local`), `host` is now used to select the correct
   nixosConfiguration, instead of `host.local`.
+- `nh os build-image` now respects the attribute path supplied with a legacy Nix
+  file or expression installable, so commands inspect the selected configuration
+  instead of looking for `config` at the top level
+  ([#778](https://github.com/nix-community/nh/issues/778)).
 
 ## 4.4.2
 
