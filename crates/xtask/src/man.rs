@@ -71,6 +71,11 @@ const ENVIRONMENT: &[Entry] = &[
      output is hidden. Setting to \"1\" shows full logs.",
   ),
   (
+    "NH_SINGLE_ELEVATION",
+    "Runs the privileged local steps of nh os switch under one elevation \
+     command.",
+  ),
+  (
     "NH_LOG",
     "Sets the tracing/log filter for NH. Uses tracing_subscriber format \
      (e.g., nh=trace).",

@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{ffi::OsString, path::PathBuf};
 
 use clap::{Args, Subcommand};
 use nh_core::{
@@ -33,9 +33,14 @@ impl OsArgs {
         let is_flake = args.uses_flakes();
         Box::new(OsReplFeatures { is_flake })
       },
-      OsSubcommand::Switch(args)
-      | OsSubcommand::Boot(args)
-      | OsSubcommand::Test(args) => {
+      OsSubcommand::Switch(args) => {
+        if args.activate.rebuild.uses_flakes() {
+          Box::new(FlakeFeatures)
+        } else {
+          Box::new(LegacyFeatures)
+        }
+      },
+      OsSubcommand::Boot(args) | OsSubcommand::Test(args) => {
         if args.rebuild.uses_flakes() {
           Box::new(FlakeFeatures)
         } else {
@@ -74,7 +79,7 @@ impl OsArgs {
 #[derive(Debug, Subcommand)]
 pub enum OsSubcommand {
   /// Build and activate the new configuration, and make it the boot default
-  Switch(OsRebuildActivateArgs),
+  Switch(OsSwitchArgs),
 
   /// Build the new configuration and make it the boot default
   Boot(OsRebuildActivateArgs),
@@ -190,6 +195,39 @@ pub struct OsRebuildActivateArgs {
   /// failed activation aborts before it. This continues regardless.
   #[arg(long, env = "NH_CONTINUE_ON_ACTIVATION_FAILURE", value_parser = clap::builder::BoolishValueParser::new())]
   pub continue_on_activation_failure: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct OsSwitchArgs {
+  #[command(flatten)]
+  pub activate: OsRebuildActivateArgs,
+
+  #[arg(long, env = "NH_SINGLE_ELEVATION", value_parser = clap::builder::BoolishValueParser::new())]
+  pub single_elevation: bool,
+
+  #[arg(long)]
+  pub no_single_elevation: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct SingleElevationArgs {
+  #[arg(long)]
+  pub switch_to_configuration: PathBuf,
+
+  #[arg(long)]
+  pub system: PathBuf,
+
+  #[arg(long)]
+  pub continue_on_activation_failure: bool,
+
+  #[arg(long)]
+  pub install_bootloader: bool,
+
+  #[arg(long)]
+  pub show_activation_logs: bool,
+
+  #[arg(last = true)]
+  pub nix_args: Vec<OsString>,
 }
 
 impl OsRebuildArgs {
