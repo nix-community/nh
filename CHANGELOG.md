@@ -31,6 +31,15 @@ functionality, under the "Removed" section.
 
 ### Fixed
 
+- `nh clean` now preserves the generation selected by each profile symlink by
+  default, even after a rollback when it is older than `--keep-since` and
+  outside the newest `--keep` generations. Previously cleanup could leave the
+  profile dangling ([#805](https://github.com/nix-community/nh/issues/805)).
+  - `nh clean` accepts `--delete-current` to let the selected profile generation
+    expire under the normal `--keep` and `--keep-since` limits. This can leave
+    the profile symlink dangling; without the flag, the selected generation is
+    kept.
+
 - `nh darwin switch` now invokes the built configuration's `activate` script
   directly instead of requiring `darwin-rebuild` in the target system
   ([#801](https://github.com/nix-community/nh/pull/801)).
