@@ -3,6 +3,7 @@ pub mod args;
 use std::{
   collections::{BTreeMap, HashMap},
   fmt,
+  io::ErrorKind,
   path::{Path, PathBuf},
   sync::LazyLock,
   time::SystemTime,
@@ -199,7 +200,12 @@ impl args::CleanMode {
     for p in profiles {
       profiles_tagged.insert(
         p.clone(),
-        cleanable_generations(&p, args.keep, args.keep_since)?,
+        cleanable_generations(
+          &p,
+          args.keep,
+          args.keep_since,
+          args.delete_current,
+        )?,
       );
     }
 
@@ -515,12 +521,31 @@ fn cleanable_generations(
   profile: &Path,
   keep: u32,
   keep_since: humantime::Duration,
+  delete_current: bool,
 ) -> Result<GenerationsTagged> {
   let name = profile
     .file_name()
     .context("Checking profile's name")?
     .to_str()
     .context("Profile name is not valid UTF-8")?;
+  let selected = if delete_current {
+    None
+  } else {
+    match profile.read_link() {
+      Ok(target) => Some(target),
+      Err(err)
+        if matches!(
+          err.kind(),
+          ErrorKind::NotFound | ErrorKind::InvalidInput
+        ) =>
+      {
+        None
+      },
+      Err(err) => {
+        return Err(err).context("Reading selected profile generation");
+      },
+    }
+  };
 
   let mut result = GenerationsTagged::new();
 
@@ -569,6 +594,14 @@ fn cleanable_generations(
 
   let now = SystemTime::now();
   for (generation, tbr) in &mut result {
+    if selected
+      .as_ref()
+      .is_some_and(|target| target.file_name() == generation.path.file_name())
+    {
+      *tbr = false;
+      continue;
+    }
+
     match now.duration_since(generation.last_modified) {
       Err(err) => {
         warn!(?err, ?now, ?generation, "Failed to compare time!");
@@ -640,7 +673,41 @@ fn remove_path_nofail(path: &Path) {
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
+  use std::{fs, os::unix::fs::symlink, time::Duration};
+
   use super::*;
+
+  #[test]
+  fn cleaning_rolled_back_profile_requires_opt_in_to_delete_selected() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let profile = dir.path().join("profile");
+    for number in 1..=3 {
+      let target = dir.path().join(format!("contents-{number}"));
+      fs::create_dir(&target).expect("contents");
+      symlink(&target, dir.path().join(format!("profile-{number}-link")))
+        .expect("generation");
+    }
+    symlink("profile-1-link", &profile).expect("profile");
+
+    let keep_since = humantime::Duration::from(Duration::ZERO);
+    let generations = cleanable_generations(&profile, 1, keep_since, false)
+      .expect("cleanable generations");
+    let tagged = |generations: &GenerationsTagged, number| {
+      generations
+        .iter()
+        .find(|(generation, _)| generation.number == number)
+        .map(|(_, remove)| *remove)
+    };
+    assert_eq!(tagged(&generations, 1), Some(false));
+    assert_eq!(tagged(&generations, 2), Some(true));
+    assert_eq!(tagged(&generations, 3), Some(false));
+
+    let opted_in = cleanable_generations(&profile, 1, keep_since, true)
+      .expect("opt-in cleanable generations");
+    assert_eq!(tagged(&opted_in, 1), Some(true));
+    assert_eq!(tagged(&opted_in, 2), Some(true));
+    assert_eq!(tagged(&opted_in, 3), Some(false));
+  }
 
   #[test]
   fn store_direct_child_accepts_top_level_entry() {
