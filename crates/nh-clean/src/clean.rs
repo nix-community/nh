@@ -3,6 +3,7 @@ pub mod args;
 use std::{
   collections::{BTreeMap, HashMap},
   fmt,
+  io::ErrorKind,
   path::{Path, PathBuf},
   sync::LazyLock,
   time::SystemTime,
@@ -199,7 +200,12 @@ impl args::CleanMode {
     for p in profiles {
       profiles_tagged.insert(
         p.clone(),
-        cleanable_generations(&p, args.keep, args.keep_since)?,
+        cleanable_generations(
+          &p,
+          args.keep,
+          args.keep_since,
+          args.delete_current,
+        )?,
       );
     }
 
@@ -428,12 +434,12 @@ impl args::CleanMode {
         remove_path_nofail(path);
       }
 
-      for generations_tagged in profiles_tagged.values() {
-        for (generation, tbr) in generations_tagged.iter().rev() {
-          if *tbr {
-            remove_path_nofail(&generation.path);
-          }
-        }
+      for (profile, generations_tagged) in &profiles_tagged {
+        remove_tagged_generations(
+          profile,
+          generations_tagged,
+          args.delete_current,
+        )?;
       }
     }
 
@@ -510,18 +516,49 @@ fn profiles_in_dir<P: AsRef<Path> + fmt::Debug>(dir: P) -> Vec<PathBuf> {
   res
 }
 
-#[instrument(err, level = "debug")]
-fn cleanable_generations(
+fn selected_generation(profile: &Path) -> Result<Option<PathBuf>> {
+  match profile.read_link() {
+    Ok(target) => Ok(Some(target)),
+    Err(err)
+      if matches!(
+        err.kind(),
+        ErrorKind::NotFound | ErrorKind::InvalidInput
+      ) =>
+    {
+      Ok(None)
+    },
+    Err(err) => Err(err).context("Reading selected profile generation"),
+  }
+}
+
+fn remove_tagged_generations(
   profile: &Path,
-  keep: u32,
-  keep_since: humantime::Duration,
-) -> Result<GenerationsTagged> {
+  generations: &GenerationsTagged,
+  delete_current: bool,
+) -> Result<()> {
+  for (generation, tbr) in generations.iter().rev() {
+    if !tbr {
+      continue;
+    }
+    if !delete_current
+      && selected_generation(profile)?
+        .as_ref()
+        .is_some_and(|target| target.file_name() == generation.path.file_name())
+    {
+      info!(?profile, ?generation, "Skipping newly selected generation");
+      continue;
+    }
+    remove_path_nofail(&generation.path);
+  }
+  Ok(())
+}
+
+fn profile_generations(profile: &Path) -> Result<GenerationsTagged> {
   let name = profile
     .file_name()
     .context("Checking profile's name")?
     .to_str()
     .context("Profile name is not valid UTF-8")?;
-
   let mut result = GenerationsTagged::new();
 
   for entry in profile
@@ -539,9 +576,9 @@ fn cleanable_generations(
     };
 
     if let Some(caps) = captures {
-      // Check if this generation belongs to the current profile
-      if let Some(profile_name) = caps.get(1)
-        && profile_name.as_str() != name
+      if caps
+        .get(1)
+        .is_some_and(|profile_name| profile_name.as_str() != name)
       {
         continue;
       }
@@ -567,8 +604,33 @@ fn cleanable_generations(
     }
   }
 
+  Ok(result)
+}
+
+#[instrument(err, level = "debug")]
+fn cleanable_generations(
+  profile: &Path,
+  keep: u32,
+  keep_since: humantime::Duration,
+  delete_current: bool,
+) -> Result<GenerationsTagged> {
+  let mut result = profile_generations(profile)?;
+  let selected = if delete_current {
+    None
+  } else {
+    selected_generation(profile)?
+  };
+
   let now = SystemTime::now();
   for (generation, tbr) in &mut result {
+    if selected
+      .as_ref()
+      .is_some_and(|target| target.file_name() == generation.path.file_name())
+    {
+      *tbr = false;
+      continue;
+    }
+
     match now.duration_since(generation.last_modified) {
       Err(err) => {
         warn!(?err, ?now, ?generation, "Failed to compare time!");
@@ -640,7 +702,73 @@ fn remove_path_nofail(path: &Path) {
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
+  use std::{fs, os::unix::fs::symlink, time::Duration};
+
   use super::*;
+
+  #[test]
+  fn cleaning_rolled_back_profile_requires_opt_in_to_delete_selected() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let profile = dir.path().join("profile");
+    for number in 1..=3 {
+      let target = dir.path().join(format!("contents-{number}"));
+      fs::create_dir(&target).expect("contents");
+      symlink(&target, dir.path().join(format!("profile-{number}-link")))
+        .expect("generation");
+    }
+    symlink("profile-1-link", &profile).expect("profile");
+
+    let keep_since = humantime::Duration::from(Duration::ZERO);
+    let generations = cleanable_generations(&profile, 1, keep_since, false)
+      .expect("cleanable generations");
+    let tagged = |generations: &GenerationsTagged, number| {
+      generations
+        .iter()
+        .find(|(generation, _)| generation.number == number)
+        .map(|(_, remove)| *remove)
+    };
+    assert_eq!(tagged(&generations, 1), Some(false));
+    assert_eq!(tagged(&generations, 2), Some(true));
+    assert_eq!(tagged(&generations, 3), Some(false));
+
+    let opted_in = cleanable_generations(&profile, 1, keep_since, true)
+      .expect("opt-in cleanable generations");
+    assert_eq!(tagged(&opted_in, 1), Some(true));
+    assert_eq!(tagged(&opted_in, 2), Some(true));
+    assert_eq!(tagged(&opted_in, 3), Some(false));
+  }
+
+  #[test]
+  fn selected_generation_switched_after_tagging_is_not_removed() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let profile = dir.path().join("profile");
+    for number in 1..=3 {
+      let target = dir.path().join(format!("contents-{number}"));
+      fs::create_dir(&target).expect("contents");
+      symlink(&target, dir.path().join(format!("profile-{number}-link")))
+        .expect("generation");
+    }
+    symlink("profile-1-link", &profile).expect("profile");
+
+    let generations = cleanable_generations(
+      &profile,
+      0,
+      humantime::Duration::from(Duration::ZERO),
+      false,
+    )
+    .expect("cleanable generations");
+    fs::remove_file(&profile).expect("remove old profile link");
+    symlink("profile-2-link", &profile).expect("switch profile");
+
+    remove_tagged_generations(&profile, &generations, false)
+      .expect("remove old generations");
+    assert_eq!(
+      profile.read_link().expect("selected generation"),
+      Path::new("profile-2-link")
+    );
+    assert!(profile.exists(), "selected generation must remain live");
+    assert!(!dir.path().join("profile-3-link").exists());
+  }
 
   #[test]
   fn store_direct_child_accepts_top_level_entry() {

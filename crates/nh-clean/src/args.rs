@@ -30,7 +30,11 @@ pub struct CleanArgs {
   /// At least keep gcroots and generations in this time range since now.
   ///
   /// See the documentation of humantime for possible formats: <https://docs.rs/humantime/latest/humantime/fn.parse_duration.html>
-  pub keep_since: humantime::Duration,
+  pub keep_since:     humantime::Duration,
+  /// Allow removing the selected generation when it exceeds retention limits.
+  /// This can leave the profile symlink dangling.
+  #[arg(long)]
+  pub delete_current: bool,
 
   /// Only print actions, without performing them
   #[arg(long, short = 'n')]
