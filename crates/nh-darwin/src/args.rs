@@ -1,3 +1,5 @@
+use std::{ffi::OsString, path::PathBuf};
+
 use clap::{Args, Subcommand};
 use nh_core::{
   args::CommonRebuildArgs,
@@ -85,6 +87,21 @@ impl DarwinRebuildArgs {
   pub fn uses_flakes(&self) -> bool {
     self.common.installable.uses_flakes(CommandContext::Darwin)
   }
+}
+
+#[derive(Debug, Args)]
+pub struct PrivilegedDarwinArgs {
+  #[arg(long)]
+  pub system: PathBuf,
+
+  #[arg(long)]
+  pub activate: bool,
+
+  #[arg(long)]
+  pub show_activation_logs: bool,
+
+  #[arg(last = true)]
+  pub nix_args: Vec<OsString>,
 }
 
 #[derive(Debug, Args)]

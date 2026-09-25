@@ -6,7 +6,16 @@ use std::{
   io::{Read, Write},
   path::PathBuf,
   str::FromStr,
-  sync::{Mutex, OnceLock},
+  sync::{
+    Arc,
+    LazyLock,
+    Mutex,
+    MutexGuard,
+    OnceLock,
+    TryLockError,
+    atomic::{AtomicBool, Ordering},
+  },
+  time::Duration,
 };
 
 use color_eyre::{
@@ -16,6 +25,12 @@ use color_eyre::{
 use nh_installable::Installable;
 pub use nix_command::{CommandKind, NixCommand};
 use secrecy::{ExposeSecret, SecretString};
+use signal_hook::{
+  consts::signal::{SIGHUP, SIGINT, SIGTERM},
+  flag::register_conditional_default,
+  iterator::{SignalsInfo, exfiltrator::WithOrigin},
+  low_level::siginfo::Cause,
+};
 use subprocess::{Exec, ExitStatus, Redirection};
 use thiserror::Error;
 use tracing::{debug, info, warn};
@@ -41,6 +56,18 @@ pub fn get_sudo_opts() -> Vec<String> {
     );
     Vec::new()
   })
+}
+
+#[must_use]
+pub fn privileged_command_args(
+  verbosity_arg: Option<&str>,
+  subcommand: &str,
+) -> Vec<OsString> {
+  verbosity_arg
+    .into_iter()
+    .map(OsString::from)
+    .chain([OsString::from(subcommand)])
+    .collect()
 }
 
 /// Execute a command, streaming output to stdout/stderr while optionally
@@ -421,6 +448,143 @@ impl ElevationStrategy {
   }
 }
 
+const SIGNAL_POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+struct SupervisorSignals {
+  signals: SignalsInfo<WithOrigin>,
+  idle:    Arc<AtomicBool>,
+}
+
+static SUPERVISOR_SIGNALS: LazyLock<Mutex<Option<SupervisorSignals>>> =
+  LazyLock::new(|| Mutex::new(None));
+
+struct ActiveSignals(MutexGuard<'static, Option<SupervisorSignals>>);
+
+impl ActiveSignals {
+  fn new() -> Result<Self> {
+    let mut guard = SUPERVISOR_SIGNALS.try_lock().map_err(|error| {
+      match error {
+        TryLockError::WouldBlock => {
+          eyre::eyre!(
+            "Nested or concurrent supervised commands are not supported"
+          )
+        },
+        TryLockError::Poisoned(_) => {
+          eyre::eyre!("Signal supervisor lock poisoned")
+        },
+      }
+    })?;
+    if guard.is_none() {
+      // Keep these actions installed for the process lifetime. Unregistering
+      // signal-hook's last action does not restore the default disposition.
+      // Once installed, an idle signal terminates the process even when an
+      // earlier flag handler such as nh-remote's SIGINT flag also fires, so
+      // graceful interrupt handling cannot follow the first supervised
+      // command. Current flows only activate after remote work has finished.
+      let idle = Arc::new(AtomicBool::new(true));
+      for signal in [SIGINT, SIGTERM, SIGHUP] {
+        register_conditional_default(signal, Arc::clone(&idle))?;
+      }
+      let signals = SignalsInfo::<WithOrigin>::new([SIGINT, SIGTERM, SIGHUP])?;
+      *guard = Some(SupervisorSignals { signals, idle });
+    }
+    if let Some(supervisor) = guard.as_mut() {
+      supervisor.signals.pending().for_each(drop);
+      supervisor.idle.store(false, Ordering::SeqCst);
+    }
+    Ok(Self(guard))
+  }
+
+  fn signals(&mut self) -> Result<&mut SignalsInfo<WithOrigin>> {
+    self
+      .0
+      .as_mut()
+      .map(|supervisor| &mut supervisor.signals)
+      .ok_or_else(|| eyre::eyre!("Signal supervisor unavailable"))
+  }
+}
+
+impl Drop for ActiveSignals {
+  fn drop(&mut self) {
+    if let Some(supervisor) = self.0.as_ref() {
+      supervisor.idle.store(true, Ordering::SeqCst);
+    }
+  }
+}
+
+fn run_supervised(cmd: Exec, message: &str) -> Result<ExitStatus> {
+  let mut watcher = ActiveSignals::new()?;
+  let job = cmd.start().wrap_err_with(|| message.to_owned())?;
+  let worker = nix::unistd::Pid::from_raw(job.pid().cast_signed());
+  let mut interrupted: Option<i32> = None;
+
+  loop {
+    for received in watcher.signals()?.pending() {
+      interrupted.get_or_insert(received.signal);
+      let signal = nix::sys::signal::Signal::try_from(received.signal)?;
+      if job.poll().is_some() {
+        continue;
+      }
+
+      // A terminal SIGINT reaches every member of its foreground process
+      // group. Sending it to the same worker again can interrupt activation
+      // twice. Externally sent SIGINT must still be forwarded.
+      let from_terminal = received.signal == SIGINT
+        && (matches!(received.cause, Cause::Kernel)
+          || (cfg!(target_os = "macos") && received.process.is_none()))
+        && nix::unistd::getpgid(Some(worker))
+          .is_ok_and(|group| group == nix::unistd::getpgrp());
+      if from_terminal {
+        continue;
+      }
+
+      match nix::sys::signal::kill(worker, signal) {
+        Ok(()) | Err(nix::errno::Errno::ESRCH) => {},
+        Err(nix::errno::Errno::EPERM) => {
+          warn!(
+            "{message}: cannot forward {signal} to elevated worker {worker}; \
+             waiting for it to finish"
+          );
+        },
+        Err(error) => {
+          job.detach();
+          return Err(eyre::eyre!(
+            "{message}: cannot signal elevated worker {worker}: {error}; \
+             privileged work may still be running"
+          ));
+        },
+      }
+    }
+
+    let status = match job.wait_timeout(SIGNAL_POLL_INTERVAL) {
+      Ok(status) => status,
+      Err(error) => {
+        job.detach();
+        return Err(error).wrap_err(message.to_owned());
+      },
+    };
+    if let Some(status) = status {
+      // Resume the default disposition before examining signals queued at the
+      // instant the worker exited.
+      if let Some(supervisor) = watcher.0.as_ref() {
+        supervisor.idle.store(true, Ordering::SeqCst);
+      }
+      if let Some(received) = watcher.signals()?.pending().next() {
+        interrupted.get_or_insert(received.signal);
+      }
+      drop(watcher);
+      if status.success() {
+        return Ok(status);
+      }
+      if let Some(signal) = interrupted {
+        signal_hook::low_level::emulate_default_handler(signal)?;
+        return Err(eyre::eyre!("{message} (interrupted)"));
+      }
+      return Ok(status);
+    }
+  }
+}
+
 #[derive(Debug)]
 #[allow(clippy::struct_field_names)]
 pub struct Command {
@@ -431,6 +595,7 @@ pub struct Command {
   elevate:     Option<ElevationStrategy>,
   ssh:         Option<String>,
   show_output: bool,
+  supervise:   bool,
   env_vars:    HashMap<String, EnvAction>,
 }
 
@@ -444,8 +609,45 @@ impl Command {
       elevate:     None,
       ssh:         None,
       show_output: false,
+      supervise:   false,
       env_vars:    HashMap::new(),
     }
+  }
+
+  fn elevated_self(strategy: ElevationStrategy) -> Result<Self> {
+    // Get the current executable path
+    let current_exe =
+      env::current_exe().context("Failed to get current executable path")?;
+    Ok(
+      Self::new(current_exe)
+        .elevate(Some(strategy))
+        .with_required_env(),
+    )
+  }
+
+  /// # Errors
+  ///
+  /// Returns an error if the executable path cannot be determined.
+  pub fn elevated_subcommand<I>(
+    strategy: ElevationStrategy,
+    argv: I,
+  ) -> Result<Self>
+  where
+    I: IntoIterator,
+    I::Item: AsRef<OsStr>,
+  {
+    Ok(
+      Self::elevated_self(strategy)?
+        .args(argv)
+        .show_output(true)
+        .supervise(),
+    )
+  }
+
+  #[must_use]
+  const fn supervise(mut self) -> Self {
+    self.supervise = true;
+    self
   }
 
   /// Set whether to run the command with elevated privileges.
@@ -758,19 +960,14 @@ impl Command {
   pub fn self_elevate_cmd(
     strategy: ElevationStrategy,
   ) -> Result<std::process::Command> {
-    // Get the current executable path
-    let current_exe =
-      env::current_exe().context("Failed to get current executable path")?;
-
     // Self-elevation with proper environment handling
-    let cmd_builder = Self::new(&current_exe)
-      .elevate(Some(strategy))
-      .with_required_env();
+    let cmd_builder = Self::elevated_self(strategy)?;
+    let current_exe = cmd_builder.command.to_string_lossy().into_owned();
 
     let mut sudo_parts = cmd_builder.build_sudo_parts()?;
 
     // Add the target executable and arguments
-    sudo_parts.push(current_exe.to_string_lossy().to_string());
+    sudo_parts.push(current_exe);
     let args: Vec<String> = env::args().skip(1).collect();
     sudo_parts.extend(args);
 
@@ -882,7 +1079,9 @@ impl Command {
 
     // Configure output redirection based on show_output setting
     let cmd = ssh_wrap(
-      if self.show_output {
+      if self.supervise {
+        cmd.stderr(Redirection::None)
+      } else if self.show_output {
         cmd.stderr(Redirection::Merge)
       } else {
         cmd.stderr(Redirection::None).stdout(Redirection::None)
@@ -906,8 +1105,12 @@ impl Command {
       .clone()
       .unwrap_or_else(|| "Command failed".to_string());
 
-    if self.show_output {
-      let exit_status = cmd.join().wrap_err(msg.clone())?;
+    if self.supervise || self.show_output {
+      let exit_status = if self.supervise {
+        run_supervised(cmd, &msg)?
+      } else {
+        cmd.join().wrap_err(msg.clone())?
+      };
       if !exit_status.success() {
         return Err(eyre::eyre!(format!(
           "{} (exit status {:?})",
@@ -1098,7 +1301,7 @@ mod tests {
     clippy::unreachable,
     reason = "Fine in tests"
   )]
-  use std::{env, ffi::OsString};
+  use std::{env, ffi::OsString, os::unix::process::ExitStatusExt};
 
   use serial_test::serial;
 
@@ -1132,6 +1335,25 @@ mod tests {
         }
       }
     }
+  }
+
+  #[test]
+  fn supervised_run_restores_termination() {
+    if env::var_os("NH_SUPERVISOR_TEST_CHILD").is_some() {
+      // The default disposition must work after an ordinary supervised run,
+      // including when show_output was not set.
+      Command::new("true").supervise().run().unwrap();
+      signal_hook::low_level::raise(SIGTERM).unwrap();
+      std::process::exit(1);
+    }
+
+    let status = std::process::Command::new(env::current_exe().unwrap())
+      .arg("--exact")
+      .arg("command::tests::supervised_run_restores_termination")
+      .env("NH_SUPERVISOR_TEST_CHILD", "1")
+      .status()
+      .unwrap();
+    assert_eq!(status.signal(), Some(SIGTERM));
   }
 
   #[test]

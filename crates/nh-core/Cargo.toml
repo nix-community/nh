@@ -20,6 +20,7 @@ secrecy.workspace        = true
 semver.workspace         = true
 serde_json.workspace     = true
 shlex.workspace          = true
+signal-hook.workspace    = true
 subprocess.workspace     = true
 thiserror.workspace      = true
 tracing.workspace        = true

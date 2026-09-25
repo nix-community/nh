@@ -323,8 +323,32 @@ fn render_command_recursive(
 
   // Subcommands
   for sub in cmd.get_subcommands_mut() {
+    if sub.is_hide_set() {
+      continue;
+    }
     render_command_recursive(sub, depth + 1, buffer)?;
   }
 
   Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::render_command_recursive;
+
+  #[test]
+  fn hidden_commands_do_not_appear_in_manual() -> Result<(), String> {
+    let mut command = clap::Command::new("nh")
+      .subcommand(clap::Command::new("visible"))
+      .subcommand(clap::Command::new("internal").hide(true));
+    let mut manual = Vec::new();
+    render_command_recursive(&mut command, 1, &mut manual)?;
+    let manual =
+      String::from_utf8(manual).map_err(|error| error.to_string())?;
+
+    assert!(manual.contains("Usage: visible"));
+    assert!(!manual.contains("internal"));
+
+    Ok(())
+  }
 }

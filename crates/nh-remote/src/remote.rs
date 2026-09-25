@@ -195,6 +195,10 @@ fn nixos_activation_command(
 /// create multiple handlers. Uses `signal_hook::flag::register` which
 /// is async-signal-safe.
 ///
+/// After a supervised elevated command has run in this process, SIGINT
+/// terminates nh even though this flag is still set, so remote work must
+/// finish before local activation starts.
+///
 /// # Errors
 ///
 /// Returns an error if the signal handler cannot be registered.
