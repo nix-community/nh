@@ -2,6 +2,8 @@
   lib,
   stdenv,
   rustPlatform,
+  clang,
+  wild,
   makeBinaryWrapper,
   installShellFiles,
   versionCheckHook,
@@ -12,6 +14,9 @@
 }:
 assert use-nom -> nix-output-monitor != null;
 let
+  # Wild supports x86_64 and AArch64 Linux.
+  hasWild =
+    stdenv.hostPlatform.isLinux && (stdenv.hostPlatform.isx86_64 || stdenv.hostPlatform.isAarch64);
   runtimeDeps = lib.optionals use-nom [ nix-output-monitor ];
   cargoToml = lib.importTOML ./Cargo.toml;
 in
@@ -36,6 +41,10 @@ rustPlatform.buildRustPackage (finalAttrs: {
   nativeBuildInputs = [
     installShellFiles
     makeBinaryWrapper
+  ]
+  ++ lib.optionals hasWild [
+    clang
+    wild
   ];
 
   cargoLock.lockFile = ./Cargo.lock;
@@ -117,7 +126,12 @@ rustPlatform.buildRustPackage (finalAttrs: {
   useNextest = true;
   cargoTestFlags = [ "--workspace" ];
 
-  env.NH_REV = rev;
+  env = {
+    NH_REV = rev;
+  }
+  // lib.optionalAttrs hasWild {
+    RUSTFLAGS = "-Clinker=${clang}/bin/clang -Clink-arg=--ld-path=wild";
+  };
 
   meta = {
     description = "Yet another nix cli helper";
