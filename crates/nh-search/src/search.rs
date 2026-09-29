@@ -53,9 +53,10 @@ impl args::SearchArgs {
       },
       args::ResolvedSearchMode::Offline {
         limit,
+        scope,
         databases,
         query,
-      } => offline::run(limit, self.json, databases, query),
+      } => offline::run(limit, self.json, scope, databases, query),
       args::ResolvedSearchMode::Prs(args) => prs::run(self.json, args),
       args::ResolvedSearchMode::Issues(args) => issues::run(self.json, args),
     }

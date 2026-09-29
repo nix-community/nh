@@ -62,6 +62,7 @@ pub struct OfflineJsonOutput {
   pub elapsed_ms: u128,
   pub options:    Vec<OfflineOptionResult>,
   pub packages:   Vec<OfflinePackageResult>,
+  pub functions:  Vec<OfflineFunctionResult>,
 }
 
 #[derive(Debug, Serialize)]
@@ -76,4 +77,14 @@ pub struct OfflinePackageResult {
   pub db_path:  String,
   pub path:     String,
   pub packages: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OfflineFunctionResult {
+  pub db_path:        String,
+  pub name:           String,
+  pub summary:        Option<String>,
+  pub type_signature: Option<String>,
+  pub location:       String,
+  pub deprecated:     bool,
 }
