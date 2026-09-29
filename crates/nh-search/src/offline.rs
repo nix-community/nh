@@ -1,6 +1,9 @@
-use std::{path::PathBuf, time::Instant};
+use std::{
+  path::{Path, PathBuf},
+  time::Instant,
+};
 
-use misstep::{Result, ResultExt, bail};
+use misstep::{Result, ResultExt};
 use spam_db::{FileRecord, OptionRecord, SpamDb};
 use tracing::debug;
 use yansi::{Color, Paint};
@@ -30,37 +33,12 @@ pub fn run(
   let mut package_results: Vec<(String, FileRecord)> = Vec::new();
 
   for db_path in databases {
-    let db = SpamDb::open(db_path).with_context(|| {
-      format!("opening SPAM database: {}", db_path.display())
-    })?;
-
-    let db_label = db_path.display().to_string();
-
-    match db {
-      SpamDb::Options(opts_db) => {
-        let records = opts_db.query(&query_s).with_context(|| {
-          format!("querying options database: {}", db_path.display())
-        })?;
-        for rec in records {
-          option_results.push((db_label.clone(), rec));
-        }
-      },
-      SpamDb::Packages(pkgs_db) => {
-        let records = pkgs_db.query(&query_s).with_context(|| {
-          format!("querying packages database: {}", db_path.display())
-        })?;
-        for rec in records {
-          package_results.push((db_label.clone(), rec));
-        }
-      },
-      SpamDb::Index(_) => {
-        bail!(
-          "Invalid database format for {}: expected `options` or `packages`, \
-           got `index`.",
-          db_path.display()
-        );
-      },
-    }
+    query_database(
+      db_path,
+      &query_s,
+      &mut option_results,
+      &mut package_results,
+    )?;
   }
 
   let elapsed = then.elapsed();
@@ -116,36 +94,79 @@ pub fn run(
   }
 
   for (db_path, rec) in &option_results {
-    println!();
-    print!("{}", Paint::new(&rec.name).fg(Color::Blue));
-    println!();
-    println!("  Source: {db_path}");
-
-    if let Some(ref summary) = rec.summary {
-      let summary = summary.replace('\n', " ");
-      for line in textwrap::wrap(&summary, textwrap::Options::with_termwidth())
-      {
-        println!("  {line}");
-      }
-    }
+    print_option_result(db_path, rec);
   }
 
   for (db_path, rec) in &package_results {
-    println!();
-    print!("{}", Paint::new(&rec.path).fg(Color::Blue));
-    println!();
-    println!("  Source: {db_path}");
+    print_package_result(db_path, rec);
+  }
 
-    if !rec.packages.is_empty() {
-      let pkgs = rec.packages.join(", ");
-      let lines = textwrap::wrap(&pkgs, textwrap::Options::with_termwidth());
-      if let Some((first, rest)) = lines.split_first() {
-        println!("  Packages: {first}");
-        for line in rest {
-          println!("            {line}");
-        }
+  Ok(())
+}
+
+fn print_option_result(db_path: &str, rec: &OptionRecord) {
+  println!();
+  print!("{}", Paint::new(&rec.name).fg(Color::Blue));
+  println!();
+  println!("  Source: {db_path}");
+
+  if let Some(summary) = &rec.summary {
+    let summary = summary.replace('\n', " ");
+    for line in textwrap::wrap(&summary, textwrap::Options::with_termwidth()) {
+      println!("  {line}");
+    }
+  }
+}
+
+fn print_package_result(db_path: &str, rec: &FileRecord) {
+  println!();
+  print!("{}", Paint::new(&rec.path).fg(Color::Blue));
+  println!();
+  println!("  Source: {db_path}");
+
+  if !rec.packages.is_empty() {
+    let pkgs = rec.packages.join(", ");
+    let lines = textwrap::wrap(&pkgs, textwrap::Options::with_termwidth());
+    if let Some((first, rest)) = lines.split_first() {
+      println!("  Packages: {first}");
+      for line in rest {
+        println!("            {line}");
       }
     }
+  }
+}
+
+fn query_database(
+  db_path: &Path,
+  query: &str,
+  option_results: &mut Vec<(String, OptionRecord)>,
+  package_results: &mut Vec<(String, FileRecord)>,
+) -> Result<()> {
+  let db = SpamDb::open(db_path)
+    .with_context(|| format!("opening SPAM database: {}", db_path.display()))?;
+
+  let db_label = db_path.display().to_string();
+
+  if let Some(opts_db) = db
+    .options()
+    .with_context(|| format!("opening options scope: {}", db_path.display()))?
+  {
+    let records = opts_db.query(query).with_context(|| {
+      format!("querying options database: {}", db_path.display())
+    })?;
+    option_results
+      .extend(records.into_iter().map(|rec| (db_label.clone(), rec)));
+  }
+
+  if let Some(pkgs_db) = db
+    .packages()
+    .with_context(|| format!("opening packages scope: {}", db_path.display()))?
+  {
+    let records = pkgs_db.query(query).with_context(|| {
+      format!("querying packages database: {}", db_path.display())
+    })?;
+    package_results
+      .extend(records.into_iter().map(|rec| (db_label.clone(), rec)));
   }
 
   Ok(())
