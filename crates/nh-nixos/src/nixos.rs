@@ -91,7 +91,7 @@ impl args::OsArgs {
   /// - Nix evaluation or building fails
   /// - File system operations fail
   pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
-    use OsRebuildVariant::{Boot, Build, Switch, Test};
+    use OsRebuildVariant::{Boot, Build, DryActivate, Switch, Test};
     match self.subcommand {
       OsSubcommand::Boot(args) => {
         args.rebuild_and_activate(&Boot, None, elevation)
@@ -101,6 +101,16 @@ impl args::OsArgs {
       },
       OsSubcommand::Switch(args) => {
         args.rebuild_and_activate(&Switch, None, elevation)
+      },
+      OsSubcommand::DryActivate(args) => {
+        let activate = OsRebuildActivateArgs {
+          rebuild:                        args.rebuild,
+          install_bootloader:             false,
+          show_activation_logs:           true,
+          continue_on_activation_failure: false,
+          no_systemd_run:                 args.no_systemd_run,
+        };
+        activate.rebuild_and_activate(&DryActivate, None, elevation)
       },
       OsSubcommand::Build(args) => {
         if args.common.ask || args.common.dry {
@@ -123,6 +133,7 @@ enum OsRebuildVariant {
   Switch,
   Boot,
   Test,
+  DryActivate,
   BuildVm,
   BuildIso,
 }
@@ -289,9 +300,17 @@ impl OsRebuildActivateArgs {
     elevate: bool,
     elevation: ElevationStrategy,
   ) -> Result<()> {
-    use OsRebuildVariant::{Boot, Switch, Test};
+    use OsRebuildVariant::{
+      Boot,
+      Build,
+      BuildIso,
+      BuildVm,
+      DryActivate,
+      Switch,
+      Test,
+    };
 
-    if self.rebuild.common.ask {
+    if self.rebuild.common.ask && !matches!(variant, DryActivate) {
       let confirmation = inquire::Confirm::new("Apply the config?")
         .with_default(false)
         .prompt()?;
@@ -372,28 +391,41 @@ impl OsRebuildActivateArgs {
     let switch_to_configuration =
       resolved_profile.join("bin").join("switch-to-configuration");
 
-    if let Test | Switch = variant {
+    if let Test | Switch | DryActivate = variant {
+      let action = if matches!(variant, DryActivate) {
+        "dry-activate"
+      } else {
+        "test"
+      };
       let activation_result = self.rebuild.target_host.as_ref().map_or_else(
         || {
           activation_command(
             &switch_to_configuration,
-            "test",
+            action,
             !self.no_systemd_run,
           )
-          .message("Activating configuration")
+          .message(if matches!(variant, DryActivate) {
+            "Previewing activation"
+          } else {
+            "Activating configuration"
+          })
           .elevate(elevate.then_some(elevation.clone()))
           .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
           .with_required_env()
           .show_output(self.show_activation_logs)
           .run()
-          .wrap_err("Activation (test) failed")
+          .wrap_err(format!("Activation ({action}) failed"))
         },
         |target_host| {
           let activation_type = match variant {
             Test => nh_remote::ActivationType::Test,
             Switch => nh_remote::ActivationType::Switch,
-            #[allow(clippy::unreachable, reason = "Should never happen.")]
-            _ => unreachable!(),
+            DryActivate => nh_remote::ActivationType::DryActivate,
+            #[expect(
+              clippy::unreachable,
+              reason = "guarded by the enclosing if"
+            )]
+            Boot | Build | BuildVm | BuildIso => unreachable!(),
           };
 
           nh_remote::activate_remote_with_build_args(
@@ -455,7 +487,7 @@ impl OsRebuildActivateArgs {
           &nh_remote::ActivateRemoteConfig {
             platform:           nh_remote::Platform::NixOS,
             activation_type:    nh_remote::ActivationType::Boot,
-            install_bootloader: self.rebuild.install_bootloader,
+            install_bootloader: self.install_bootloader,
             show_logs:          false,
             systemd_run:        !self.no_systemd_run,
             elevation:          elevate.then_some(elevation),
@@ -488,7 +520,7 @@ impl OsRebuildActivateArgs {
         .message("Adding configuration to bootloader")
         .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"]);
 
-        if self.rebuild.install_bootloader {
+        if self.install_bootloader {
           cmd = cmd.set_env("NIXOS_INSTALL_BOOTLOADER", "1");
         }
 
