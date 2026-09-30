@@ -318,10 +318,11 @@ mod tests {
     })
     .unwrap();
 
+    let expected = fs::canonicalize(etc.path()).unwrap();
     assert!(matches!(
       installable,
       Installable::Flake { reference, attribute }
-        if reference == etc.path().to_string_lossy() && attribute.is_empty()
+        if Path::new(&reference) == expected && attribute.is_empty()
     ));
   }
 
