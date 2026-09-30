@@ -49,6 +49,8 @@ functionality, under the "Removed" section.
   activation from using an unrelated previous build.
 - `nh os build-vm --run` now copies remote-only build results locally before
   executing the VM runner.
+- When a direct copy between remote hosts fails, the local relay now copies the
+  closure to the target as well as from the builder.
 - `nh clean` now preserves the generation selected by each profile symlink by
   default, even after a rollback when it is older than `--keep-since` and
   outside the newest `--keep` generations. Previously cleanup could leave the
