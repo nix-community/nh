@@ -1619,8 +1619,8 @@ pub fn build_remote_with_args(
     .as_ref()
     .is_some_and(|th| th.hostname() == build_host.hostname());
 
-  let need_local_copy = match &config.target_host {
-    None => true,
+  let (need_local_copy, relay_target) = match &config.target_host {
+    None => (true, None),
     Some(_target_host) if target_is_build_host => {
       debug!(
         "Skipping copy from build host to target host (same host: {})",
@@ -1633,7 +1633,7 @@ pub fn build_remote_with_args(
       // This is a little confusing, but frankly, respecting --out-link to
       // create a local path while everything happens remotely is a bit
       // more confusing.
-      false
+      (false, None)
     },
     Some(target_host) => {
       match copy_closure_between_remotes_with_args(
@@ -1649,7 +1649,7 @@ pub fn build_remote_with_args(
             build_host.hostname(),
             target_host.hostname()
           );
-          out_link.is_some()
+          (out_link.is_some(), None)
         },
         Err(e) => {
           warn!(
@@ -1659,7 +1659,7 @@ pub fn build_remote_with_args(
             target_host.hostname(),
             e
           );
-          true
+          (true, Some(target_host))
         },
       }
     },
@@ -1667,6 +1667,16 @@ pub fn build_remote_with_args(
 
   if need_local_copy {
     copy_closure_from_with_args(build_host, &out_path, evaluation_args)?;
+  }
+
+  if let Some(target_host) = relay_target {
+    copy_to_remote_with_args(
+      target_host,
+      Path::new(&out_path),
+      use_substitutes,
+      evaluation_args,
+    )
+    .context("Failed to relay closure to target host")?;
   }
 
   // Clear an old link even when the new result remains on the remote host.

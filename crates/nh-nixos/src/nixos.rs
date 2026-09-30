@@ -321,8 +321,9 @@ impl OsRebuildActivateArgs {
       base_store_path.join(specialisation_path)
     };
 
+    // A remote build has already copied the closure to the target host.
     if let Some(target_host) = &self.rebuild.target_host
-      && out_path.exists()
+      && actual_store_path.is_none()
     {
       nh_remote::copy_to_remote_with_args(
         target_host,
