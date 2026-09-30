@@ -487,14 +487,14 @@ in
     } => {
       let config = legacy_config_expression(attribute, hostname);
       format!(
-        r#"
+        r"
 let
   value = {expression};
   set = if builtins.isFunction value then value {{}} else value;
   config = {config};
 in
   builtins.attrNames config.config.system.build.images
-        "#
+        "
       )
     },
     _ => {
@@ -521,7 +521,12 @@ in
   Ok(variants)
 }
 
-fn legacy_config_expression(attribute: &[String], hostname: &str) -> String {
+/// Select the same legacy configuration for image discovery and building.
+#[must_use]
+pub fn legacy_config_expression(
+  attribute: &[String],
+  hostname: &str,
+) -> String {
   if attribute.is_empty() {
     let hostname = hostname
       .replace('\\', "\\\\")

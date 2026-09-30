@@ -18,6 +18,17 @@ functionality, under the "Removed" section.
 
 ### Added
 
+- `nh os dry-activate` builds and previews activation without applying it.
+  Existing `--dry` still builds without invoking activation.
+- `nh os build-plan` reports Nix's dry-run build plan without creating a result
+  or activating it. Remote hosts are not supported for this command.
+- `nh os info` now distinguishes the running generation from the selected boot
+  profile; `--json` emits both statuses and generation metadata.
+- Rollback now rejects an explicitly requested specialisation missing from the
+  target generation before changing the selected system profile.
+- Generation discovery now accepts only exact `<profile>-<number>-link` entries;
+  similarly named profiles no longer leak into `nh os info` or rollback.
+
 - `nh os switch`/`nh os boot` now accept `--continue-on-activation-failure`
   (`NH_CONTINUE_ON_ACTIVATION_FAILURE`). During a switch, activation runs before
   the new generation is added to the bootloader; a failed activation previously
@@ -36,6 +47,27 @@ functionality, under the "Removed" section.
 
 ### Fixed
 
+- NixOS activation now runs in a transient systemd service when systemd is
+  available, so switching the system does not terminate its own session.
+  Activation still runs directly on systems without systemd.
+- Specialisation activation now validates and activates the selected closure
+  while installing the base closure as the boot profile.
+- Rollback now chooses the predecessor of the selected system profile rather
+  than the running system, and restores that selected profile on failure.
+- Remote builds without `nom` now drain stdout and stderr while waiting,
+  preventing deadlocks when either pipe fills.
+- Remote-only results now clear an old local out-link, preventing subsequent
+  activation from using an unrelated previous build.
+- `nh os build-vm --run` now copies remote-only build results locally before
+  executing the VM runner.
+- When a direct copy between remote hosts fails, the local relay now copies the
+  closure to the target as well as from the builder.
+- Legacy image builds now use the same hostname or explicit configuration
+  attribute selected during image-variant validation.
+- `nh os build-vm --specialisation` now builds the VM derivation from the chosen
+  specialisation instead of the base configuration.
+- `nh os build-image --update` now updates flake inputs before discovering
+  available image variants, rather than after validation.
 - `nh clean` now preserves the generation selected by each profile symlink by
   default, even after a rollback when it is older than `--keep-since` and
   outside the newest `--keep` generations. Previously cleanup could leave the

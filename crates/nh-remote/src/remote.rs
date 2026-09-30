@@ -175,18 +175,28 @@ fn nixos_activation_command(
   action: &str,
   install_bootloader: bool,
 ) -> String {
-  let mut parts = Vec::new();
-
+  let mut assignments = Vec::new();
   if install_bootloader {
-    parts.push("NIXOS_INSTALL_BOOTLOADER=1".to_string());
+    assignments.push("NIXOS_INSTALL_BOOTLOADER=1".to_string());
   }
-
   if let Ok(no_check) = env::var("NIXOS_NO_CHECK") {
-    parts.push(format!("NIXOS_NO_CHECK={}", shell_quote(&no_check)));
+    assignments.push(format!("NIXOS_NO_CHECK={}", shell_quote(&no_check)));
   }
 
-  parts.push(format!("{} {action}", shell_quote(switch_to_config)));
-  parts.join(" ")
+  let switch = format!("{} {action}", shell_quote(switch_to_config));
+  let unit = format!(
+    "systemd-run -E LOCALE_ARCHIVE -E NIXOS_INSTALL_BOOTLOADER -E \
+     NIXOS_NO_CHECK --collect --no-ask-password --pipe --quiet \
+     --service-type=exec --unit=nixos-rebuild-switch-to-configuration {switch}"
+  );
+  let script =
+    format!("if test -d /run/systemd/system; then {unit}; else {switch}; fi");
+  let command = format!("sh -c {}", shell_quote(&script));
+  if assignments.is_empty() {
+    command
+  } else {
+    format!("{} {command}", assignments.join(" "))
+  }
 }
 
 /// Register a SIGINT handler that sets the global interrupt flag.
@@ -1103,12 +1113,12 @@ pub fn validate_closure_remote(
 ///
 /// This determines which action the system's activation script will execute.
 pub enum ActivationType {
-  /// Run the configuration in a test mode without activating
+  /// Activate the configuration without changing the boot default
   Test,
-
-  /// Atomically switch to the new configuration
+  /// Activate and make the configuration the boot default
   Switch,
-
+  /// Preview activation without changing the running system
+  DryActivate,
   /// Make the new configuration the default boot option
   Boot,
 }
@@ -1120,6 +1130,7 @@ impl ActivationType {
     match self {
       Self::Test => "test",
       Self::Switch => "switch",
+      Self::DryActivate => "dry-activate",
       Self::Boot => "boot",
     }
   }
@@ -1215,7 +1226,7 @@ pub fn activate_remote_with_build_args(
 /// Activate a NixOS system configuration on a remote host.
 ///
 /// Handles the SSH commands required to activate a NixOS system. Supports
-/// test, switch, and boot activation types.
+/// test, switch, dry-activate, and boot actions.
 ///
 /// # Arguments
 ///
@@ -1274,7 +1285,9 @@ fn activate_nixos_remote(
   })?;
 
   match config.activation_type {
-    ActivationType::Test | ActivationType::Switch => {
+    ActivationType::Test
+    | ActivationType::Switch
+    | ActivationType::DryActivate => {
       let action = config.activation_type.as_str();
 
       let mut ssh_cmd = Exec::cmd("ssh");
@@ -1305,7 +1318,10 @@ fn activate_nixos_remote(
         .wrap_err("Failed to activate NixOS configuration")?;
 
       if config.show_logs {
-        println!("{}", capture.stdout_str());
+        print!("{}", capture.stdout_str());
+        if capture.exit_status.success() {
+          eprint!("{}", capture.stderr_str());
+        }
       }
 
       if !capture.exit_status.success() {
@@ -1496,6 +1512,17 @@ pub struct RemoteBuildConfig {
   pub execution_args: Vec<OsString>,
 }
 
+fn clear_out_link(link: &Path) -> Result<()> {
+  match std::fs::symlink_metadata(link) {
+    Ok(metadata) if metadata.file_type().is_symlink() => {
+      std::fs::remove_file(link).wrap_err("Failed to remove previous out-link")
+    },
+    Ok(_) => bail!("Out-link is not a symlink: {}", link.display()),
+    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+    Err(error) => Err(error).wrap_err("Failed to inspect previous out-link"),
+  }
+}
+
 /// Perform a remote build of a flake installable.
 ///
 /// This implements the `build_remote_flake` workflow from nixos-rebuild-ng:
@@ -1560,8 +1587,8 @@ pub fn build_remote_with_args(
     .as_ref()
     .is_some_and(|th| th.hostname() == build_host.hostname());
 
-  let need_local_copy = match &config.target_host {
-    None => true,
+  let (need_local_copy, relay_to_target) = match &config.target_host {
+    None => (true, false),
     Some(_target_host) if target_is_build_host => {
       debug!(
         "Skipping copy from build host to target host (same host: {})",
@@ -1574,7 +1601,7 @@ pub fn build_remote_with_args(
       // This is a little confusing, but frankly, respecting --out-link to
       // create a local path while everything happens remotely is a bit
       // more confusing.
-      false
+      (false, false)
     },
     Some(target_host) => {
       match copy_closure_between_remotes_with_args(
@@ -1590,7 +1617,7 @@ pub fn build_remote_with_args(
             build_host.hostname(),
             target_host.hostname()
           );
-          out_link.is_some()
+          (out_link.is_some(), false)
         },
         Err(e) => {
           warn!(
@@ -1600,7 +1627,7 @@ pub fn build_remote_with_args(
             target_host.hostname(),
             e
           );
-          true
+          (true, true)
         },
       }
     },
@@ -1609,22 +1636,28 @@ pub fn build_remote_with_args(
   if need_local_copy {
     copy_closure_from_with_args(build_host, &out_path, evaluation_args)?;
   }
+  if relay_to_target {
+    let target_host = config
+      .target_host
+      .as_ref()
+      .ok_or_else(|| eyre!("Relay target is missing"))?;
+    copy_to_remote_with_args(
+      target_host,
+      Path::new(&out_path),
+      use_substitutes,
+      evaluation_args,
+    )
+    .context("Failed to relay closure to target host")?;
+  }
 
-  // Create local out-link if requested and the result is in local store
-  // When build_host == target_host (both remote), skip out-link creation
-  // since the closure is remote and won't be copied to localhost
+  // Clear an old link even when the new result remains on the remote host.
+  // Otherwise callers can mistake a previous local result for this build.
   if let Some(link) = out_link {
+    clear_out_link(link)?;
     if need_local_copy {
       debug!("Creating out-link: {} -> {}", link.display(), out_path);
-      // Remove existing symlink/file if present
-      let _ = std::fs::remove_file(link);
       std::os::unix::fs::symlink(&out_path, link)
         .wrap_err("Failed to create out-link")?;
-    } else {
-      debug!(
-        "Skipping out-link creation: result is on remote host and not copied \
-         to localhost"
-      );
     }
   }
 
@@ -1727,8 +1760,25 @@ fn build_on_remote_simple(
     .stdout(Redirection::Pipe)
     .stderr(Redirection::Pipe);
 
-  // Execute with start() to get a Job handle
   let mut job = ssh_cmd.start()?;
+
+  // Drain both pipes while the process runs; otherwise a full pipe blocks the
+  // remote build before wait_timeout can observe its exit.
+  let stdout = job
+    .stdout
+    .take()
+    .ok_or_else(|| eyre!("Failed to capture stdout"))?;
+  let stderr = job
+    .stderr
+    .take()
+    .ok_or_else(|| eyre!("Failed to capture stderr"))?;
+  let stdout_reader =
+    std::thread::spawn(move || std::io::read_to_string(stdout));
+  let stderr_reader = std::thread::spawn(move || {
+    let mut stderr = stderr;
+    let mut output = Vec::new();
+    stderr.read_to_end(&mut output).map(|_| output)
+  });
 
   // Wait for completion with interrupt checking
   let exit_status = loop {
@@ -1751,27 +1801,18 @@ fn build_on_remote_simple(
     }
   };
 
-  // Check exit status
+  let output = stdout_reader
+    .join()
+    .map_err(|_| eyre!("Remote stdout reader failed"))??;
+  let stderr = stderr_reader
+    .join()
+    .map_err(|_| eyre!("Remote stderr reader failed"))??;
   if !exit_status.success() {
-    let stderr = job
-      .stderr
-      .take()
-      .and_then(|mut e| {
-        let mut s = String::new();
-        e.read_to_string(&mut s).ok().map(|_| s)
-      })
-      .unwrap_or_else(|| String::from("(no stderr)"));
-    bail!("Remote command failed: {}", stderr);
+    bail!(
+      "Remote command failed: {}",
+      String::from_utf8_lossy(&stderr)
+    );
   }
-
-  // Read stdout
-  let stdout = job
-    .stdout
-    .take()
-    .ok_or_else(|| eyre!("Failed to capture stdout"))?;
-  let mut reader = std::io::BufReader::new(stdout);
-  let mut output = String::new();
-  reader.read_to_string(&mut output)?;
 
   // --print-out-paths may return multiple lines; take first
   let out_path = output
@@ -1965,6 +2006,26 @@ mod tests {
   }
 
   use super::*;
+
+  #[test]
+  fn out_link_cleanup_preserves_regular_files() {
+    let link = std::env::temp_dir()
+      .join(format!("nh-remote-out-link-test-{}", std::process::id()));
+    let file = std::fs::OpenOptions::new()
+      .write(true)
+      .create_new(true)
+      .open(&link)
+      .unwrap();
+    drop(file);
+
+    assert!(clear_out_link(&link).is_err());
+    assert!(link.is_file());
+
+    std::fs::remove_file(&link).unwrap();
+    std::os::unix::fs::symlink("previous", &link).unwrap();
+    clear_out_link(&link).unwrap();
+    assert!(std::fs::symlink_metadata(&link).is_err());
+  }
 
   #[test]
   fn remote_build_and_profile_commands_preserve_no_net() {

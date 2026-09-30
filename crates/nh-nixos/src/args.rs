@@ -35,14 +35,15 @@ impl OsArgs {
       },
       OsSubcommand::Switch(args)
       | OsSubcommand::Boot(args)
-      | OsSubcommand::Test(args) => {
+      | OsSubcommand::Test(args)
+      | OsSubcommand::DryActivate(args) => {
         if args.rebuild.uses_flakes() {
           Box::new(FlakeFeatures)
         } else {
           Box::new(LegacyFeatures)
         }
       },
-      OsSubcommand::Build(args) => {
+      OsSubcommand::Build(args) | OsSubcommand::BuildPlan(args) => {
         if args.uses_flakes() {
           Box::new(FlakeFeatures)
         } else {
@@ -82,8 +83,14 @@ pub enum OsSubcommand {
   /// Build and activate the new configuration
   Test(OsRebuildActivateArgs),
 
+  /// Build and preview activation without applying it
+  DryActivate(OsRebuildActivateArgs),
+
   /// Build the new configuration
   Build(OsRebuildArgs),
+
+  /// Show what Nix would build without building or activating
+  BuildPlan(OsRebuildArgs),
 
   /// Load system in a repl
   Repl(OsReplArgs),
@@ -297,4 +304,8 @@ pub struct OsGenerationsArgs {
   /// Comma-delimited list of field(s) to display
   #[arg(long, value_delimiter = ',')]
   pub fields: Option<Vec<Field>>,
+
+  /// Print generation status and metadata as JSON
+  #[arg(long, conflicts_with = "fields")]
+  pub json: bool,
 }
