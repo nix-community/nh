@@ -164,11 +164,27 @@ impl OsBuildVmArgs {
       );
     }
 
-    self.common.build_only(
-      &OsRebuildVariant::BuildVm,
-      Some(&[attr]),
-      elevation,
-    )?;
+    // A VM runner executes locally. When the build and target hosts are the
+    // same remote machine, a target-host build otherwise leaves no local
+    // result to run.
+    let mut rebuild = self.common;
+    if self.run
+      && rebuild
+        .build_host
+        .as_ref()
+        .zip(rebuild.target_host.as_ref())
+        .is_some_and(|(build, target)| build.hostname() == target.hostname())
+    {
+      if rebuild.hostname.is_none() {
+        rebuild.hostname = rebuild
+          .target_host
+          .as_ref()
+          .map(|host| host.hostname_without_domain().to_owned());
+      }
+      rebuild.target_host = None;
+    }
+
+    rebuild.build_only(&OsRebuildVariant::BuildVm, Some(&[attr]), elevation)?;
 
     // If --run flag is set, execute the VM
     if self.run {
