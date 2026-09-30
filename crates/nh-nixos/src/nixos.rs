@@ -14,6 +14,7 @@ use nh_core::{
     get_build_image_variants_flake_with_args,
     get_build_image_variants_with_args,
     get_hostname,
+    legacy_config_expression,
     use_nom,
   },
 };
@@ -23,6 +24,7 @@ use nh_installable::{
   ConfigurationInstallable,
   ConfigurationLayout,
   Installable,
+  InstallableArgs,
 };
 use nh_remote::{self, RemoteBuildConfig, RemoteHost};
 use tracing::{debug, info, warn};
@@ -1030,13 +1032,40 @@ impl OsBuildImageArgs {
       );
     }
 
-    let attrs = ["images", &self.image_variant];
+    let mut rebuild = self.common;
+    rebuild.common.installable = match installable {
+      Installable::File { path, attribute } => {
+        let path = path.to_str().ok_or_else(|| {
+          eyre!("Image configuration path contains invalid UTF-8")
+        })?;
+        let path = serde_json::to_string(path)?.replace("${", "\\${");
+        let selector = legacy_config_expression(&attribute, &target_hostname);
+        InstallableArgs::Specified(Installable::Expression {
+          expression: format!(
+            "let value = import {path}; set = if builtins.isFunction value \
+             then value {{}} else value; in {selector}"
+          ),
+          attribute:  Vec::new(),
+        })
+      },
+      Installable::Expression {
+        expression,
+        attribute,
+      } => {
+        let selector = legacy_config_expression(&attribute, &target_hostname);
+        InstallableArgs::Specified(Installable::Expression {
+          expression: format!(
+            "let value = ({expression}); set = if builtins.isFunction value \
+             then value {{}} else value; in {selector}"
+          ),
+          attribute:  Vec::new(),
+        })
+      },
+      flake => InstallableArgs::Specified(flake),
+    };
 
-    self.common.build_only(
-      &OsRebuildVariant::BuildIso,
-      Some(&attrs),
-      elevation,
-    )?;
+    let attrs = ["images", &self.image_variant];
+    rebuild.build_only(&OsRebuildVariant::BuildIso, Some(&attrs), elevation)?;
 
     Ok(())
   }
