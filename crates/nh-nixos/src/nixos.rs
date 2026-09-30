@@ -1575,7 +1575,19 @@ impl OsGenerationsArgs {
       })
       .collect();
 
-    generations::print_info(descriptions, self.fields.as_deref())?;
+    let boot_generation = fs::read_link(&profile)
+      .ok()
+      .and_then(|link| generations::from_dir(&link));
+
+    if self.json {
+      return generations::print_json(&descriptions, boot_generation);
+    }
+
+    generations::print_info(
+      descriptions,
+      self.fields.as_deref(),
+      boot_generation,
+    )?;
 
     Ok(())
   }

@@ -9,9 +9,11 @@ use clap::ValueEnum;
 use color_eyre::eyre::Result;
 use jiff::{Timestamp, tz::TimeZone};
 use nh_core::command::{CommandKind, NixCommand};
+use serde::Serialize;
 use tracing::{debug, warn};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GenerationInfo {
   /// Number of a generation
   pub number: u64,
@@ -33,6 +35,7 @@ pub struct GenerationInfo {
   pub specialisations: Option<Vec<String>>,
 
   /// Whether a given generation is the current one.
+  #[serde(rename = "running")]
   pub current: bool,
 
   /// Closure size of the generation.
@@ -389,6 +392,58 @@ pub fn describe(
   })
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InfoJson<'info> {
+  running_generation: Option<u64>,
+  boot_generation:    Option<u64>,
+  generations:        Vec<GenerationJson<'info>>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenerationJson<'info> {
+  #[serde(flatten)]
+  info:         &'info GenerationInfo,
+  boot_default: bool,
+}
+
+/// Print generation status and metadata as JSON.
+///
+/// # Errors
+///
+/// Returns an error if serialization fails.
+pub fn print_json(
+  generations: &[GenerationInfo],
+  boot_generation: Option<u64>,
+) -> Result<()> {
+  let mut running = generations.iter().filter(|generation| generation.current);
+  let running_generation = match (running.next(), running.next()) {
+    (Some(generation), None) => Some(generation.number),
+    _ => None,
+  };
+
+  let mut rows: Vec<_> = generations
+    .iter()
+    .map(|info| {
+      GenerationJson {
+        info,
+        boot_default: boot_generation == Some(info.number),
+      }
+    })
+    .collect();
+  rows.sort_by_key(|row| row.info.number);
+
+  let info = InfoJson {
+    running_generation,
+    boot_generation,
+    generations: rows,
+  };
+
+  println!("{}", serde_json::to_string(&info)?);
+  Ok(())
+}
+
 /// Print information about the given generations.
 ///
 /// # Errors
@@ -398,6 +453,7 @@ pub fn describe(
 pub fn print_info(
   mut generations: Vec<GenerationInfo>,
   fields: Option<&[Field]>,
+  boot_generation: Option<u64>,
 ) -> Result<()> {
   // Parse all dates at once and cache them
   let mut parsed_dates = HashMap::with_capacity(generations.len());
@@ -480,7 +536,7 @@ pub fn print_info(
     .unwrap_or(5);
 
   let widths = ColumnWidths {
-    id:      max_generation_no_len + 10, // "Generation No"
+    id:      max_generation_no_len + 16, // "Generation No"
     date:    20,                         // "Build Date"
     nver:    max_nixos_version_len,
     kernel:  max_kernel_len,
@@ -520,11 +576,16 @@ pub fn print_info(
         let (_, width) = f.column_info(widths);
         let cell_content = match f {
           Field::Id => {
-            format!(
-              "{}{}",
-              generation.number,
-              if generation.current { " (current)" } else { "" }
-            )
+            let marker = match (
+              generation.current,
+              boot_generation == Some(generation.number),
+            ) {
+              (true, true) => " (running, boot)",
+              (true, false) => " (running)",
+              (false, true) => " (boot)",
+              (false, false) => "",
+            };
+            format!("{}{marker}", generation.number)
           },
           Field::Date => formatted_date.clone(),
           Field::Nver => generation.nixos_version.clone(),
