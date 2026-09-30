@@ -45,6 +45,8 @@ functionality, under the "Removed" section.
   than the running system, and restores that selected profile on failure.
 - Remote builds without `nom` now drain stdout and stderr while waiting,
   preventing deadlocks when either pipe fills.
+- Remote-only results now clear an old local out-link, preventing subsequent
+  activation from using an unrelated previous build.
 - `nh clean` now preserves the generation selected by each profile symlink by
   default, even after a rollback when it is older than `--keep-since` and
   outside the newest `--keep` generations. Previously cleanup could leave the

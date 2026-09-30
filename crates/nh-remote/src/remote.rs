@@ -1506,6 +1506,17 @@ pub struct RemoteBuildConfig {
   pub execution_args: Vec<OsString>,
 }
 
+fn clear_out_link(link: &Path) -> Result<()> {
+  match std::fs::symlink_metadata(link) {
+    Ok(metadata) if metadata.file_type().is_symlink() => {
+      std::fs::remove_file(link).wrap_err("Failed to remove previous out-link")
+    },
+    Ok(_) => bail!("Out-link is not a symlink: {}", link.display()),
+    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+    Err(error) => Err(error).wrap_err("Failed to inspect previous out-link"),
+  }
+}
+
 /// Perform a remote build of a flake installable.
 ///
 /// This implements the `build_remote_flake` workflow from nixos-rebuild-ng:
@@ -1620,21 +1631,14 @@ pub fn build_remote_with_args(
     copy_closure_from_with_args(build_host, &out_path, evaluation_args)?;
   }
 
-  // Create local out-link if requested and the result is in local store
-  // When build_host == target_host (both remote), skip out-link creation
-  // since the closure is remote and won't be copied to localhost
+  // Clear an old link even when the new result remains on the remote host.
+  // Otherwise callers can mistake a previous local result for this build.
   if let Some(link) = out_link {
+    clear_out_link(link)?;
     if need_local_copy {
       debug!("Creating out-link: {} -> {}", link.display(), out_path);
-      // Remove existing symlink/file if present
-      let _ = std::fs::remove_file(link);
       std::os::unix::fs::symlink(&out_path, link)
         .wrap_err("Failed to create out-link")?;
-    } else {
-      debug!(
-        "Skipping out-link creation: result is on remote host and not copied \
-         to localhost"
-      );
     }
   }
 
@@ -1983,6 +1987,26 @@ mod tests {
   }
 
   use super::*;
+
+  #[test]
+  fn out_link_cleanup_preserves_regular_files() {
+    let link = std::env::temp_dir()
+      .join(format!("nh-remote-out-link-test-{}", std::process::id()));
+    let file = std::fs::OpenOptions::new()
+      .write(true)
+      .create_new(true)
+      .open(&link)
+      .unwrap();
+    drop(file);
+
+    assert!(clear_out_link(&link).is_err());
+    assert!(link.is_file());
+
+    std::fs::remove_file(&link).unwrap();
+    std::os::unix::fs::symlink("previous", &link).unwrap();
+    clear_out_link(&link).unwrap();
+    assert!(std::fs::symlink_metadata(&link).is_err());
+  }
 
   #[test]
   fn remote_build_and_profile_commands_preserve_no_net() {
