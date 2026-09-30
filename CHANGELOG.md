@@ -59,6 +59,8 @@ functionality, under the "Removed" section.
   locally.
 - When a direct copy between remote hosts fails, the local relay now copies the
   closure to the target as well as from the builder.
+- Legacy image builds now use the same hostname or explicit configuration
+  attribute selected during image-variant validation.
 - `nh clean` now preserves the generation selected by each profile symlink by
   default, even after a rollback when it is older than `--keep-since` and
   outside the newest `--keep` generations. Previously cleanup could leave the

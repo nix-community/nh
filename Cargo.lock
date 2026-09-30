@@ -1348,6 +1348,7 @@ dependencies = [
  "regex",
  "secrecy",
  "semver",
+ "serde",
  "serde_json",
  "serial_test",
  "shlex",

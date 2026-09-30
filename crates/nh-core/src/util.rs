@@ -12,6 +12,7 @@ use color_eyre::{
 };
 use nix_command::{CommandKind, NixCommand};
 use regex::Regex;
+use serde::Deserialize;
 use tracing::{debug, warn};
 
 use crate::command::{Command, ElevationStrategy};
@@ -423,6 +424,14 @@ pub fn self_elevate(strategy: ElevationStrategy) -> ! {
   panic!("{err}");
 }
 
+/// Image variants of a non-flake configuration, with the attribute path that
+/// selected the configuration.
+#[derive(Debug, Deserialize)]
+pub struct LegacyImages {
+  pub attribute: Vec<String>,
+  pub variants:  Vec<String>,
+}
+
 /// Gets the available image variants for a non-flake installable.
 ///
 /// This function uses nix-instantiate to evaluate the available image
@@ -436,7 +445,8 @@ pub fn self_elevate(strategy: ElevationStrategy) -> ! {
 ///
 /// # Returns
 ///
-/// * `Result<Vec<String>>` - A vector of available image variant names
+/// * `Result<LegacyImages>` - The available image variant names, and the
+///   attribute path to build them from
 ///
 /// # Errors
 ///
@@ -447,7 +457,7 @@ pub fn self_elevate(strategy: ElevationStrategy) -> ! {
 pub fn get_build_image_variants(
   installable: &nh_installable::Installable,
   hostname: &str,
-) -> Result<Vec<String>> {
+) -> Result<LegacyImages> {
   get_build_image_variants_with_args(installable, hostname, [] as [&str; 0])
 }
 
@@ -460,43 +470,16 @@ pub fn get_build_image_variants_with_args(
   installable: &nh_installable::Installable,
   hostname: &str,
   evaluation_args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
-) -> Result<Vec<String>> {
-  let expr = match installable {
+) -> Result<LegacyImages> {
+  let (value, attribute) = match installable {
     nh_installable::Installable::File { path, attribute } => {
-      let path = path
-        .display()
-        .to_string()
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace("${", "\\${");
-      let config = legacy_config_expression(attribute, hostname);
-      format!(
-        r#"
-let
-  value = import "{path}";
-  set = if builtins.isFunction value then value {{}} else value;
-  config = {config};
-in
-  builtins.attrNames config.config.system.build.images
-        "#
-      )
+      let path = nix_string(&path.display().to_string());
+      (format!("import \"{path}\""), attribute)
     },
     nh_installable::Installable::Expression {
       expression,
       attribute,
-    } => {
-      let config = legacy_config_expression(attribute, hostname);
-      format!(
-        r"
-let
-  value = {expression};
-  set = if builtins.isFunction value then value {{}} else value;
-  config = {config};
-in
-  builtins.attrNames config.config.system.build.images
-        "
-      )
-    },
+    } => (expression.clone(), attribute),
     _ => {
       return Err(eyre!(
         "get_build_image_variants only supports file and expression \
@@ -504,6 +487,22 @@ in
       ));
     },
   };
+
+  let attribute = legacy_attribute_expression(attribute, hostname);
+  let expr = format!(
+    r"
+let
+  value = {value};
+  set = if builtins.isFunction value then value {{}} else value;
+  attribute = {attribute};
+  config = builtins.foldl' (value: name: builtins.getAttr name value) set attribute;
+in
+  {{
+    inherit attribute;
+    variants = builtins.attrNames config.config.system.build.images;
+  }}
+    "
+  );
 
   let result = capture_nix_stdout(
     &NixCommand::nix_instantiate()
@@ -515,35 +514,32 @@ in
       .arg(expr),
   )?;
 
-  let variants: Vec<String> = serde_json::from_str(&result)
-    .wrap_err("Failed to parse image variants JSON")?;
-
-  Ok(variants)
+  serde_json::from_str(&result).wrap_err("Failed to parse image variants JSON")
 }
 
-fn legacy_config_expression(attribute: &[String], hostname: &str) -> String {
+fn nix_string(value: &str) -> String {
+  value
+    .replace('\\', "\\\\")
+    .replace('"', "\\\"")
+    .replace("${", "\\${")
+}
+
+fn legacy_attribute_expression(attribute: &[String], hostname: &str) -> String {
   if attribute.is_empty() {
-    let hostname = hostname
-      .replace('\\', "\\\\")
-      .replace('"', "\\\"")
-      .replace("${", "\\${");
+    let hostname = nix_string(hostname);
     return format!(
-      "if builtins.hasAttr \"nixosConfigurations\" set then builtins.getAttr \
-       \"{hostname}\" (builtins.getAttr \"nixosConfigurations\" set) else if \
-       builtins.hasAttr \"{hostname}\" set then builtins.getAttr \
-       \"{hostname}\" set else set"
+      "if builtins.hasAttr \"nixosConfigurations\" set then [ \
+       \"nixosConfigurations\" \"{hostname}\" ] else if builtins.hasAttr \
+       \"{hostname}\" set then [ \"{hostname}\" ] else [ ]"
     );
   }
 
-  attribute
+  let names = attribute
     .iter()
-    .fold(String::from("set"), |value, attribute| {
-      let attribute = attribute
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace("${", "\\${");
-      format!("builtins.getAttr \"{attribute}\" ({value})")
-    })
+    .map(|name| format!("\"{}\"", nix_string(name)))
+    .collect::<Vec<_>>()
+    .join(" ");
+  format!("[ {names} ]")
 }
 
 /// Gets the available image variants for a flake installable.
@@ -629,7 +625,7 @@ mod tests {
     let result = get_build_image_variants(&installable, "test");
     assert!(result.is_ok());
 
-    let variants = result.unwrap();
+    let variants = result.unwrap().variants;
     assert_eq!(variants.len(), 3);
     assert!(variants.contains(&"iso".to_string()));
     assert!(variants.contains(&"disk".to_string()));
@@ -663,10 +659,11 @@ mod tests {
       attribute: vec![],
     };
 
-    let result = get_build_image_variants(&installable, "test");
-    assert!(result.is_ok());
+    let images = get_build_image_variants(&installable, "test")
+      .expect("Failed to resolve image config");
 
-    let variants = result.unwrap();
+    assert_eq!(images.attribute, ["nixosConfigurations", "test"]);
+    let variants = images.variants;
     assert_eq!(variants.len(), 3);
     assert!(variants.contains(&"iso".to_string()));
     assert!(variants.contains(&"disk".to_string()));
@@ -697,10 +694,11 @@ mod tests {
       attribute: vec!["iso-system".to_string()],
     };
 
-    let variants = get_build_image_variants(&installable, "obsidian")
+    let images = get_build_image_variants(&installable, "obsidian")
       .expect("Failed to resolve explicitly selected image config");
 
-    assert_eq!(variants, ["iso"]);
+    assert_eq!(images.attribute, ["iso-system"]);
+    assert_eq!(images.variants, ["iso"]);
   }
 
   #[test]

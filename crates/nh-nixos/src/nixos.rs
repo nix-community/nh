@@ -23,6 +23,7 @@ use nh_installable::{
   ConfigurationInstallable,
   ConfigurationLayout,
   Installable,
+  InstallableArgs,
 };
 use nh_remote::{self, RemoteBuildConfig, RemoteHost};
 use tracing::{debug, info, warn};
@@ -987,7 +988,7 @@ impl OsBuildImageArgs {
       );
     }
 
-    let installable = self
+    let mut installable = self
       .common
       .common
       .installable
@@ -995,17 +996,18 @@ impl OsBuildImageArgs {
       .resolve_or_default(CommandContext::Os)?;
 
     // Get the available image variants for validation
-    let valid_variants = match &installable {
+    let (valid_variants, legacy_attribute) = match &installable {
       Installable::Flake { .. } => {
         let images_installable =
           toplevel_for(&target_hostname, installable.clone(), &["images"])?;
-        get_build_image_variants_flake_with_args(
+        let variants = get_build_image_variants_flake_with_args(
           &images_installable,
           self.common.common.passthrough.generate_evaluation_args(),
-        )?
+        )?;
+        (variants, None)
       },
       Installable::File { .. } | Installable::Expression { .. } => {
-        get_build_image_variants_with_args(
+        let images = get_build_image_variants_with_args(
           &installable,
           &target_hostname,
           self
@@ -1013,7 +1015,8 @@ impl OsBuildImageArgs {
             .common
             .passthrough
             .generate_legacy_evaluation_args(),
-        )?
+        )?;
+        (images.variants, Some(images.attribute))
       },
       Installable::Store { .. } => {
         bail!("Unsupported installable type for image building")
@@ -1029,7 +1032,12 @@ impl OsBuildImageArgs {
       );
     }
 
-    let attrs = ["images", &self.image_variant];
+    if let Some(selected) = legacy_attribute
+      && let Installable::File { attribute, .. }
+      | Installable::Expression { attribute, .. } = &mut installable
+    {
+      *attribute = selected;
+    }
 
     if self.common.common.dry {
       info!(
@@ -1039,11 +1047,11 @@ impl OsBuildImageArgs {
       return Ok(());
     }
 
-    self.common.build_only(
-      &OsRebuildVariant::BuildIso,
-      Some(&attrs),
-      elevation,
-    )?;
+    let mut rebuild = self.common;
+    rebuild.common.installable = InstallableArgs::Specified(installable);
+
+    let attrs = ["images", &self.image_variant];
+    rebuild.build_only(&OsRebuildVariant::BuildIso, Some(&attrs), elevation)?;
 
     Ok(())
   }
