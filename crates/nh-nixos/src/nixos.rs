@@ -768,8 +768,37 @@ impl OsRebuildArgs {
 
     let (out_path, _tempdir_guard) = self.determine_output_path(variant)?;
 
-    let toplevel =
-      self.resolve_installable_and_toplevel(&target_hostname, final_attrs)?;
+    let toplevel = if matches!(variant, BuildVm)
+      && !self.no_specialisation
+      && let Some(spec) = self.specialisation.as_deref()
+    {
+      let mut installable = self
+        .common
+        .installable
+        .clone()
+        .resolve_or_default(CommandContext::Os)?;
+      let attr = final_attrs
+        .and_then(|attrs| attrs.first())
+        .ok_or_else(|| eyre!("Missing VM build attribute"))?;
+      installable.resolve_configuration(
+        ConfigurationLayout {
+          set:        "nixosConfigurations",
+          build_attr: &[
+            "config",
+            "specialisation",
+            spec,
+            "configuration",
+            "system",
+            "build",
+            attr,
+          ],
+        },
+        Some(&target_hostname),
+      )?;
+      installable
+    } else {
+      self.resolve_installable_and_toplevel(&target_hostname, final_attrs)?
+    };
 
     if self.update_args.update_all || self.update_args.update_input.is_some() {
       update_with_args(
@@ -792,7 +821,11 @@ impl OsRebuildArgs {
 
     let actual_store_path = self.execute_build(toplevel, &out_path, message)?;
 
-    let target_profile = self.resolve_specialisation_and_profile(&out_path)?;
+    let target_profile = if matches!(variant, BuildVm) {
+      out_path.clone()
+    } else {
+      self.resolve_specialisation_and_profile(&out_path)?
+    };
 
     handle_nixos_diff(
       &self.common.diff,
