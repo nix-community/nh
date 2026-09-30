@@ -24,6 +24,8 @@ functionality, under the "Removed" section.
   or activating it. Remote hosts are not supported for this command.
 - `nh os info` now distinguishes the running generation from the selected boot
   profile; `--json` emits both statuses and generation metadata.
+- Rollback now rejects an explicitly requested specialisation missing from the
+  target generation before changing the selected system profile.
 
 - `nh os switch`/`nh os boot` now accept `--continue-on-activation-failure`
   (`NH_CONTINUE_ON_ACTIVATION_FAILURE`). During a switch, activation runs before

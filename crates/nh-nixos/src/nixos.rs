@@ -926,6 +926,34 @@ impl OsRollbackArgs {
 
     debug!("target_specialisation: {target_specialisation:?}");
 
+    // Resolve the target before changing the selected system profile.
+    let switch_to_configuration = match &target_specialisation {
+      None => generation_link.join("bin/switch-to-configuration"),
+      Some(spec) => {
+        let spec_path = generation_link.join("specialisation").join(spec);
+        if spec_path.exists() {
+          spec_path.join("bin/switch-to-configuration")
+        } else if self.specialisation.is_some() {
+          bail!(
+            "Specialisation '{}' does not exist in generation {}",
+            spec,
+            target_generation.number
+          );
+        } else {
+          warn!(
+            "Specialisation '{}' does not exist in generation {}",
+            spec, target_generation.number
+          );
+          warn!("Using base configuration without specialisations");
+          generation_link.join("bin/switch-to-configuration")
+        }
+      },
+    };
+
+    if !switch_to_configuration.exists() {
+      return Err(missing_switch_to_configuration_error());
+    }
+
     // Compare changes between current and target generation
     if matches!(self.diff, DiffType::Never) {
       debug!(
@@ -975,33 +1003,7 @@ impl OsRollbackArgs {
             .run()
             .wrap_err("Failed to set system profile during rollback")?;
 
-    // Determine the correct profile to use with specialisations
-    let final_profile = match &target_specialisation {
-      None => generation_link,
-      Some(spec) => {
-        let spec_path = generation_link.join("specialisation").join(spec);
-        if spec_path.exists() {
-          spec_path
-        } else {
-          warn!(
-            "Specialisation '{}' does not exist in generation {}",
-            spec, target_generation.number
-          );
-          warn!("Using base configuration without specialisations");
-          generation_link
-        }
-      },
-    };
-
-    // Activate the configuration
     info!("Activating...");
-
-    let switch_to_configuration =
-      final_profile.join("bin").join("switch-to-configuration");
-
-    if !switch_to_configuration.exists() {
-      return Err(missing_switch_to_configuration_error());
-    }
 
     match activation_command(&switch_to_configuration, "switch")
       .elevate(elevate.then_some(elevation.clone()))
