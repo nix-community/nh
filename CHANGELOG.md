@@ -22,6 +22,8 @@ functionality, under the "Removed" section.
   Existing `--dry` still builds without invoking activation.
 - `nh os build-plan` reports Nix's dry-run build plan without creating a result
   or activating it. Remote hosts are not supported for this command.
+- `nh os info` now distinguishes the running generation from the selected boot
+  profile; `--json` emits both statuses and generation metadata.
 
 - `nh os switch`/`nh os boot` now accept `--continue-on-activation-failure`
   (`NH_CONTINUE_ON_ACTIVATION_FAILURE`). During a switch, activation runs before

@@ -398,6 +398,7 @@ pub fn describe(
 pub fn print_info(
   mut generations: Vec<GenerationInfo>,
   fields: Option<&[Field]>,
+  boot_generation: Option<u64>,
 ) -> Result<()> {
   // Parse all dates at once and cache them
   let mut parsed_dates = HashMap::with_capacity(generations.len());
@@ -480,8 +481,8 @@ pub fn print_info(
     .unwrap_or(5);
 
   let widths = ColumnWidths {
-    id:      max_generation_no_len + 10, // "Generation No"
-    date:    20,                         // "Build Date"
+    id:      max_generation_no_len + 19,
+    date:    20, // "Build Date"
     nver:    max_nixos_version_len,
     kernel:  max_kernel_len,
     confrev: 22, // "Configuration Revision"
@@ -520,11 +521,16 @@ pub fn print_info(
         let (_, width) = f.column_info(widths);
         let cell_content = match f {
           Field::Id => {
-            format!(
-              "{}{}",
-              generation.number,
-              if generation.current { " (current)" } else { "" }
-            )
+            let marker = match (
+              generation.current,
+              boot_generation == Some(generation.number),
+            ) {
+              (true, true) => " (running, boot)",
+              (true, false) => " (running)",
+              (false, true) => " (boot)",
+              (false, false) => "",
+            };
+            format!("{}{marker}", generation.number)
           },
           Field::Date => formatted_date.clone(),
           Field::Nver => generation.nixos_version.clone(),

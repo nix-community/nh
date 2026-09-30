@@ -1565,7 +1565,48 @@ impl OsGenerationsArgs {
       })
       .collect();
 
-    generations::print_info(descriptions, self.fields.as_deref())?;
+    let boot_generation = fs::read_link(&profile)
+      .ok()
+      .and_then(|link| generations::from_dir(&link));
+    if self.json {
+      let mut running =
+        descriptions.iter().filter(|generation| generation.current);
+      let running_generation = match (running.next(), running.next()) {
+        (Some(generation), None) => Some(generation.number),
+        _ => None,
+      };
+      let rows: Vec<_> = descriptions
+        .iter()
+        .map(|generation| {
+          serde_json::json!({
+            "number": generation.number,
+            "date": generation.date,
+            "nixosVersion": generation.nixos_version,
+            "kernelVersion": generation.kernel_version,
+            "configurationRevision": generation.configuration_revision,
+            "specialisations": generation.specialisations,
+            "closureSize": generation.closure_size,
+            "running": generation.current,
+            "bootDefault": boot_generation == Some(generation.number),
+          })
+        })
+        .collect();
+      println!(
+        "{}",
+        serde_json::json!({
+          "runningGeneration": running_generation,
+          "bootGeneration": boot_generation,
+          "generations": rows,
+        })
+      );
+      return Ok(());
+    }
+
+    generations::print_info(
+      descriptions,
+      self.fields.as_deref(),
+      boot_generation,
+    )?;
 
     Ok(())
   }

@@ -304,4 +304,8 @@ pub struct OsGenerationsArgs {
   /// Comma-delimited list of field(s) to display
   #[arg(long, value_delimiter = ',')]
   pub fields: Option<Vec<Field>>,
+
+  /// Print generation status and metadata as JSON
+  #[arg(long, conflicts_with = "fields")]
+  pub json: bool,
 }
