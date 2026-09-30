@@ -125,6 +125,7 @@ impl args::OsArgs {
         }
         args.build_only(&Build, None, &elevation)
       },
+      OsSubcommand::BuildPlan(args) => args.build_plan(),
       OsSubcommand::BuildVm(args) => args.build_vm(&elevation),
       OsSubcommand::Repl(args) => args.run(),
       OsSubcommand::Info(args) => args.info(),
@@ -765,8 +766,29 @@ impl OsRebuildArgs {
     Ok(target_profile)
   }
 
+  fn build_plan(&self) -> Result<()> {
+    if self.build_host.is_some() || self.target_host.is_some() {
+      bail!("Build plans do not support remote build or target hosts");
+    }
+    let hostname = get_hostname(self.hostname.clone())?;
+    let installable = self.resolve_installable_and_toplevel(&hostname, None)?;
+    if self.update_args.update_all || self.update_args.update_input.is_some() {
+      update_with_args(
+        &installable,
+        self.update_args.update_input.clone(),
+        &self.common.passthrough,
+      )?;
+    }
+    command::Build::new(installable)
+      .extra_arg("--dry-run")
+      .extra_args(&self.extra_args)
+      .passthrough(&self.common.passthrough)
+      .run()
+      .wrap_err("Failed to calculate build plan")
+  }
+
   // final_attr is the attribute of config.system.build.X to evaluate.
-  // Used by Build and BuildVm subcommands which don't activate
+  // Used by Build and BuildVm subcommands which don't activate.
   fn build_only(
     self,
     variant: &OsRebuildVariant,

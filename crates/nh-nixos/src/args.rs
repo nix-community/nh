@@ -43,7 +43,7 @@ impl OsArgs {
           Box::new(LegacyFeatures)
         }
       },
-      OsSubcommand::Build(args) => {
+      OsSubcommand::Build(args) | OsSubcommand::BuildPlan(args) => {
         if args.uses_flakes() {
           Box::new(FlakeFeatures)
         } else {
@@ -88,6 +88,9 @@ pub enum OsSubcommand {
 
   /// Build the new configuration
   Build(OsRebuildArgs),
+
+  /// Show what Nix would build without building or activating
+  BuildPlan(OsRebuildArgs),
 
   /// Load system in a repl
   Repl(OsReplArgs),

@@ -300,6 +300,8 @@ from ground up _with the addition of_:
 - Confirmation
 - `nh os dry-activate` builds a configuration and previews activation without
   applying it; `nh os switch --dry` builds without running activation.
+- `nh os build-plan` uses Nix's dry run to show what a local build would do
+  without building; `nh os switch --dry` still builds the configuration.
 
 and other additional changes to make the UI more intuitive, from supporting
 environment variables to additional safeguards. Is this all? No, more is to
