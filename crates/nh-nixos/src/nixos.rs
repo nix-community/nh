@@ -614,11 +614,10 @@ impl OsRebuildArgs {
       .clone()
       .resolve_or_default(CommandContext::Os)?;
 
-    toplevel_for(
-      target_hostname,
-      installable,
-      final_attrs.unwrap_or_else(|| &["toplevel"][..]),
-    )
+    let mut build_attr = vec!["config", "system", "build"];
+    build_attr.extend_from_slice(final_attrs.unwrap_or(&["toplevel"]));
+
+    toplevel_for(target_hostname, installable, &build_attr)
   }
 
   fn execute_build(
@@ -719,8 +718,9 @@ impl OsRebuildArgs {
           }
 
           // Inferred from the running system, but absent from the config being
-          // built. This happens with `nh os build-vm` while booted into a
-          // specialisation. Fall back to the base config instead of failing.
+          // built. This happens with `nh os build --hostname <other>` while
+          // booted into a specialisation. Fall back to the base config instead
+          // of failing.
           warn!(
             "Booted specialisation '{spec}' does not exist in the built \
              configuration. Falling back to the base configuration. Pass \
@@ -762,8 +762,31 @@ impl OsRebuildArgs {
 
     let (out_path, _tempdir_guard) = self.determine_output_path(variant)?;
 
-    let toplevel =
-      self.resolve_installable_and_toplevel(&target_hostname, final_attrs)?;
+    let toplevel = if matches!(variant, BuildVm)
+      && !self.no_specialisation
+      && let Some(spec) = self.specialisation.as_deref()
+    {
+      let installable = self
+        .common
+        .installable
+        .clone()
+        .resolve_or_default(CommandContext::Os)?;
+      let attr = final_attrs
+        .and_then(|attrs| attrs.first())
+        .ok_or_else(|| eyre!("Missing VM build attribute"))?;
+
+      toplevel_for(&target_hostname, installable, &[
+        "config",
+        "specialisation",
+        spec,
+        "configuration",
+        "system",
+        "build",
+        attr,
+      ])?
+    } else {
+      self.resolve_installable_and_toplevel(&target_hostname, final_attrs)?
+    };
 
     if self.update_args.update_all || self.update_args.update_input.is_some() {
       update_with_args(
@@ -786,7 +809,11 @@ impl OsRebuildArgs {
 
     let actual_store_path = self.execute_build(toplevel, &out_path, message)?;
 
-    let target_profile = self.resolve_specialisation_and_profile(&out_path)?;
+    let target_profile = if matches!(variant, BuildVm) {
+      out_path.clone()
+    } else {
+      self.resolve_specialisation_and_profile(&out_path)?
+    };
 
     handle_nixos_diff(
       &self.common.diff,
@@ -999,7 +1026,9 @@ impl OsBuildImageArgs {
     let (valid_variants, legacy_attribute) = match &installable {
       Installable::Flake { .. } => {
         let images_installable =
-          toplevel_for(&target_hostname, installable.clone(), &["images"])?;
+          toplevel_for(&target_hostname, installable.clone(), &[
+            "config", "system", "build", "images",
+          ])?;
         let variants = get_build_image_variants_flake_with_args(
           &images_installable,
           self.common.common.passthrough.generate_evaluation_args(),
@@ -1370,7 +1399,8 @@ fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
   Ok(generations)
 }
 
-/// Resolve a NixOS installable to the requested system build attributes.
+/// Resolve a NixOS installable to an attribute path within the selected
+/// configuration.
 ///
 /// # Errors
 ///
@@ -1379,16 +1409,13 @@ fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
 pub fn toplevel_for<S: AsRef<str>>(
   hostname: S,
   installable: Installable,
-  final_attrs: &[&str],
+  build_attr: &[&str],
 ) -> Result<Installable> {
-  let mut build_attr = vec!["config", "system", "build"];
-  build_attr.extend_from_slice(final_attrs);
-
   let mut res = installable;
   res.resolve_configuration(
     ConfigurationLayout {
-      set:        "nixosConfigurations",
-      build_attr: &build_attr,
+      set: "nixosConfigurations",
+      build_attr,
     },
     Some(hostname.as_ref()),
   )?;
