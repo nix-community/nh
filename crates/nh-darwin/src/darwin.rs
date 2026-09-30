@@ -238,15 +238,13 @@ fn activation_command(
   elevation: Option<ElevationStrategy>,
   show_logs: bool,
 ) -> Result<Command> {
-  let darwin_rebuild = system.join("sw/bin/darwin-rebuild");
-  for executable in [&darwin_rebuild, &system.join("activate")] {
-    fs::metadata(executable).with_context(|| {
-      format!(
-        "Missing Darwin activation executable: {}",
-        executable.display()
-      )
-    })?;
-  }
+  let activate = system.join("activate");
+  fs::metadata(&activate).with_context(|| {
+    format!(
+      "Missing Darwin activation executable: {}",
+      activate.display()
+    )
+  })?;
 
   let activate_user = system.join("activate-user");
   let needs_elevation = match fs::read_to_string(&activate_user) {
@@ -264,8 +262,7 @@ fn activation_command(
   };
 
   Ok(
-    Command::new(darwin_rebuild)
-      .arg("activate")
+    Command::new(activate)
       .message("Activating configuration")
       .elevate(if needs_elevation { elevation } else { None })
       .show_output(show_logs)

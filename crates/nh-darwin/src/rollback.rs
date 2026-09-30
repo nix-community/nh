@@ -225,7 +225,11 @@ mod tests {
     reason = "Tests assert errors from deliberately invalid fixtures."
   )]
 
-  use std::{cell::RefCell, os::unix::fs::symlink, path::PathBuf};
+  use std::{
+    cell::RefCell,
+    os::unix::fs::{PermissionsExt, symlink},
+    path::PathBuf,
+  };
 
   use super::*;
 
@@ -247,12 +251,8 @@ mod tests {
       };
       for number in [2, 9, 12, 20] {
         let system = fixture.system(number);
-        fs::create_dir_all(system.join("sw/bin"))?;
-        for executable in ["activate", "sw/bin/darwin-rebuild"] {
-          let path = system.join(executable);
-          // Existence is checked; execution is replaced in these tests.
-          fs::write(&path, "fixture")?;
-        }
+        fs::create_dir_all(&system)?;
+        fs::write(system.join("activate"), "fixture")?;
         symlink(&system, fixture.generation(number))?;
       }
       fixture.select(12)?;
@@ -409,6 +409,22 @@ mod tests {
   }
 
   #[test]
+  fn rollback_runs_activate_without_darwin_rebuild() -> Result<()> {
+    let fixture = Fixture::new()?;
+    let activate = fixture.system(9).join("activate");
+    fs::write(
+      &activate,
+      "#!/bin/sh\n[ \"$#\" -eq 0 ] || exit 1\n: > \"$(dirname \
+       \"$0\")/activated\"\n",
+    )?;
+    fs::set_permissions(&activate, fs::Permissions::from_mode(0o755))?;
+    fixture.run(args(), |number| fixture.select(number), |cmd| cmd.run())?;
+    assert!(fixture.system(9).join("activated").exists());
+    assert_eq!(current_generation(&fixture.profile)?, 9);
+    Ok(())
+  }
+
+  #[test]
   fn dry_rollback_does_not_prompt_select_or_activate() -> Result<()> {
     let fixture = Fixture::new()?;
     let mut options = args();
@@ -450,25 +466,23 @@ mod tests {
   }
 
   #[test]
-  fn missing_activation_executables_fail_before_mutation() -> Result<()> {
-    for executable in ["activate", "sw/bin/darwin-rebuild"] {
-      let fixture = Fixture::new()?;
-      fs::remove_file(fixture.system(9).join(executable))?;
-      let error = fixture
-        .run(
-          args(),
-          |_| bail!("unexpected selection"),
-          |_| bail!("unexpected activation"),
-        )
-        .unwrap_err();
-      let message = error.to_string();
-      assert!(
-        message.contains("Missing Darwin activation executable"),
-        "{message}"
-      );
-      assert!(message.contains(executable), "{message}");
-      assert_eq!(current_generation(&fixture.profile)?, 12);
-    }
+  fn missing_activation_executable_fails_before_mutation() -> Result<()> {
+    let fixture = Fixture::new()?;
+    fs::remove_file(fixture.system(9).join("activate"))?;
+    let error = fixture
+      .run(
+        args(),
+        |_| bail!("unexpected selection"),
+        |_| bail!("unexpected activation"),
+      )
+      .unwrap_err();
+    let message = error.to_string();
+    assert!(
+      message.contains("Missing Darwin activation executable"),
+      "{message}"
+    );
+    assert!(message.contains("activate"), "{message}");
+    assert_eq!(current_generation(&fixture.profile)?, 12);
     Ok(())
   }
 
