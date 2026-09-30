@@ -113,10 +113,15 @@ impl args::OsArgs {
         activate.rebuild_and_activate(&DryActivate, None, elevation)
       },
       OsSubcommand::Build(args) => {
-        if args.common.ask || args.common.dry {
-          warn!("`--ask` and `--dry` have no effect for `nh os build`");
+        if args.common.ask {
+          warn!("`--ask` has no effect for `nh os build`");
         }
-        args.build_only(&Build, None, &elevation)
+
+        if args.common.dry {
+          args.dry_build()
+        } else {
+          args.build_only(&Build, None, &elevation)
+        }
       },
       OsSubcommand::BuildVm(args) => args.build_vm(&elevation),
       OsSubcommand::Repl(args) => args.run(),
@@ -778,6 +783,32 @@ impl OsRebuildArgs {
     }
 
     Ok(target_profile)
+  }
+
+  fn dry_build(&self) -> Result<()> {
+    if self.build_host.is_some() || self.target_host.is_some() {
+      bail!(
+        "`nh os build --dry` does not support remote build or target hosts"
+      );
+    }
+
+    let hostname = get_hostname(self.hostname.clone())?;
+    let installable = self.resolve_installable_and_toplevel(&hostname, None)?;
+
+    if self.update_args.update_all || self.update_args.update_input.is_some() {
+      update_with_args(
+        &installable,
+        self.update_args.update_input.clone(),
+        &self.common.passthrough,
+      )?;
+    }
+
+    command::Build::new(installable)
+      .extra_arg("--dry-run")
+      .extra_args(&self.extra_args)
+      .passthrough(&self.common.passthrough)
+      .run()
+      .wrap_err("Failed to calculate build plan")
   }
 
   // final_attr is the attribute of config.system.build.X to evaluate.

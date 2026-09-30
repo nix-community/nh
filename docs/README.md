@@ -300,6 +300,7 @@ from ground up _with the addition of_:
 - Confirmation
 - `nh os dry-activate` builds a configuration and previews activation without
   applying it; `nh os switch --dry` builds without running activation.
+- `nh os build --dry` shows what a local build would do without building it.
 
 and other additional changes to make the UI more intuitive, from supporting
 environment variables to additional safeguards. Is this all? No, more is to

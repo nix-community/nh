@@ -20,6 +20,9 @@ functionality, under the "Removed" section.
 
 - `nh os dry-activate` builds and previews activation without applying it.
   Existing `--dry` still builds without invoking activation.
+- `nh os build --dry` now shows what Nix would build or fetch, without building.
+  Previously `--dry` had no effect for `nh os build`. Remote hosts are not
+  supported.
 
 - `nh os switch`/`nh os boot` now accept `--continue-on-activation-failure`
   (`NH_CONTINUE_ON_ACTIVATION_FAILURE`). During a switch, activation runs before
