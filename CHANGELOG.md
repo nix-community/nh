@@ -18,6 +18,9 @@ functionality, under the "Removed" section.
 
 ### Added
 
+- `nh os dry-activate` builds and previews activation without applying it.
+  Existing `--dry` still builds without invoking activation.
+
 - `nh os switch`/`nh os boot` now accept `--continue-on-activation-failure`
   (`NH_CONTINUE_ON_ACTIVATION_FAILURE`). During a switch, activation runs before
   the new generation is added to the bootloader; a failed activation previously

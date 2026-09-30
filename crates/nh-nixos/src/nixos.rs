@@ -105,7 +105,7 @@ impl args::OsArgs {
   /// - Nix evaluation or building fails
   /// - File system operations fail
   pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
-    use OsRebuildVariant::{Boot, Build, Switch, Test};
+    use OsRebuildVariant::{Boot, Build, DryActivate, Switch, Test};
     match self.subcommand {
       OsSubcommand::Boot(args) => {
         args.rebuild_and_activate(&Boot, None, elevation)
@@ -115,6 +115,9 @@ impl args::OsArgs {
       },
       OsSubcommand::Switch(args) => {
         args.rebuild_and_activate(&Switch, None, elevation)
+      },
+      OsSubcommand::DryActivate(args) => {
+        args.rebuild_and_activate(&DryActivate, None, elevation)
       },
       OsSubcommand::Build(args) => {
         if args.common.ask || args.common.dry {
@@ -137,6 +140,7 @@ enum OsRebuildVariant {
   Switch,
   Boot,
   Test,
+  DryActivate,
   BuildVm,
   BuildIso,
 }
@@ -313,9 +317,9 @@ impl OsRebuildActivateArgs {
     elevate: bool,
     elevation: ElevationStrategy,
   ) -> Result<()> {
-    use OsRebuildVariant::{Boot, Switch, Test};
+    use OsRebuildVariant::{Boot, DryActivate, Switch, Test};
 
-    if self.rebuild.common.ask {
+    if self.rebuild.common.ask && !matches!(variant, DryActivate) {
       let confirmation = inquire::Confirm::new("Apply the config?")
         .with_default(false)
         .prompt()?;
@@ -388,24 +392,30 @@ impl OsRebuildActivateArgs {
     let switch_to_configuration =
       resolved_profile.join("bin").join("switch-to-configuration");
 
-    if let Test | Switch = variant {
+    if let Test | Switch | DryActivate = variant {
+      let action = if matches!(variant, DryActivate) {
+        "dry-activate"
+      } else {
+        "test"
+      };
       let activation_result = self.rebuild.target_host.as_ref().map_or_else(
         || {
-          activation_command(&switch_to_configuration, "test")
+          activation_command(&switch_to_configuration, action)
             .message("Activating configuration")
             .elevate(elevate.then_some(elevation.clone()))
             .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
             .with_required_env()
-            .show_output(self.show_activation_logs)
+            .show_output(
+              matches!(variant, DryActivate) || self.show_activation_logs,
+            )
             .run()
-            .wrap_err("Activation (test) failed")
+            .wrap_err(format!("Activation ({action}) failed"))
         },
         |target_host| {
           let activation_type = match variant {
-            Test => nh_remote::ActivationType::Test,
+            DryActivate => nh_remote::ActivationType::DryActivate,
             Switch => nh_remote::ActivationType::Switch,
-            #[allow(clippy::unreachable, reason = "Should never happen.")]
-            _ => unreachable!(),
+            _ => nh_remote::ActivationType::Test,
           };
 
           nh_remote::activate_remote_with_build_args(
@@ -415,7 +425,8 @@ impl OsRebuildActivateArgs {
               platform: nh_remote::Platform::NixOS,
               activation_type,
               install_bootloader: false,
-              show_logs: self.show_activation_logs,
+              show_logs: matches!(variant, DryActivate)
+                || self.show_activation_logs,
               elevation: elevate.then_some(elevation.clone()),
             },
             &self.rebuild.common.passthrough.generate_passthrough_args(),

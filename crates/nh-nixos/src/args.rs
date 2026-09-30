@@ -35,7 +35,8 @@ impl OsArgs {
       },
       OsSubcommand::Switch(args)
       | OsSubcommand::Boot(args)
-      | OsSubcommand::Test(args) => {
+      | OsSubcommand::Test(args)
+      | OsSubcommand::DryActivate(args) => {
         if args.rebuild.uses_flakes() {
           Box::new(FlakeFeatures)
         } else {
@@ -81,6 +82,9 @@ pub enum OsSubcommand {
 
   /// Build and activate the new configuration
   Test(OsRebuildActivateArgs),
+
+  /// Build and preview activation without applying it
+  DryActivate(OsRebuildActivateArgs),
 
   /// Build the new configuration
   Build(OsRebuildArgs),

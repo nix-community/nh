@@ -1113,12 +1113,12 @@ pub fn validate_closure_remote(
 ///
 /// This determines which action the system's activation script will execute.
 pub enum ActivationType {
-  /// Run the configuration in a test mode without activating
+  /// Activate the configuration without changing the boot default
   Test,
-
-  /// Atomically switch to the new configuration
+  /// Activate and make the configuration the boot default
   Switch,
-
+  /// Preview activation without changing the running system
+  DryActivate,
   /// Make the new configuration the default boot option
   Boot,
 }
@@ -1130,6 +1130,7 @@ impl ActivationType {
     match self {
       Self::Test => "test",
       Self::Switch => "switch",
+      Self::DryActivate => "dry-activate",
       Self::Boot => "boot",
     }
   }
@@ -1225,7 +1226,7 @@ pub fn activate_remote_with_build_args(
 /// Activate a NixOS system configuration on a remote host.
 ///
 /// Handles the SSH commands required to activate a NixOS system. Supports
-/// test, switch, and boot activation types.
+/// test, switch, dry-activate, and boot actions.
 ///
 /// # Arguments
 ///
@@ -1284,7 +1285,9 @@ fn activate_nixos_remote(
   })?;
 
   match config.activation_type {
-    ActivationType::Test | ActivationType::Switch => {
+    ActivationType::Test
+    | ActivationType::Switch
+    | ActivationType::DryActivate => {
       let action = config.activation_type.as_str();
 
       let mut ssh_cmd = Exec::cmd("ssh");
@@ -1315,7 +1318,10 @@ fn activate_nixos_remote(
         .wrap_err("Failed to activate NixOS configuration")?;
 
       if config.show_logs {
-        println!("{}", capture.stdout_str());
+        print!("{}", capture.stdout_str());
+        if capture.exit_status.success() {
+          eprint!("{}", capture.stderr_str());
+        }
       }
 
       if !capture.exit_status.success() {
