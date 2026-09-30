@@ -1737,8 +1737,25 @@ fn build_on_remote_simple(
     .stdout(Redirection::Pipe)
     .stderr(Redirection::Pipe);
 
-  // Execute with start() to get a Job handle
   let mut job = ssh_cmd.start()?;
+
+  // Drain both pipes while the process runs; otherwise a full pipe blocks the
+  // remote build before wait_timeout can observe its exit.
+  let stdout = job
+    .stdout
+    .take()
+    .ok_or_else(|| eyre!("Failed to capture stdout"))?;
+  let stderr = job
+    .stderr
+    .take()
+    .ok_or_else(|| eyre!("Failed to capture stderr"))?;
+  let stdout_reader =
+    std::thread::spawn(move || std::io::read_to_string(stdout));
+  let stderr_reader = std::thread::spawn(move || {
+    let mut stderr = stderr;
+    let mut output = Vec::new();
+    stderr.read_to_end(&mut output).map(|_| output)
+  });
 
   // Wait for completion with interrupt checking
   let exit_status = loop {
@@ -1761,27 +1778,18 @@ fn build_on_remote_simple(
     }
   };
 
-  // Check exit status
+  let output = stdout_reader
+    .join()
+    .map_err(|_| eyre!("Remote stdout reader failed"))??;
+  let stderr = stderr_reader
+    .join()
+    .map_err(|_| eyre!("Remote stderr reader failed"))??;
   if !exit_status.success() {
-    let stderr = job
-      .stderr
-      .take()
-      .and_then(|mut e| {
-        let mut s = String::new();
-        e.read_to_string(&mut s).ok().map(|_| s)
-      })
-      .unwrap_or_else(|| String::from("(no stderr)"));
-    bail!("Remote command failed: {}", stderr);
+    bail!(
+      "Remote command failed: {}",
+      String::from_utf8_lossy(&stderr)
+    );
   }
-
-  // Read stdout
-  let stdout = job
-    .stdout
-    .take()
-    .ok_or_else(|| eyre!("Failed to capture stdout"))?;
-  let mut reader = std::io::BufReader::new(stdout);
-  let mut output = String::new();
-  reader.read_to_string(&mut output)?;
 
   // --print-out-paths may return multiple lines; take first
   let out_path = output

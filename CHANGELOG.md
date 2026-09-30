@@ -43,6 +43,8 @@ functionality, under the "Removed" section.
   while installing the base closure as the boot profile.
 - Rollback now chooses the predecessor of the selected system profile rather
   than the running system, and restores that selected profile on failure.
+- Remote builds without `nom` now drain stdout and stderr while waiting,
+  preventing deadlocks when either pipe fills.
 - `nh clean` now preserves the generation selected by each profile symlink by
   default, even after a rollback when it is older than `--keep-since` and
   outside the newest `--keep` generations. Previously cleanup could leave the
