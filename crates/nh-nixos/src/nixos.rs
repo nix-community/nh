@@ -798,15 +798,22 @@ impl OsRollbackArgs {
 
     let generations = list_generations()?;
 
-    let current_generation = generations
-      .iter()
-      .find(|g| g.current)
-      .ok_or_else(|| eyre!("Current generation not found"))?;
+    let selected_generation = fs::read_link(SYSTEM_PROFILE)
+      .ok()
+      .and_then(|link| generations::from_dir(&link))
+      .and_then(|number| {
+        generations
+          .iter()
+          .find(|generation| generation.number == number)
+      });
 
-    // Find previous generation or specific generation
+    // An explicit generation can repair a missing selected profile; only an
+    // automatic rollback needs a valid selected generation for comparison.
     let target_generation = if let Some(gen_number) = self.to {
       get_generation_by_number(gen_number, &generations)?
     } else {
+      let current_generation = selected_generation
+        .ok_or_else(|| eyre!("Selected system profile is not a generation"))?;
       &find_previous_generation(current_generation.number, &generations)?
     };
 
@@ -926,7 +933,9 @@ impl OsRollbackArgs {
       },
       Err(e) => {
         // If activation fails, rollback the profile
-        if current_generation.number > 0 {
+        if let Some(current_generation) =
+          selected_generation.filter(|generation| generation.number > 0)
+        {
           let current_gen_link = profile_dir
             .join(format!("system-{}-link", current_generation.number));
 

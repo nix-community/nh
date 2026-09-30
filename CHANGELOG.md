@@ -41,6 +41,8 @@ functionality, under the "Removed" section.
   Activation still runs directly on systems without systemd.
 - Specialisation activation now validates and activates the selected closure
   while installing the base closure as the boot profile.
+- Rollback now chooses the predecessor of the selected system profile rather
+  than the running system, and restores that selected profile on failure.
 - `nh clean` now preserves the generation selected by each profile symlink by
   default, even after a rollback when it is older than `--keep-since` and
   outside the newest `--keep` generations. Previously cleanup could leave the
