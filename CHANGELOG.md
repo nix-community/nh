@@ -47,6 +47,8 @@ functionality, under the "Removed" section.
   available, so switching the system does not terminate its own session.
   This requires systemd 261. Activation still runs directly on systems without
   systemd, or with `--no-systemd-run` (`NH_NO_SYSTEMD_RUN`).
+- Specialisation activation now validates and activates the selected closure
+  while installing the base closure as the boot profile.
 - `nh clean` now preserves the generation selected by each profile symlink by
   default, even after a rollback when it is older than `--keep-since` and
   outside the newest `--keep` generations. Previously cleanup could leave the
