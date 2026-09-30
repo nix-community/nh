@@ -36,6 +36,9 @@ functionality, under the "Removed" section.
 
 ### Fixed
 
+- NixOS activation now runs in a transient systemd service when systemd is
+  available, so switching the system does not terminate its own session.
+  Activation still runs directly on systems without systemd.
 - `nh clean` now preserves the generation selected by each profile symlink by
   default, even after a rollback when it is older than `--keep-since` and
   outside the newest `--keep` generations. Previously cleanup could leave the

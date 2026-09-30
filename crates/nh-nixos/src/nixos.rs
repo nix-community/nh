@@ -57,6 +57,31 @@ const ESSENTIAL_FILES: &[(&str, &str)] = &[
   ("sw/bin", "system path"),
 ];
 
+fn activation_command(path: &Path, action: &str) -> Command {
+  let mut command = if Path::new("/run/systemd/system").is_dir() {
+    Command::new("systemd-run")
+      .args([
+        "-E",
+        "LOCALE_ARCHIVE",
+        "-E",
+        "NIXOS_INSTALL_BOOTLOADER",
+        "-E",
+        "NIXOS_NO_CHECK",
+        "--collect",
+        "--no-ask-password",
+        "--pipe",
+        "--quiet",
+        "--service-type=exec",
+        "--unit=nixos-rebuild-switch-to-configuration",
+      ])
+      .arg(path)
+  } else {
+    Command::new(path)
+  };
+  command = command.arg(action);
+  command
+}
+
 impl args::OsArgs {
   /// Executes the NixOS subcommand.
   ///
@@ -368,16 +393,10 @@ impl OsRebuildActivateArgs {
         .context("Failed to resolve switch-to-configuration path")?
     };
 
-    let canonical_out_path =
-      switch_to_configuration.to_str().ok_or_else(|| {
-        eyre!("switch-to-configuration path contains invalid UTF-8")
-      })?;
-
     if let Test | Switch = variant {
       let activation_result = self.rebuild.target_host.as_ref().map_or_else(
         || {
-          Command::new(canonical_out_path)
-            .arg("test")
+          activation_command(&switch_to_configuration, "test")
             .message("Activating configuration")
             .elevate(elevate.then_some(elevation.clone()))
             .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
@@ -486,8 +505,7 @@ impl OsRebuildActivateArgs {
           .run()
           .wrap_err("Failed to set system profile")?;
 
-        let mut cmd = Command::new(switch_to_configuration)
-          .arg("boot")
+        let mut cmd = activation_command(&switch_to_configuration, "boot")
           .elevate(elevate.then_some(elevation))
           .message("Adding configuration to bootloader")
           .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"]);
@@ -928,8 +946,7 @@ impl OsRollbackArgs {
       return Err(missing_switch_to_configuration_error());
     }
 
-    match Command::new(&switch_to_configuration)
-      .arg("switch")
+    match activation_command(&switch_to_configuration, "switch")
       .elevate(elevate.then_some(elevation.clone()))
       .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
       .with_required_env()

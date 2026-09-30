@@ -175,18 +175,28 @@ fn nixos_activation_command(
   action: &str,
   install_bootloader: bool,
 ) -> String {
-  let mut parts = Vec::new();
-
+  let mut assignments = Vec::new();
   if install_bootloader {
-    parts.push("NIXOS_INSTALL_BOOTLOADER=1".to_string());
+    assignments.push("NIXOS_INSTALL_BOOTLOADER=1".to_string());
   }
-
   if let Ok(no_check) = env::var("NIXOS_NO_CHECK") {
-    parts.push(format!("NIXOS_NO_CHECK={}", shell_quote(&no_check)));
+    assignments.push(format!("NIXOS_NO_CHECK={}", shell_quote(&no_check)));
   }
 
-  parts.push(format!("{} {action}", shell_quote(switch_to_config)));
-  parts.join(" ")
+  let switch = format!("{} {action}", shell_quote(switch_to_config));
+  let unit = format!(
+    "systemd-run -E LOCALE_ARCHIVE -E NIXOS_INSTALL_BOOTLOADER -E \
+     NIXOS_NO_CHECK --collect --no-ask-password --pipe --quiet \
+     --service-type=exec --unit=nixos-rebuild-switch-to-configuration {switch}"
+  );
+  let script =
+    format!("if test -d /run/systemd/system; then {unit}; else {switch}; fi");
+  let command = format!("sh -c {}", shell_quote(&script));
+  if assignments.is_empty() {
+    command
+  } else {
+    format!("{} {command}", assignments.join(" "))
+  }
 }
 
 /// Register a SIGINT handler that sets the global interrupt flag.
