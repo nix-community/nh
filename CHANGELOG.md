@@ -43,6 +43,10 @@ functionality, under the "Removed" section.
   ([#813](https://github.com/nix-community/nh/issues/813)). The bundled version
   is still used if discovery fails.
 
+- NixOS activation now runs in a transient systemd service when systemd is
+  available, so switching the system does not terminate its own session.
+  This requires systemd 261. Activation still runs directly on systems without
+  systemd, or with `--no-systemd-run` (`NH_NO_SYSTEMD_RUN`).
 - `nh clean` now preserves the generation selected by each profile symlink by
   default, even after a rollback when it is older than `--keep-since` and
   outside the newest `--keep` generations. Previously cleanup could leave the

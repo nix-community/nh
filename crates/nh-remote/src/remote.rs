@@ -170,10 +170,33 @@ fn remote_sudo_command(prefix: &str, base_cmd: &str) -> String {
   }
 }
 
+/// Arguments for running `switch-to-configuration` in a transient unit.
+///
+/// `--pipe` would tie the unit's output to the caller's session, so a dropped
+/// SSH connection kills activation midway (NixOS/nixpkgs#506897). `--output`
+/// requires systemd 261.
+pub const SYSTEMD_RUN_ARGS: &[&str] = &[
+  "-E",
+  "LOCALE_ARCHIVE",
+  "-E",
+  "NIXOS_INSTALL_BOOTLOADER",
+  "-E",
+  "NIXOS_NO_CHECK",
+  "--collect",
+  "--no-ask-password",
+  "--wait",
+  "--verbose",
+  "--output=cat",
+  "--quiet",
+  "--service-type=exec",
+  "--unit=nixos-rebuild-switch-to-configuration",
+];
+
 fn nixos_activation_command(
   switch_to_config: &str,
   action: &str,
   install_bootloader: bool,
+  systemd_run: bool,
 ) -> String {
   let mut parts = Vec::new();
 
@@ -185,7 +208,23 @@ fn nixos_activation_command(
     parts.push(format!("NIXOS_NO_CHECK={}", shell_quote(&no_check)));
   }
 
-  parts.push(format!("{} {action}", shell_quote(switch_to_config)));
+  let switch = format!("{} {action}", shell_quote(switch_to_config));
+
+  if systemd_run {
+    let unit_args = SYSTEMD_RUN_ARGS
+      .iter()
+      .map(|arg| shell_quote(arg))
+      .collect::<Vec<_>>()
+      .join(" ");
+    let script = format!(
+      "if test -d /run/systemd/system; then systemd-run {unit_args} {switch}; \
+       else {switch}; fi"
+    );
+    parts.push(format!("sh -c {}", shell_quote(&script)));
+  } else {
+    parts.push(switch);
+  }
+
   parts.join(" ")
 }
 
@@ -1160,6 +1199,9 @@ pub struct ActivateRemoteConfig {
   /// Whether to show output logs during activation
   pub show_logs: bool,
 
+  /// Whether to run activation in a transient systemd unit when available
+  pub systemd_run: bool,
+
   /// Elevation strategy for remote activation commands.
   ///
   /// - `None`: No elevation, run commands as the remote user
@@ -1286,7 +1328,12 @@ fn activate_nixos_remote(
       ssh_cmd = ssh_cmd.arg(host.ssh_host());
 
       // Build the remote command using helper function
-      let base_cmd = nixos_activation_command(switch_path_str, action, false);
+      let base_cmd = nixos_activation_command(
+        switch_path_str,
+        action,
+        false,
+        config.systemd_run,
+      );
       let remote_cmd =
         build_remote_command(config.elevation.as_ref(), &base_cmd)?;
 
@@ -1371,6 +1418,7 @@ fn activate_nixos_remote(
         switch_path_str,
         "boot",
         config.install_bootloader,
+        config.systemd_run,
       );
       let boot_remote_cmd =
         build_remote_command(config.elevation.as_ref(), &base_cmd)?;

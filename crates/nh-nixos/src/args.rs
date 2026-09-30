@@ -190,6 +190,11 @@ pub struct OsRebuildActivateArgs {
   /// failed activation aborts before it. This continues regardless.
   #[arg(long, env = "NH_CONTINUE_ON_ACTIVATION_FAILURE", value_parser = clap::builder::BoolishValueParser::new())]
   pub continue_on_activation_failure: bool,
+
+  /// Run switch-to-configuration directly instead of in a transient systemd
+  /// unit
+  #[arg(long, env = "NH_NO_SYSTEMD_RUN", value_parser = clap::builder::BoolishValueParser::new())]
+  pub no_systemd_run: bool,
 }
 
 impl OsRebuildArgs {
@@ -234,6 +239,11 @@ pub struct OsRollbackArgs {
   /// Whether to display a package diff
   #[arg(long, short, value_enum, default_value_t = DiffType::Auto)]
   pub diff: DiffType,
+
+  /// Run switch-to-configuration directly instead of in a transient systemd
+  /// unit
+  #[arg(long, env = "NH_NO_SYSTEMD_RUN", value_parser = clap::builder::BoolishValueParser::new())]
+  pub no_systemd_run: bool,
 }
 
 #[derive(Debug, Args)]

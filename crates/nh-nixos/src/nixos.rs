@@ -57,6 +57,18 @@ const ESSENTIAL_FILES: &[(&str, &str)] = &[
   ("sw/bin", "system path"),
 ];
 
+fn activation_command(path: &Path, action: &str, systemd_run: bool) -> Command {
+  let command = if systemd_run && Path::new("/run/systemd/system").is_dir() {
+    Command::new("systemd-run")
+      .args(nh_remote::SYSTEMD_RUN_ARGS)
+      .arg(path)
+  } else {
+    Command::new(path)
+  };
+
+  command.arg(action)
+}
+
 impl args::OsArgs {
   /// Executes the NixOS subcommand.
   ///
@@ -368,23 +380,21 @@ impl OsRebuildActivateArgs {
         .context("Failed to resolve switch-to-configuration path")?
     };
 
-    let canonical_out_path =
-      switch_to_configuration.to_str().ok_or_else(|| {
-        eyre!("switch-to-configuration path contains invalid UTF-8")
-      })?;
-
     if let Test | Switch = variant {
       let activation_result = self.rebuild.target_host.as_ref().map_or_else(
         || {
-          Command::new(canonical_out_path)
-            .arg("test")
-            .message("Activating configuration")
-            .elevate(elevate.then_some(elevation.clone()))
-            .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
-            .with_required_env()
-            .show_output(self.show_activation_logs)
-            .run()
-            .wrap_err("Activation (test) failed")
+          activation_command(
+            &switch_to_configuration,
+            "test",
+            !self.no_systemd_run,
+          )
+          .message("Activating configuration")
+          .elevate(elevate.then_some(elevation.clone()))
+          .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
+          .with_required_env()
+          .show_output(self.show_activation_logs)
+          .run()
+          .wrap_err("Activation (test) failed")
         },
         |target_host| {
           let activation_type = match variant {
@@ -402,6 +412,7 @@ impl OsRebuildActivateArgs {
               activation_type,
               install_bootloader: false,
               show_logs: self.show_activation_logs,
+              systemd_run: !self.no_systemd_run,
               elevation: elevate.then_some(elevation.clone()),
             },
             &self.rebuild.common.passthrough.generate_passthrough_args(),
@@ -454,6 +465,7 @@ impl OsRebuildActivateArgs {
             activation_type:    nh_remote::ActivationType::Boot,
             install_bootloader: self.rebuild.install_bootloader,
             show_logs:          false,
+            systemd_run:        !self.no_systemd_run,
             elevation:          elevate.then_some(elevation),
           },
           &self.rebuild.common.passthrough.generate_passthrough_args(),
@@ -486,11 +498,14 @@ impl OsRebuildActivateArgs {
           .run()
           .wrap_err("Failed to set system profile")?;
 
-        let mut cmd = Command::new(switch_to_configuration)
-          .arg("boot")
-          .elevate(elevate.then_some(elevation))
-          .message("Adding configuration to bootloader")
-          .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"]);
+        let mut cmd = activation_command(
+          &switch_to_configuration,
+          "boot",
+          !self.no_systemd_run,
+        )
+        .elevate(elevate.then_some(elevation))
+        .message("Adding configuration to bootloader")
+        .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"]);
 
         if self.rebuild.install_bootloader {
           cmd = cmd.set_env("NIXOS_INSTALL_BOOTLOADER", "1");
@@ -928,12 +943,15 @@ impl OsRollbackArgs {
       return Err(missing_switch_to_configuration_error());
     }
 
-    match Command::new(&switch_to_configuration)
-      .arg("switch")
-      .elevate(elevate.then_some(elevation.clone()))
-      .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
-      .with_required_env()
-      .run()
+    match activation_command(
+      &switch_to_configuration,
+      "switch",
+      !self.no_systemd_run,
+    )
+    .elevate(elevate.then_some(elevation.clone()))
+    .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
+    .with_required_env()
+    .run()
     {
       Ok(()) => {
         info!(
