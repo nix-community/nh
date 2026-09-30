@@ -151,11 +151,17 @@ impl OsBuildVmArgs {
       );
     }
 
-    self.common.build_only(
-      &OsRebuildVariant::BuildVm,
-      Some(&[attr]),
-      elevation,
-    )?;
+    // The VM runs locally, but the target's name still picks the config.
+    let mut rebuild = self.common;
+    if self.run
+      && let Some(target_host) = rebuild.target_host.take()
+    {
+      rebuild.hostname.get_or_insert_with(|| {
+        target_host.hostname_without_domain().to_owned()
+      });
+    }
+
+    rebuild.build_only(&OsRebuildVariant::BuildVm, Some(&[attr]), elevation)?;
 
     // If --run flag is set, execute the VM
     if self.run {
