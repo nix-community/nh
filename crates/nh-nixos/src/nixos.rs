@@ -1030,6 +1030,16 @@ impl OsBuildImageArgs {
       .clone()
       .resolve_or_default(CommandContext::Os)?;
 
+    if self.common.update_args.update_all
+      || self.common.update_args.update_input.is_some()
+    {
+      update_with_args(
+        &installable,
+        self.common.update_args.update_input.clone(),
+        &self.common.common.passthrough,
+      )?;
+    }
+
     // Get the available image variants for validation
     let valid_variants = match &installable {
       Installable::Flake { .. } => {
@@ -1066,6 +1076,8 @@ impl OsBuildImageArgs {
     }
 
     let mut rebuild = self.common;
+    rebuild.update_args.update_all = false;
+    rebuild.update_args.update_input = None;
     rebuild.common.installable = match installable {
       Installable::File { path, attribute } => {
         let path = path.to_str().ok_or_else(|| {

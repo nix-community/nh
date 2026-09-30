@@ -55,6 +55,8 @@ functionality, under the "Removed" section.
   attribute selected during image-variant validation.
 - `nh os build-vm --specialisation` now builds the VM derivation from the chosen
   specialisation instead of the base configuration.
+- `nh os build-image --update` now updates flake inputs before discovering
+  available image variants, rather than after validation.
 - `nh clean` now preserves the generation selected by each profile symlink by
   default, even after a rollback when it is older than `--keep-since` and
   outside the newest `--keep` generations. Previously cleanup could leave the
