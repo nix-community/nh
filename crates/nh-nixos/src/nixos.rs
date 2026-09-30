@@ -307,52 +307,41 @@ impl OsRebuildActivateArgs {
       }
     }
 
-    if let Some(target_host) = &self.rebuild.target_host {
-      // Only copy if the output path exists locally (i.e., was copied back from
-      // remote build)
-      if out_path.exists() {
-        nh_remote::copy_to_remote_with_args(
-          target_host,
-          target_profile,
-          self.rebuild.common.passthrough.use_substitutes
-            && !self.rebuild.common.passthrough.network_restricted(),
-          &self.rebuild.common.passthrough.generate_evaluation_args(),
-        )
-        .context("Failed to copy configuration to target host")?;
-      }
-    }
-
-    // Validate system closure before activation, unless bypassed. For remote
-    // builds, use the actual store path returned from the build. For local
-    // builds, canonicalize the target_profile.
-    let is_remote_build = self.rebuild.target_host.is_some();
-    let resolved_profile: PathBuf = if let Some(store_path) = actual_store_path
-    {
-      // Remote build - use the actual store path from the build output
-      store_path.to_path_buf()
-    } else if is_remote_build && !out_path.exists() {
-      // Remote build with no local result and no store path captured
-      // (shouldn't happen, but fallback)
-      target_profile.to_path_buf()
-    } else {
-      // Local build - canonicalize the symlink to get the store path
-      target_profile
-        .canonicalize()
-        .context("Failed to resolve output path to actual store path")?
-    };
-
-    // Resolve the base store path before activation. Activation can bind-mount
-    // over /tmp, shadowing our tempdir so out_path stops resolving afterwards.
-    // The bootloader step below reuses this.
-    let base_store_path: Option<PathBuf> = if out_path.exists() {
-      Some(
+    // Keep the base closure for the boot profile and the selected closure for
+    // activation. A specialisation is not the boot profile itself.
+    let base_store_path = actual_store_path.map_or_else(
+      || {
         out_path
           .canonicalize()
-          .context("Failed to resolve base output path to store path")?,
+          .context("Failed to resolve base output path to store path")
+      },
+      |path| Ok(path.to_path_buf()),
+    )?;
+    let selected_store_path = base_store_path.join(
+      target_profile
+        .strip_prefix(out_path)
+        .context("Selected profile is outside the build output")?,
+    );
+    if let Some(target_host) = &self.rebuild.target_host
+      && out_path.exists()
+    {
+      nh_remote::copy_to_remote_with_args(
+        target_host,
+        &base_store_path,
+        self.rebuild.common.passthrough.use_substitutes
+          && !self.rebuild.common.passthrough.network_restricted(),
+        &self.rebuild.common.passthrough.generate_evaluation_args(),
       )
-    } else {
-      None
-    };
+      .context("Failed to copy configuration to target host")?;
+    }
+    let resolved_profile =
+      if self.rebuild.target_host.is_some() && !target_profile.exists() {
+        selected_store_path
+      } else {
+        target_profile
+          .canonicalize()
+          .context("Failed to resolve selected system profile")?
+      };
 
     let should_skip = self.rebuild.no_validate;
 
@@ -378,20 +367,8 @@ impl OsRebuildActivateArgs {
       validate_system_closure(&resolved_profile)?;
     }
 
-    // Resolve switch-to-configuration path for activation commands. For
-    // remote-only builds where out_path doesn't exist locally, skip this
-    // since we'll execute these commands via SSH on the remote host
-    let switch_to_configuration_path =
+    let switch_to_configuration =
       resolved_profile.join("bin").join("switch-to-configuration");
-
-    let switch_to_configuration = if is_remote_build && !out_path.exists() {
-      // Remote build with no local result. Use uncanonicalized path for SSH
-      switch_to_configuration_path
-    } else {
-      switch_to_configuration_path
-        .canonicalize()
-        .context("Failed to resolve switch-to-configuration path")?
-    };
 
     if let Test | Switch = variant {
       let activation_result = self.rebuild.target_host.as_ref().map_or_else(
@@ -467,7 +444,7 @@ impl OsRebuildActivateArgs {
       if let Some(target_host) = &self.rebuild.target_host {
         nh_remote::activate_remote_with_build_args(
           target_host,
-          &resolved_profile,
+          &base_store_path,
           &nh_remote::ActivateRemoteConfig {
             platform:           nh_remote::Platform::NixOS,
             activation_type:    nh_remote::ActivationType::Boot,
@@ -479,19 +456,8 @@ impl OsRebuildActivateArgs {
         )
         .wrap_err("Bootloader activation failed")?;
       } else {
-        // Use the base system closure instead of the specialisation one. This
-        // is what makes all specialisations visible in the bootloader instead
-        // of only the generation with the specialisation. Resolved before
-        // activation; fall back only if it wasn't captured.
-        let base_store_path = base_store_path.map_or_else(
-          || {
-            out_path
-              .canonicalize()
-              .context("Failed to resolve base output path to store path")
-          },
-          Ok,
-        )?;
-
+        // Install the base closure as the boot profile, retaining every
+        // specialisation as a boot option.
         let (binary, args, _) = NixCommand::new(CommandKind::Build)
           .print_build_logs(false)
           .args(["--no-link", "--profile", SYSTEM_PROFILE])

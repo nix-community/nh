@@ -39,6 +39,8 @@ functionality, under the "Removed" section.
 - NixOS activation now runs in a transient systemd service when systemd is
   available, so switching the system does not terminate its own session.
   Activation still runs directly on systems without systemd.
+- Specialisation activation now validates and activates the selected closure
+  while installing the base closure as the boot profile.
 - `nh clean` now preserves the generation selected by each profile symlink by
   default, even after a rollback when it is older than `--keep-since` and
   outside the newest `--keep` generations. Previously cleanup could leave the
