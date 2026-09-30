@@ -28,6 +28,11 @@ functionality, under the "Removed" section.
 - `nix-installable` now provides reusable parsing and argument rendering for
   flake references, Nix files, expressions, and store paths. The previous
   `nh-installable` crate reuses this public crate.
+- `nh os` now falls back to `/etc/nixos/system.nix`, then
+  `/etc/nixos/default.nix`, before `<nixpkgs/nixos>` when no flake or
+  installable is configured. Explicit OS Nix-file directories also resolve
+  `system.nix` before `default.nix`
+  ([#745](https://github.com/nix-community/nh/pull/745)).
 
 ### Fixed
 
