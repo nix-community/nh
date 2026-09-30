@@ -26,6 +26,8 @@ functionality, under the "Removed" section.
   profile; `--json` emits both statuses and generation metadata.
 - Rollback now rejects an explicitly requested specialisation missing from the
   target generation before changing the selected system profile.
+- Generation discovery now accepts only exact `<profile>-<number>-link` entries;
+  similarly named profiles no longer leak into `nh os info` or rollback.
 
 - `nh os switch`/`nh os boot` now accept `--continue-on-activation-failure`
   (`NH_CONTINUE_ON_ACTIVATION_FAILURE`). During a switch, activation runs before

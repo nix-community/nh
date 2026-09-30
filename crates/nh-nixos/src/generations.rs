@@ -88,17 +88,22 @@ impl Field {
     }
   }
 }
+fn parse_generation_name(name: &str) -> Option<(&str, u64)> {
+  let (profile, number) = name.strip_suffix("-link")?.rsplit_once('-')?;
+  Some((profile, number.parse().ok()?))
+}
+
 #[must_use]
 pub fn from_dir(generation_dir: &Path) -> Option<u64> {
-  generation_dir
-    .file_name()
-    .and_then(|os_str| os_str.to_str())
-    .and_then(|generation_base| {
-      let no_link_gen = generation_base.trim_end_matches("-link");
-      no_link_gen
-        .rsplit_once('-')
-        .and_then(|(_, generation_num)| generation_num.parse::<u64>().ok())
-    })
+  parse_generation_name(generation_dir.file_name()?.to_str()?)
+    .map(|(_, number)| number)
+}
+
+#[must_use]
+pub fn from_profile_dir(generation_dir: &Path, profile: &str) -> Option<u64> {
+  let (name, number) =
+    parse_generation_name(generation_dir.file_name()?.to_str()?)?;
+  (name == profile).then_some(number)
 }
 
 fn closure_size_from_json(
@@ -552,4 +557,27 @@ pub fn print_info(
   }
 
   Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+  use std::path::Path;
+
+  use super::from_profile_dir;
+
+  #[test]
+  fn exact_profile_generation_names() {
+    assert_eq!(
+      from_profile_dir(Path::new("system-12-link"), "system"),
+      Some(12)
+    );
+    for name in [
+      "system-backup-12-link",
+      "system-12-link-link",
+      "system-abc-link",
+      "system-12",
+    ] {
+      assert_eq!(from_profile_dir(Path::new(name), "system"), None);
+    }
+  }
 }

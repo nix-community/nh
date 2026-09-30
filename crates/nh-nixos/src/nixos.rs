@@ -884,7 +884,7 @@ impl OsRollbackArgs {
 
     let selected_generation = fs::read_link(SYSTEM_PROFILE)
       .ok()
-      .and_then(|link| generations::from_dir(&link))
+      .and_then(|link| generations::from_profile_dir(&link, "system"))
       .and_then(|number| {
         generations
           .iter()
@@ -1444,9 +1444,7 @@ fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
     };
 
     let path = entry.path();
-    if let Some(name) = path.file_name().and_then(|s| s.to_str())
-      && name.starts_with("system-")
-      && name.ends_with("-link")
+    if generations::from_profile_dir(&path, "system").is_some()
       && let Some(gen_info) = generations::describe(&path, None)
     {
       generations.push(gen_info);
@@ -1537,21 +1535,15 @@ impl OsGenerationsArgs {
     }
 
     let profile_dir = profile.parent().unwrap_or_else(|| Path::new("."));
+    let profile_name = profile
+      .file_name()
+      .and_then(|name| name.to_str())
+      .ok_or_else(|| eyre!("Profile name contains invalid UTF-8"))?;
 
     let generations: Vec<_> = fs::read_dir(profile_dir)?
       .filter_map(|entry| {
-        entry.ok().and_then(|e| {
-          let path = e.path();
-          if path
-            .file_name()?
-            .to_str()?
-            .starts_with(profile.file_name()?.to_str()?)
-          {
-            Some(path)
-          } else {
-            None
-          }
-        })
+        let path = entry.ok()?.path();
+        generations::from_profile_dir(&path, profile_name).map(|_| path)
       })
       .collect();
 
@@ -1569,7 +1561,7 @@ impl OsGenerationsArgs {
 
     let boot_generation = fs::read_link(&profile)
       .ok()
-      .and_then(|link| generations::from_dir(&link));
+      .and_then(|link| generations::from_profile_dir(&link, profile_name));
     if self.json {
       let mut running =
         descriptions.iter().filter(|generation| generation.current);
