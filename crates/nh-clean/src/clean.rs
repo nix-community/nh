@@ -92,7 +92,18 @@ impl args::CleanMode {
   ///
   /// Panics if the current user's UID cannot be resolved to a user. For
   /// example, if  `User::from_uid(uid)` returns `None`.
-  pub fn run(&self, elevate: ElevationStrategy) -> Result<()> {
+  pub fn run(&self, elevation: ElevationStrategy) -> Result<()> {
+    if matches!(self, Self::All(_))
+      && !nix::unistd::Uid::effective().is_root()
+      && !matches!(elevation, ElevationStrategy::None)
+    {
+      nh_core::util::self_elevate(elevation);
+    }
+
+    self.run_cleanup()
+  }
+
+  fn run_cleanup(&self) -> Result<()> {
     let mut profiles = Vec::new();
     let mut gcroots_tagged = Vec::new();
     let now = SystemTime::now();
@@ -107,10 +118,6 @@ impl args::CleanMode {
         &args.common
       },
       Self::All(args) => {
-        if !uid.is_root() {
-          nh_core::util::self_elevate(elevate);
-        }
-
         let paths_to_check = [
           PathBuf::from("/nix/var/nix/profiles"),
           PathBuf::from("/nix/var/nix/profiles/per-user"),

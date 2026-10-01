@@ -1,6 +1,6 @@
-use std::path::PathBuf;
+use std::{ffi::OsString, path::PathBuf};
 
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 use nh_core::{
   args::{DiffType, NixBuildPassthroughArgs},
   checks::{
@@ -190,6 +190,60 @@ pub struct OsRebuildActivateArgs {
   /// failed activation aborts before it. This continues regardless.
   #[arg(long, env = "NH_CONTINUE_ON_ACTIVATION_FAILURE", value_parser = clap::builder::BoolishValueParser::new())]
   pub continue_on_activation_failure: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct PrivilegedActivationArgs {
+  #[arg(long, value_enum)]
+  pub action: PrivilegedActivationAction,
+
+  #[arg(long)]
+  pub switch_to_configuration: PathBuf,
+
+  #[arg(long)]
+  pub system: PathBuf,
+
+  #[arg(long)]
+  pub continue_on_activation_failure: bool,
+
+  #[arg(long)]
+  pub install_bootloader: bool,
+
+  #[arg(long)]
+  pub show_activation_logs: bool,
+
+  #[arg(last = true)]
+  pub nix_args: Vec<OsString>,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum PrivilegedActivationAction {
+  Switch,
+  Boot,
+  Test,
+}
+
+impl std::fmt::Display for PrivilegedActivationAction {
+  fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::Switch => "switch",
+      Self::Boot => "boot",
+      Self::Test => "test",
+    }
+    .fmt(formatter)
+  }
+}
+
+#[derive(Debug, Args)]
+pub struct PrivilegedRollbackArgs {
+  #[arg(long)]
+  pub target_profile: PathBuf,
+
+  #[arg(long)]
+  pub previous_profile: Option<PathBuf>,
+
+  #[arg(long)]
+  pub switch_to_configuration: PathBuf,
 }
 
 impl OsRebuildArgs {

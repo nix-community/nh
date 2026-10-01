@@ -38,7 +38,13 @@ indicatif             = "0.18.4"
 inquire               = { default-features = false, features = [ "crossterm" ], version = "0.9.1" }
 jiff                  = { default-features = false, features = [ "std", "tzdb-zoneinfo" ], version = "0.2.35" }
 
-nix = { default-features = false, features = [ "fs", "user", "hostname" ], version = "0.31.1" }
+nix = { default-features = false, features = [
+  "fs",
+  "user",
+  "hostname",
+  "process",
+  "signal",
+], version = "0.31.1" }
 proptest = "1.9.0"
 regex = "1.12.2"
 reqwest = { default-features = false, features = [
@@ -53,7 +59,7 @@ serde = { features = [ "derive" ], version = "1.0.228" }
 serde_json = "1.0.145"
 serial_test = "3.2.0"
 shlex = "2.0.1"
-signal-hook = "0.4.1"
+signal-hook = { features = [ "extended-siginfo" ], version = "0.4.1" }
 spam-db = "0.2.4"
 subprocess = "1.0.3"
 supports-hyperlinks = "3.1.0"

@@ -423,6 +423,18 @@ pub fn self_elevate(strategy: ElevationStrategy) -> ! {
   panic!("{err}");
 }
 
+/// # Errors
+///
+/// Returns an error when the caller is not root.
+pub fn require_root(operation: &str) -> Result<()> {
+  if !nix::unistd::Uid::effective().is_root() {
+    bail!(
+      "The internal privileged {operation} command requires root privileges"
+    );
+  }
+  Ok(())
+}
+
 /// Gets the available image variants for a non-flake installable.
 ///
 /// This function uses nix-instantiate to evaluate the available image

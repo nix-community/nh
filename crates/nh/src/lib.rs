@@ -72,5 +72,5 @@ pub fn main() -> Result<()> {
         }
       });
 
-  args.command.run(elevation)
+  args.command.run(elevation, args.verbosity)
 }
