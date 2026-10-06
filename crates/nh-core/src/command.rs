@@ -909,29 +909,22 @@ impl Command {
     if self.show_output {
       let exit_status = cmd.join().wrap_err(msg.clone())?;
       if !exit_status.success() {
-        return Err(eyre::eyre!(format!(
-          "{} (exit status {:?})",
-          msg, exit_status
-        )));
+        return Err(eyre::eyre!(ExitError(exit_status))).wrap_err(msg);
       }
       Ok(())
     } else {
       let res = cmd.capture();
       match res {
         Ok(capture) => {
-          let status = &capture.exit_status;
+          let status = capture.exit_status;
           if !status.success() {
             let stderr = capture.stderr_str();
-            if stderr.trim().is_empty() {
-              return Err(eyre::eyre!(format!(
-                "{} (exit status {:?})",
-                msg, status
-              )));
-            }
-            return Err(eyre::eyre!(format!(
-              "{} (exit status {:?})\nstderr:\n{}",
-              msg, status, stderr
-            )));
+            let context = if stderr.trim().is_empty() {
+              msg
+            } else {
+              format!("{msg}\nstderr:\n{stderr}")
+            };
+            return Err(eyre::eyre!(ExitError(status))).wrap_err(context);
           }
           Ok(())
         },
@@ -1088,7 +1081,7 @@ impl Build {
 
 #[derive(Debug, Error)]
 #[error("Command exited with status {0:?}")]
-pub struct ExitError(ExitStatus);
+pub struct ExitError(pub ExitStatus);
 
 #[cfg(test)]
 mod tests {
@@ -1794,15 +1787,25 @@ mod tests {
   }
 
   #[test]
-  fn test_exit_error_display() {
-    // Run a command that exits with status 1 to get a real ExitStatus
-    let exit_status = subprocess::Exec::cmd("false")
-      .join()
-      .expect("failed to run 'false'");
-    let error = ExitError(exit_status);
+  fn test_command_preserves_exit_status_with_context() {
+    for show_output in [false, true] {
+      let error = Command::new("sh")
+        .args(["-c", "echo activation-error >&2; exit 4"])
+        .show_output(show_output)
+        .run()
+        .wrap_err("Activation failed")
+        .unwrap_err();
 
-    let error_string = format!("{error}");
-    assert!(error_string.contains("Command exited with status"));
+      assert_eq!(
+        error
+          .downcast_ref::<ExitError>()
+          .and_then(|exit| exit.0.code()),
+        Some(4)
+      );
+      if !show_output {
+        assert!(format!("{error:?}").contains("activation-error"));
+      }
+    }
   }
 
   #[test]

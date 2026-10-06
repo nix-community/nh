@@ -20,6 +20,7 @@ use nh_core::{
   command::{
     CommandKind,
     ElevationStrategy,
+    ExitError,
     NixCommand,
     cache_password,
     get_cached_password,
@@ -1309,12 +1310,12 @@ fn activate_nixos_remote(
       }
 
       if !capture.exit_status.success() {
-        bail!(
+        return Err(eyre!(ExitError(capture.exit_status))).wrap_err(format!(
           "Activation ({}) failed on '{}':\n{}",
           action,
           host,
           capture.stderr_str()
-        );
+        ));
       }
     },
 

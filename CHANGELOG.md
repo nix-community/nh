@@ -36,6 +36,12 @@ functionality, under the "Removed" section.
 
 ### Fixed
 
+- `nh os switch` now distinguishes activation errors from failures to run the
+  activation command. Authentication failures such as `sudo` password timeouts
+  no longer suggest `--continue-on-activation-failure` and remain fatal even
+  when the flag is set. The override only applies to activation-script and unit
+  errors with exit status 2 or 4, for both local and remote activation.
+
 - `nh clean` now preserves the generation selected by each profile symlink by
   default, even after a rollback when it is older than `--keep-since` and
   outside the newest `--keep` generations. Previously cleanup could leave the

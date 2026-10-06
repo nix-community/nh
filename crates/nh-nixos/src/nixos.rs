@@ -411,21 +411,29 @@ impl OsRebuildActivateArgs {
       );
 
       if let Err(e) = activation_result {
-        // On `switch`, activation runs before the bootloader step, so a failure
-        // here normally skips it and leaves nothing new to boot into. `test`
-        // has no bootloader step, so its failures are always fatal.
+        // Only activation-script and unit failures (2 and 4) can be
+        // overridden. Authentication, pre-switch checks, launch failures,
+        // and SSH errors must abort without offering the bootloader override.
+        if !e
+          .downcast_ref::<command::ExitError>()
+          .is_some_and(|exit| matches!(exit.0.code(), Some(2 | 4)))
+        {
+          return Err(e).wrap_err("Could not complete activation");
+        }
+
         let is_switch = matches!(variant, Switch);
         if is_switch && self.continue_on_activation_failure {
           warn!("{e:?}");
           warn!(
-            "Activation failed; adding the generation to the bootloader \
-             anyway (NH_CONTINUE_ON_ACTIVATION_FAILURE set)."
+            "Activation completed with errors; adding the generation to the \
+             bootloader anyway (--continue-on-activation-failure set)."
           );
         } else {
           if is_switch {
             warn!(
-              "Activation failed; the new generation will not be added to the \
-               bootloader. Pass --continue-on-activation-failure to override."
+              "Activation completed with errors; the new generation will not \
+               be added to the bootloader. Pass \
+               --continue-on-activation-failure to override."
             );
           }
           return Err(e);
