@@ -26,7 +26,7 @@ nix-command     = { path = "crates/nix-command", version = "0.2.4" }
 nix-installable = { path = "crates/nix-installable", version = "0.1.0" }
 
 caress            = "0.2.1"
-dix               = "2.2.0"
+dix               = { branch = "main", git = "https://github.com/manic-systems/dix" }
 elasticsearch-dsl = "0.4.24"
 flub              = "0.1.0"
 humantime         = "2.3.0"

@@ -38,7 +38,10 @@ rustPlatform.buildRustPackage (finalAttrs: {
     makeBinaryWrapper
   ];
 
-  cargoLock.lockFile = ./Cargo.lock;
+  cargoLock = {
+    lockFile = ./Cargo.lock;
+    allowBuiltinFetchGit = true;
+  };
 
   postInstall =
     lib.optionalString (stdenv.buildPlatform.canExecute stdenv.hostPlatform) ''

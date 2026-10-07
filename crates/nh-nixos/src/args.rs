@@ -197,6 +197,9 @@ pub struct OsRebuildArgs {
   pub bypass_root_check: bool,
 
   /// Deploy the built configuration to a different host over SSH
+  ///
+  /// Diffing against the target host requires dix >= 3.0.0 on it, unless
+  /// both closures are already in the local store.
   #[pound(long, parse = str::parse::<RemoteHost>)]
   pub target_host: Option<RemoteHost>,
 

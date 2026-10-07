@@ -71,6 +71,13 @@ spellings like `on`, `y` or `TRUE` are rejected.
   localhost when the build host can copy it to the target directly. The result
   is copied straight to the host that activates it, before the diff and `--ask`,
   and a local out-link is only created when it reaches the local store.
+- `nh os` diffs against a `--target-host` now run `dix snapshot` on the target
+  host instead of querying its store with `nix path-info --store ssh-ng://...`.
+  This requires dix >= 3.0.0 on the target host, unless both closures are
+  already in the local store, which is checked first. If dix is missing or too
+  old, the error says so and how to install it. With `--diff auto`, failing
+  remote diffs now only warn instead of aborting the rebuild; `--diff always`
+  still aborts.
 
 ### Fixed
 

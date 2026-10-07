@@ -30,7 +30,7 @@ use copy::{
   copy_closure_from_with_args,
 };
 pub use copy::{copy_to_remote, copy_to_remote_with_args};
-pub use dix::ResolvedRemoteStorePath;
+pub use dix::{query_remote_snapshot, resolve_remote_store_path};
 
 /// Builds a remote command string with proper elevation handling.
 ///

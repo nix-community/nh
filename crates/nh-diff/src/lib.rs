@@ -1,40 +1,19 @@
-use std::{
-  fmt,
-  io,
-  path::{Path, PathBuf},
-  thread,
-};
+use std::path::{Path, PathBuf};
 
-use misstep::{Report, Result, report};
+use misstep::Result;
 use nh_core::{args::DiffType, progress};
-use nh_remote::{RemoteHost, ResolvedRemoteStorePath};
+use nh_remote::{RemoteHost, query_remote_snapshot, resolve_remote_store_path};
 use tracing::{debug, info, warn};
 use yansi::Paint;
 
 const NIXOS_CURRENT_PROFILE: &str = "/run/current-system";
 
-struct WriteFmt<W: io::Write>(W);
-impl<W: io::Write> fmt::Write for WriteFmt<W> {
-  fn write_str(&mut self, string: &str) -> fmt::Result {
-    self.0.write_all(string.as_bytes()).map_err(|_| fmt::Error)
-  }
-}
-
-struct QueriedDiff {
-  old_label: PathBuf,
-  new_label: PathBuf,
-  report:    dix::DiffReport,
-}
-
-impl QueriedDiff {
-  fn write(&self) -> Result<()> {
-    print_dix_header_raw(&self.old_label, &self.new_label);
-    write_dix_report(&self.report)
-  }
-}
-
 /// Prints the difference between two generations in terms of paths and closure
 /// sizes.
+///
+/// # Returns
+///
+/// `Ok(())` once the diff is printed.
 ///
 /// # Errors
 ///
@@ -43,27 +22,27 @@ pub fn print_dix_diff(
   old_generation: &Path,
   new_generation: &Path,
 ) -> Result<()> {
-  query_local_dix_diff(old_generation, new_generation)?.write()
-}
-
-fn query_local_dix_diff(
-  old_generation: &Path,
-  new_generation: &Path,
-) -> Result<QueriedDiff> {
-  let report = dix::query_diff_report(old_generation, new_generation, true)
-    .map_err(|error| Report::from_boxed(error.into()))?;
-
-  Ok(QueriedDiff {
-    old_label: display_path(old_generation),
-    new_label: display_path(new_generation),
-    report,
-  })
+  let report = dix::query_diff_report(old_generation, new_generation)?;
+  print_report(
+    &display_path(old_generation),
+    &display_path(new_generation),
+    &report,
+  )
 }
 
 /// Handles NixOS system diffing for local and remote rebuilds.
 ///
 /// `target_profile` must be in the store of `target_host`, or the local store
 /// if there is none.
+///
+/// Remote diffs require dix on the target host unless both closures are
+/// already in the local store. With [`DiffType::Auto`], failing remote diffs
+/// only warn.
+///
+/// # Returns
+///
+/// `Ok(())` once the diff is printed, skipped, or failed with
+/// [`DiffType::Auto`].
 ///
 /// # Errors
 ///
@@ -76,94 +55,125 @@ pub fn handle_nixos_diff(
 ) -> Result<()> {
   let current_profile = Path::new(NIXOS_CURRENT_PROFILE);
 
-  match diff {
-    DiffType::Never => {
-      debug!("Not running dix as the --diff flag is set to never.");
-      return Ok(());
-    },
-    DiffType::Auto if target_host.is_none() && !current_profile.exists() => {
+  if matches!(diff, DiffType::Never) {
+    debug!("Not running dix as the --diff flag is set to never.");
+    return Ok(());
+  }
+
+  let Some(target_host) = target_host else {
+    if matches!(diff, DiffType::Auto) && !current_profile.exists() {
       warn!(
         "current profile {} does not exist, skipping dix diffing",
         current_profile.display()
       );
       return Ok(());
-    },
-    DiffType::Auto => {
-      debug!(
-        "Comparing current profile {} with target profile: {}",
-        current_profile.display(),
-        target_profile.display()
-      );
-    },
-    DiffType::Always => {},
-  }
-
-  let Some(target_host) = target_host else {
+    }
     return print_dix_diff(current_profile, target_profile);
   };
 
-  let spinner = progress::spinner(format!(
-    "Gathering system diff data from remote host '{target_host}'..."
-  ));
-  let diff =
-    query_remote_dix_diff(target_host, current_profile, target_profile);
-  spinner.finish_and_clear();
-
-  diff?.write()
+  tolerate_remote_diff_failure(
+    diff,
+    print_remote_nixos_diff(target_host, current_profile, target_profile),
+  )
 }
 
-fn query_remote_dix_diff(
-  host: &RemoteHost,
-  old_generation: &Path,
-  new_generation: &Path,
-) -> Result<QueriedDiff> {
-  let old = ResolvedRemoteStorePath::resolve(host, old_generation)?;
-  let new = ResolvedRemoteStorePath::resolve(host, new_generation)?;
+/// The diff is informational, so a failing remote diff only aborts the
+/// rebuild if it was explicitly requested.
+fn tolerate_remote_diff_failure(
+  diff: &DiffType,
+  result: Result<()>,
+) -> Result<()> {
+  match (diff, result) {
+    (DiffType::Auto, Err(err)) => {
+      warn!("Skipping remote diff: {err:?}");
+      Ok(())
+    },
+    (_, result) => result,
+  }
+}
 
-  thread::scope(|scope| -> Result<_> {
-    let old_snapshot = scope.spawn(|| old.query_snapshot());
-    let new_snapshot = scope.spawn(|| new.query_snapshot());
+/// Diffs the target host's current system against the new one.
+///
+/// A store path determines its closure, so each path is snapshotted from the
+/// local store if possible. Only paths missing locally need dix on the target
+/// host.
+///
+/// # Returns
+///
+/// `Ok(())` once the diff is printed.
+///
+/// # Errors
+///
+/// Returns an error if a path cannot be resolved on the target host, a
+/// snapshot can be taken neither locally nor with dix on the target host, or
+/// the report cannot be written.
+fn print_remote_nixos_diff(
+  target_host: &RemoteHost,
+  current_profile: &Path,
+  target_profile: &Path,
+) -> Result<()> {
+  let snapshot = |path: &Path| {
+    dix::query_store_snapshot(path)
+      .or_else(|_| query_remote_snapshot(target_host, path))
+  };
 
-    let old_snapshot = old_snapshot
-      .join()
-      .map_err(|_| report!("old diff endpoint snapshot thread panicked"))??;
-    let new_snapshot = new_snapshot
-      .join()
-      .map_err(|_| report!("new diff endpoint snapshot thread panicked"))??;
+  let spinner = progress::spinner(format!(
+    "Gathering system diff data for remote host '{target_host}'..."
+  ));
+  let old = resolve_remote_store_path(target_host, current_profile)?;
+  let new = resolve_remote_store_path(target_host, target_profile)?;
+  let report = dix::diff_store_snapshots(&snapshot(&old)?, &snapshot(&new)?);
+  drop(spinner);
 
-    Ok(QueriedDiff {
-      old_label: old.path().to_path_buf(),
-      new_label: new.path().to_path_buf(),
-      report:    dix::diff_store_snapshots(&old_snapshot, &new_snapshot),
-    })
-  })
+  print_report(&old, &new, &report)
 }
 
 fn display_path(path: &Path) -> PathBuf {
   std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
-fn print_dix_header_raw(old_label: &Path, new_label: &Path) {
-  println!(
-    "{arrows} {old}",
-    arrows = Paint::new("<<<").bold(),
-    old = old_label.display(),
-  );
-  println!(
-    "{arrows} {new}",
-    arrows = Paint::new(">>>").bold(),
-    new = new_label.display(),
-  );
-}
+/// Prints `report` with `<<<`/`>>>` headers naming the compared paths.
+///
+/// # Returns
+///
+/// `Ok(())` once the report is printed.
+///
+/// # Errors
+///
+/// Returns an error if the report cannot be rendered.
+fn print_report(
+  old_label: &Path,
+  new_label: &Path,
+  report: &dix::DiffReport,
+) -> Result<()> {
+  let mut out = String::new();
+  let hidden =
+    dix::write_diff_report(&mut out, report, dix::RenderOptions::default())?;
 
-fn write_dix_report(report: &dix::DiffReport) -> Result<()> {
-  let stdout = io::stdout();
-  let mut out = WriteFmt(stdout.lock());
-  let wrote = dix::write_diff_report(&mut out, report)?;
+  println!("{} {}", "<<<".bold(), old_label.display());
+  println!("{} {}", ">>>".bold(), new_label.display());
+  print!("{out}");
 
-  if wrote == 0 && report.size_old() == report.size_new() {
+  if report.diffs().len() == hidden && report.size_old() == report.size_new() {
     info!("No version or size changes.");
   }
 
   Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+  use misstep::report;
+
+  use super::*;
+
+  #[test]
+  fn remote_diff_failure_only_warns_with_auto() {
+    let failure = || Err(report!("dix not found"));
+
+    assert!(tolerate_remote_diff_failure(&DiffType::Auto, failure()).is_ok());
+    assert!(
+      tolerate_remote_diff_failure(&DiffType::Always, failure()).is_err()
+    );
+  }
 }
