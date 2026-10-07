@@ -87,6 +87,12 @@ or `TRUE` are rejected.
   elevate once and run all privileged steps in a single `nh` process, instead of
   elevating each step separately. Builds remain under the invoking user. Sudoers
   rules that grant `NOPASSWD` to individual activation commands no longer apply.
+- `nh os` diffs against a `--target-host` now run `dix snapshot` on the target
+  host instead of querying its store with `nix path-info --store ssh-ng://...`.
+  This requires dix >= 3.0.0 on the target host, unless both closures are
+  already in the local store, which is checked first.
+- With `--diff auto`, failing remote diffs now only warn instead of aborting the
+  rebuild.
 
 ### Fixed
 

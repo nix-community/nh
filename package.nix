@@ -2,6 +2,7 @@
   lib,
   stdenv,
   rustPlatform,
+  sqlite,
   installShellFiles,
   versionCheckHook,
   sudo,
@@ -31,6 +32,8 @@ rustPlatform.buildRustPackage (finalAttrs: {
   nativeBuildInputs = [
     installShellFiles
   ];
+
+  buildInputs = [ sqlite ];
 
   cargoLock.lockFile = ./Cargo.lock;
 
