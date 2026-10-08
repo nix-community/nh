@@ -91,8 +91,10 @@ or `TRUE` are rejected.
   host instead of querying its store with `nix path-info --store ssh-ng://...`.
   This requires dix >= 3.0.0 on the target host, unless both closures are
   already in the local store, which is checked first.
-- With `--diff auto`, failing remote diffs now only warn instead of aborting the
-  rebuild.
+- With `--diff auto`, failing diffs now only warn instead of aborting the
+  rebuild, both locally and remotely.
+- `--diff always` now aborts on a failing diff for every command, including
+  `nh os rollback`, `nh home` and `nh darwin`, which used to ignore it.
 
 ### Fixed
 

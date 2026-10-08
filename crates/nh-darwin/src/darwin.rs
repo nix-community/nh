@@ -5,13 +5,12 @@ use std::path::{Path, PathBuf};
 use args::{DarwinArgs, DarwinRebuildArgs, DarwinReplArgs, DarwinSubcommand};
 use misstep::{Result, ResultExt, bail};
 use nh_core::{
-  args::DiffType,
   command::{Command, CommandKind, ElevationStrategy, NixCommand},
   privileged::{DarwinActivation, PrivilegedOp},
   update::update_with_args,
   util::{get_hostname, use_rom},
 };
-use nh_diff::print_dix_diff;
+use nh_diff::print_diff;
 use nh_installable::{
   CommandContext,
   ConfigurationInstallable,
@@ -128,21 +127,12 @@ impl DarwinRebuildArgs {
 
     target_profile.try_exists().context("Doesn't exist")?;
 
-    debug!(
-      "Comparing with target profile: {}",
-      target_profile.display()
-    );
-
-    // Compare changes between current and target generation
-    if matches!(self.common.diff, DiffType::Never) {
-      debug!("Not running dix as the --diff flag is set to never.");
-    } else {
-      debug!(
-        "Comparing with target profile: {}",
-        target_profile.display()
-      );
-      let _ = print_dix_diff(&PathBuf::from(CURRENT_PROFILE), &target_profile);
-    }
+    print_diff(
+      &self.common.diff,
+      None,
+      Path::new(CURRENT_PROFILE),
+      &target_profile,
+    )?;
 
     if self.common.ask && !self.common.dry && !matches!(variant, Build) {
       let confirmation = inquire::Confirm::new("Apply the config?")

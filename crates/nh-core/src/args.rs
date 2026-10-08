@@ -39,11 +39,10 @@ pub struct CommonRebuildArgs {
 
 #[derive(ValueEnum, Clone, Default, Debug)]
 pub enum DiffType {
-  /// Display package diff only if the of the
-  /// current and the deployed configuration matches
+  /// Display package diff, and only warn if it fails
   #[default]
   Auto,
-  /// Always display package diff
+  /// Display package diff, and abort if it fails
   Always,
   /// Never display package diff
   Never,

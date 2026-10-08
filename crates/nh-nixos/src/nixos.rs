@@ -5,7 +5,6 @@ use std::{
 
 use misstep::{OptionExt, Report, Result, ResultExt, bail, report};
 use nh_core::{
-  args::DiffType,
   command::{self, Command, CommandKind, ElevationStrategy, NixCommand},
   privileged::{
     NixosActivation,
@@ -22,7 +21,7 @@ use nh_core::{
     use_rom,
   },
 };
-use nh_diff::{handle_nixos_diff, print_dix_diff};
+use nh_diff::print_diff;
 use nh_installable::{
   CommandContext,
   ConfigurationInstallable,
@@ -422,9 +421,10 @@ impl OsRebuildActivateArgs {
       .rebuild
       .resolve_specialisation_and_profile(&store_path)?;
 
-    handle_nixos_diff(
+    print_diff(
       &self.rebuild.common.diff,
       self.rebuild.target_host.as_ref(),
+      Path::new(CURRENT_PROFILE),
       &target_profile,
     )?;
 
@@ -875,9 +875,10 @@ impl OsRebuildArgs {
       self.resolve_specialisation_and_profile(&store_path)?
     };
 
-    handle_nixos_diff(
+    print_diff(
       &self.common.diff,
       self.target_host.as_ref(),
+      Path::new(CURRENT_PROFILE),
       &target_profile,
     )?;
 
@@ -967,19 +968,12 @@ impl OsRollbackArgs {
       return Err(missing_switch_to_configuration_error());
     }
 
-    // Compare changes between current and target generation
-    if matches!(self.diff, DiffType::Never) {
-      debug!(
-        "Not running dix as the target hostname is different from the system \
-         hostname."
-      );
-    } else {
-      debug!(
-        "Comparing with target profile: {}",
-        generation_link.display()
-      );
-      let _ = print_dix_diff(&PathBuf::from(CURRENT_PROFILE), &generation_link);
-    }
+    print_diff(
+      &self.diff,
+      None,
+      Path::new(CURRENT_PROFILE),
+      &generation_link,
+    )?;
 
     if self.dry {
       info!(

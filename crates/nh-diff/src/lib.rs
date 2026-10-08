@@ -6,33 +6,12 @@ use nh_remote::{RemoteHost, query_remote_snapshot, resolve_remote_store_path};
 use tracing::{debug, info, warn};
 use yansi::Paint;
 
-const NIXOS_CURRENT_PROFILE: &str = "/run/current-system";
-
 /// Prints the difference between two generations in terms of paths and closure
-/// sizes.
+/// sizes, as requested by `mode`.
 ///
-/// # Returns
-///
-/// `Ok(())` once the diff is printed.
-///
-/// # Errors
-///
-/// Returns an error if querying the store or writing the diff report fails.
-pub fn print_dix_diff(
-  old_generation: &Path,
-  new_generation: &Path,
-) -> Result<()> {
-  print_diff(None, old_generation, new_generation)
-}
-
-/// Handles NixOS system diffing for local and remote rebuilds.
-///
-/// `target_profile` must be in the store of `target_host`, or the local store
-/// if there is none.
-///
-/// Remote diffs require dix on the target host unless both closures are
-/// already in the local store. With [`DiffType::Auto`], failing remote diffs
-/// only warn.
+/// Both generations must be in the store of `host`, or the local store if
+/// there is none. Remote diffs require dix on `host` unless both closures are
+/// already in the local store.
 ///
 /// # Returns
 ///
@@ -41,39 +20,25 @@ pub fn print_dix_diff(
 ///
 /// # Errors
 ///
-/// Returns an error if local or remote store snapshot queries fail, or if the
-/// diff report cannot be written.
-pub fn handle_nixos_diff(
-  diff: &DiffType,
-  target_host: Option<&RemoteHost>,
-  target_profile: &Path,
+/// Returns an error if the diff fails and was requested with
+/// [`DiffType::Always`].
+pub fn print_diff(
+  mode: &DiffType,
+  host: Option<&RemoteHost>,
+  old: &Path,
+  new: &Path,
 ) -> Result<()> {
-  let current_profile = Path::new(NIXOS_CURRENT_PROFILE);
-
-  if matches!(diff, DiffType::Never) {
+  if matches!(mode, DiffType::Never) {
     debug!("Not running dix as the --diff flag is set to never.");
     return Ok(());
   }
 
-  let Some(target_host) = target_host else {
-    if matches!(diff, DiffType::Auto) && !current_profile.exists() {
-      warn!(
-        "current profile {} does not exist, skipping dix diffing",
-        current_profile.display()
-      );
-      return Ok(());
-    }
-    return print_dix_diff(current_profile, target_profile);
-  };
-
-  // The diff is informational, so a failing remote diff only aborts the
-  // rebuild if it was explicitly requested.
-  match (
-    diff,
-    print_diff(Some(target_host), current_profile, target_profile),
-  ) {
+  debug!("Comparing {} with {}", old.display(), new.display());
+  // The diff is informational, so a failing diff only aborts the rebuild if it
+  // was explicitly requested.
+  match (mode, print_closure_diff(host, old, new)) {
     (DiffType::Auto, Err(err)) => {
-      warn!("Skipping remote diff: {err:?}");
+      warn!("Skipping diff: {err:#}");
       Ok(())
     },
     (_, result) => result,
@@ -91,7 +56,11 @@ pub fn handle_nixos_diff(
 ///
 /// Returns an error if either path cannot be snapshotted, or the report cannot
 /// be written.
-fn print_diff(host: Option<&RemoteHost>, old: &Path, new: &Path) -> Result<()> {
+fn print_closure_diff(
+  host: Option<&RemoteHost>,
+  old: &Path,
+  new: &Path,
+) -> Result<()> {
   let spinner = host.map(|host| {
     progress::spinner(format!(
       "Gathering system diff data for remote host '{host}'..."
