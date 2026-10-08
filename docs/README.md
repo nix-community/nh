@@ -479,8 +479,9 @@ the common variables that you may encounter or choose to employ are as follows:
 
 - `NH_SEARCH_BACKEND_VERSION`
   - Backend index version queried on search.nixos.org by `nh search packages`
-    and `nh search options`. Defaults to the version bundled with nh. Use this
-    to point nh at a newer index without waiting for a release. Equivalent to
+    and `nh search options`. By default nh queries the newest index available
+    for the channel, falling back to the version bundled with nh if that cannot
+    be determined. Use this to pin a specific index. Equivalent to
     `--backend-version`.
 
 - `NH_SEARCH_BACKEND_FALLBACKS`

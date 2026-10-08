@@ -206,11 +206,11 @@ impl NixBuildPassthroughArgs {
     if self.no_use_registries || self.no_registries {
       args.push("--no-use-registries".into());
     }
-    for pair in self.option.chunks_exact(2) {
+    for pair in self.option.as_chunks::<2>().0 {
       args.push("--option".into());
       args.extend(pair.iter().cloned());
     }
-    for pair in self.override_input.chunks_exact(2) {
+    for pair in self.override_input.as_chunks::<2>().0 {
       args.push("--override-input".into());
       args.extend(pair.iter().cloned());
     }
@@ -253,7 +253,7 @@ impl NixBuildPassthroughArgs {
     if self.impure {
       args.push("--impure".into());
     }
-    for pair in self.option.chunks_exact(2) {
+    for pair in self.option.as_chunks::<2>().0 {
       args.push("--option".into());
       args.extend(pair.iter().cloned());
     }

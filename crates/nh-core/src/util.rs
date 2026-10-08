@@ -487,14 +487,14 @@ in
     } => {
       let config = legacy_config_expression(attribute, hostname);
       format!(
-        r#"
+        r"
 let
   value = {expression};
   set = if builtins.isFunction value then value {{}} else value;
   config = {config};
 in
   builtins.attrNames config.config.system.build.images
-        "#
+        "
       )
     },
     _ => {
