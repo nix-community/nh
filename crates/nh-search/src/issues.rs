@@ -24,7 +24,7 @@ pub fn run(json: bool, args: &args::IssuesArgs) -> Result<()> {
     format!("Searching NixOS/nixpkgs issues for {query}..."),
   );
   let issues = client.search_issues(&query, days)?;
-  progress.finish();
+  drop(progress);
 
   if json {
     return print_json(query, days, then.elapsed().as_millis(), &issues);

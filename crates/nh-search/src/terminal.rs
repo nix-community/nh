@@ -20,10 +20,4 @@ impl SearchProgress {
       spinner.set_message(message);
     }
   }
-
-  pub fn finish(self) {
-    if let Some(spinner) = self.spinner {
-      spinner.finish_and_clear();
-    }
-  }
 }
