@@ -75,9 +75,9 @@ spellings like `on`, `y` or `TRUE` are rejected.
   host instead of querying its store with `nix path-info --store ssh-ng://...`.
   This requires dix >= 3.0.0 on the target host, unless both closures are
   already in the local store, which is checked first. If dix is missing or too
-  old, the error says so and how to install it. With `--diff auto`, failing
-  remote diffs now only warn instead of aborting the rebuild; `--diff always`
-  still aborts.
+  old, the error says so and how to install it.
+- `nh os` diffs with `--diff auto` now only warn when they fail, locally or
+  remotely, instead of aborting the rebuild. `--diff always` still aborts.
 
 ### Fixed
 

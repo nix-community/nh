@@ -36,8 +36,7 @@ pub fn print_dix_diff(
 /// if there is none.
 ///
 /// Remote diffs require dix on the target host unless both closures are
-/// already in the local store. With [`DiffType::Auto`], failing remote diffs
-/// only warn.
+/// already in the local store.
 ///
 /// # Returns
 ///
@@ -46,8 +45,8 @@ pub fn print_dix_diff(
 ///
 /// # Errors
 ///
-/// Returns an error if local or remote store snapshot queries fail, or if the
-/// diff report cannot be written.
+/// Returns an error if the diff fails and was requested with
+/// [`DiffType::Always`].
 pub fn handle_nixos_diff(
   diff: &DiffType,
   target_host: Option<&RemoteHost>,
@@ -60,32 +59,30 @@ pub fn handle_nixos_diff(
     return Ok(());
   }
 
-  let Some(target_host) = target_host else {
-    if matches!(diff, DiffType::Auto) && !current_profile.exists() {
-      warn!(
-        "current profile {} does not exist, skipping dix diffing",
-        current_profile.display()
-      );
-      return Ok(());
-    }
-    return print_dix_diff(current_profile, target_profile);
-  };
-
-  tolerate_remote_diff_failure(
-    diff,
-    print_remote_nixos_diff(target_host, current_profile, target_profile),
-  )
+  let result = target_host.map_or_else(
+    || print_dix_diff(current_profile, target_profile),
+    |target_host| {
+      print_remote_nixos_diff(target_host, current_profile, target_profile)
+    },
+  );
+  tolerate_diff_failure(diff, result)
 }
 
-/// The diff is informational, so a failing remote diff only aborts the
-/// rebuild if it was explicitly requested.
-fn tolerate_remote_diff_failure(
-  diff: &DiffType,
-  result: Result<()>,
-) -> Result<()> {
+/// The diff is informational, so a failing diff only aborts the rebuild if it
+/// was explicitly requested.
+///
+/// # Returns
+///
+/// `result`, except that failures with [`DiffType::Auto`] are logged as a
+/// warning and turned into `Ok(())`.
+///
+/// # Errors
+///
+/// Returns the error in `result` unless `diff` is [`DiffType::Auto`].
+fn tolerate_diff_failure(diff: &DiffType, result: Result<()>) -> Result<()> {
   match (diff, result) {
     (DiffType::Auto, Err(err)) => {
-      warn!("Skipping remote diff: {err:?}");
+      warn!("Skipping diff: {err:#}");
       Ok(())
     },
     (_, result) => result,
@@ -168,12 +165,10 @@ mod tests {
   use super::*;
 
   #[test]
-  fn remote_diff_failure_only_warns_with_auto() {
+  fn diff_failure_only_warns_with_auto() {
     let failure = || Err(report!("dix not found"));
 
-    assert!(tolerate_remote_diff_failure(&DiffType::Auto, failure()).is_ok());
-    assert!(
-      tolerate_remote_diff_failure(&DiffType::Always, failure()).is_err()
-    );
+    assert!(tolerate_diff_failure(&DiffType::Auto, failure()).is_ok());
+    assert!(tolerate_diff_failure(&DiffType::Always, failure()).is_err());
   }
 }
