@@ -36,6 +36,13 @@ functionality, under the "Removed" section.
 
 ### Fixed
 
+- `nh search packages` and `nh search options` now query the newest
+  search.nixos.org index available for the channel instead of the version
+  bundled with nh. Outdated indices stay online, so nh previously kept showing
+  stale package versions after search.nixos.org moved on
+  ([#813](https://github.com/nix-community/nh/issues/813)). The bundled version
+  is still used if discovery fails.
+
 - `nh clean` now preserves the generation selected by each profile symlink by
   default, even after a rollback when it is older than `--keep-since` and
   outside the newest `--keep` generations. Previously cleanup could leave the

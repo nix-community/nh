@@ -1,4 +1,7 @@
-use std::time::{Duration, Instant};
+use std::{
+  collections::HashMap,
+  time::{Duration, Instant},
+};
 
 use color_eyre::{
   Result,
@@ -9,13 +12,19 @@ use reqwest::{
   StatusCode,
   blocking::{Client, Response},
 };
-use serde::de::DeserializeOwned;
+use serde::{Deserialize, de::DeserializeOwned};
 use tracing::{debug, trace, warn};
 
 const NH_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+// Hardcoded upstream
+// https://github.com/NixOS/nixos-search/blob/744ec58e082a3fcdd741b2c9b0654a0f7fda4603/frontend/src/index.js
+const BACKEND_USER: &str = "aWVSALXpZv";
+const BACKEND_PASSWORD: &str = "X8gPHnzL52wFEekuxsfQ9cSh";
+
 /// Backend index version bundled with nh, used when the user does not override
-/// it via [`BackendConfig::version`].
+/// it via [`BackendConfig::version`] and the newest version cannot be
+/// discovered.
 pub const BUNDLED_BACKEND_VERSION: &str = include_str!("../BACKEND_VERSION");
 
 #[derive(Clone, Copy)]
@@ -28,7 +37,8 @@ pub struct SearchContexts {
 /// Backend index version selection for a search request.
 #[derive(Clone, Copy)]
 pub struct BackendConfig {
-  /// Index version to try first. `None` uses [`BUNDLED_BACKEND_VERSION`].
+  /// Index version to try first. `None` discovers the newest version, falling
+  /// back to [`BUNDLED_BACKEND_VERSION`].
   pub version:   Option<u32>,
   /// Number of newer versions to try when the requested one is outdated.
   pub fallbacks: u32,
@@ -50,18 +60,25 @@ pub fn search_documents<T>(
 where
   T: DeserializeOwned,
 {
+  let client = reqwest::blocking::Client::new();
+
   let start = match config.version {
     Some(version) => version,
     None => {
-      BUNDLED_BACKEND_VERSION
-        .trim()
-        .parse()
-        .context("parsing the bundled backend index version")?
+      match discover_latest_version(&client, channel) {
+        Ok(Some(version)) => version,
+        Ok(None) => bundled_backend_version()?,
+        Err(err) => {
+          debug!(
+            ?err,
+            "backend index discovery failed, using the bundled version"
+          );
+          bundled_backend_version()?
+        },
+      }
     },
   };
   let last = start.saturating_add(config.fallbacks);
-
-  let client = reqwest::blocking::Client::new();
   let then = Instant::now();
 
   // The requested index version tracks search.nixos.org but can fall behind
@@ -110,6 +127,62 @@ where
   Ok((documents, elapsed))
 }
 
+fn bundled_backend_version() -> Result<u32> {
+  BUNDLED_BACKEND_VERSION
+    .trim()
+    .parse()
+    .context("parsing the bundled backend index version")
+}
+
+/// Finds the newest backend index version available for `channel`.
+///
+/// Every index is exposed through a `latest-{version}-{channel}` alias, and
+/// outdated indices stay online after search.nixos.org moves on. We therefore
+/// need to get the newest channel using a `*`-wildcard.
+///
+/// # Returns
+///
+/// `None` when no alias matches the channel.
+fn discover_latest_version(
+  client: &Client,
+  channel: &str,
+) -> Result<Option<u32>> {
+  let response = client
+    .get(format!(
+      "https://search.nixos.org/backend/_alias/latest-*-{channel}"
+    ))
+    .header("User-Agent", format!("nh/{NH_VERSION}"))
+    .basic_auth(BACKEND_USER, Some(BACKEND_PASSWORD))
+    .send()
+    .context("querying search.nixos.org for backend index versions")?
+    .error_for_status()
+    .context("querying search.nixos.org for backend index versions")?;
+
+  let indices: HashMap<String, IndexAliases> =
+    response.json().context("parsing backend index aliases")?;
+
+  let suffix = format!("-{channel}");
+  let latest = indices
+    .into_values()
+    .flat_map(|index| index.aliases.into_iter().map(|(alias, _)| alias))
+    .filter_map(|alias| {
+      alias
+        .strip_prefix("latest-")?
+        .strip_suffix(suffix.as_str())?
+        .parse::<u32>()
+        .ok()
+    })
+    .max();
+
+  debug!(?latest, "discovered backend index version");
+  Ok(latest)
+}
+
+#[derive(Deserialize)]
+struct IndexAliases {
+  aliases: serde_json::Map<String, serde_json::Value>,
+}
+
 /// Queries a single backend index version.
 ///
 /// Returns [`BackendResponse::Outdated`] on a 404 (missing index) so the caller
@@ -127,9 +200,7 @@ fn query_backend(
     ))
     .json(query)
     .header("User-Agent", format!("nh/{NH_VERSION}"))
-    // Hardcoded upstream
-    // https://github.com/NixOS/nixos-search/blob/744ec58e082a3fcdd741b2c9b0654a0f7fda4603/frontend/src/index.js
-    .basic_auth("aWVSALXpZv", Some("X8gPHnzL52wFEekuxsfQ9cSh"))
+    .basic_auth(BACKEND_USER, Some(BACKEND_PASSWORD))
     .build()
     .context(contexts.build)?;
 

@@ -180,7 +180,8 @@ pub struct ChannelArg {
 #[derive(Args, Debug, Clone, Copy)]
 pub struct BackendArgs {
   /// Backend index version to query on search.nixos.org. Defaults to the
-  /// version bundled with nh
+  /// newest version available for the channel, or the version bundled with nh
+  /// if that cannot be determined
   #[arg(
     id = "backend-version",
     long = "backend-version",
