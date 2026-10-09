@@ -34,6 +34,13 @@ functionality, under the "Removed" section.
   Nix-file directories also resolve `system.nix` before `default.nix`
   ([#745](https://github.com/nix-community/nh/pull/745)).
 
+### Changed
+
+- Local `nh os switch`/`boot`/`test`/`rollback` and `nh darwin switch` now run
+  privileged steps through one elevated `nh` invocation. Builds remain under the
+  invoking user. Sudoers rules that grant `NOPASSWD` to individual activation
+  commands no longer apply.
+
 ### Fixed
 
 - `nh search packages` and `nh search options` now query the newest
