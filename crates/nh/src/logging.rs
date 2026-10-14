@@ -65,14 +65,6 @@ where
 pub fn setup_logging(
   verbosity: clap_verbosity_flag::Verbosity<InfoLevel>,
 ) -> Result<()> {
-  color_eyre::config::HookBuilder::default()
-    .display_location_section(true)
-    .panic_section(
-      "Please report the bug at https://github.com/nix-community/nh/issues",
-    )
-    .display_env_section(false)
-    .install()?;
-
   let fallback_level =
     verbosity.log_level().map_or(LevelFilter::WARN, |level| {
       match level {
@@ -83,6 +75,23 @@ pub fn setup_logging(
         clap_verbosity_flag::log::Level::Trace => LevelFilter::TRACE,
       }
     });
+  setup_logging_at(fallback_level)
+}
+
+/// Install the error hook and tracing subscriber at a fixed fallback level.
+///
+/// # Errors
+///
+/// Returns an error if installing the error hook fails or if tracing filter
+/// directives cannot be parsed.
+pub fn setup_logging_at(fallback_level: LevelFilter) -> Result<()> {
+  color_eyre::config::HookBuilder::default()
+    .display_location_section(true)
+    .panic_section(
+      "Please report the bug at https://github.com/nix-community/nh/issues",
+    )
+    .display_env_section(false)
+    .install()?;
 
   let layer = fmt::layer()
     .with_writer(std::io::stderr)

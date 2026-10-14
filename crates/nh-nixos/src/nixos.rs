@@ -8,6 +8,12 @@ use color_eyre::eyre::{Context, Result, bail, eyre};
 use nh_core::{
   args::DiffType,
   command::{self, Command, CommandKind, ElevationStrategy, NixCommand},
+  privileged::{
+    NixosActivation,
+    NixosActivationAction,
+    NixosRollback,
+    PrivilegedOp,
+  },
   update::update_with_args,
   util::{
     ensure_ssh_key_login,
@@ -112,6 +118,140 @@ enum OsRebuildVariant {
   Test,
   BuildVm,
   BuildIso,
+}
+
+/// Runs local activation steps that need root.
+///
+/// # Errors
+///
+/// Returns an error if activation, profile installation or the bootloader
+/// step fails.
+pub fn run_activation_commands(args: &NixosActivation) -> Result<()> {
+  use NixosActivationAction::{Boot, Switch, Test};
+
+  if let Test | Switch = args.action {
+    let activation_result = Command::new(&args.switch_to_configuration)
+      .arg("test")
+      .message("Activating configuration")
+      .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
+      .with_required_env()
+      .show_output(args.show_activation_logs)
+      .run()
+      .wrap_err("Activation (test) failed");
+
+    if let Err(e) = activation_result {
+      handle_activation_failure(
+        e,
+        matches!(args.action, Switch),
+        args.continue_on_activation_failure,
+      )?;
+    }
+  }
+
+  if let Boot | Switch = args.action {
+    let (binary, nix_args, _) = NixCommand::new(CommandKind::Build)
+      .print_build_logs(false)
+      .args(["--no-link", "--profile", SYSTEM_PROFILE])
+      .arg(&args.system)
+      .args(&args.nix_args)
+      .into_parts();
+    Command::new(binary)
+      .args(nix_args)
+      .with_required_env()
+      .run()
+      .wrap_err("Failed to set system profile")?;
+
+    let mut cmd = Command::new(&args.switch_to_configuration)
+      .arg("boot")
+      .message("Adding configuration to bootloader")
+      .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"]);
+
+    if args.install_bootloader {
+      cmd = cmd.set_env("NIXOS_INSTALL_BOOTLOADER", "1");
+    }
+
+    cmd
+      .with_required_env()
+      .run()
+      .wrap_err("Bootloader activation failed")?;
+  }
+
+  Ok(())
+}
+
+fn handle_activation_failure(
+  e: color_eyre::Report,
+  is_switch: bool,
+  continue_on_activation_failure: bool,
+) -> Result<()> {
+  // On `switch`, activation runs before the bootloader step, so a failure
+  // here normally skips it and leaves nothing new to boot into. `test`
+  // has no bootloader step, so its failures are always fatal.
+  if is_switch && continue_on_activation_failure {
+    warn!("{e:?}");
+    warn!(
+      "Activation failed; adding the generation to the bootloader anyway \
+       (NH_CONTINUE_ON_ACTIVATION_FAILURE set)."
+    );
+    return Ok(());
+  }
+  if is_switch {
+    warn!(
+      "Activation failed; the new generation will not be added to the \
+       bootloader. Pass --continue-on-activation-failure to override."
+    );
+  }
+  Err(e)
+}
+
+/// Points the system profile at the rollback target and activates it.
+///
+/// # Errors
+///
+/// Returns an error if the profile cannot be set or activation fails.
+pub fn run_rollback_commands(args: &NixosRollback) -> Result<()> {
+  // Set the system profile
+  info!("Setting system profile...");
+
+  // Instead of direct symlink operations, use a command with proper elevation
+  Command::new("ln")
+    .arg("-sfn") // force, symbolic link
+    .arg(&args.target_profile)
+    .arg(SYSTEM_PROFILE)
+    .message("Setting system profile")
+    .with_required_env()
+    .run()
+    .wrap_err("Failed to set system profile during rollback")?;
+
+  // Activate the configuration
+  info!("Activating...");
+
+  if let Err(e) = Command::new(&args.switch_to_configuration)
+    .arg("switch")
+    .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
+    .with_required_env()
+    .run()
+  {
+    // If activation fails, rollback the profile
+    if let Some(previous_profile) = &args.previous_profile {
+      Command::new("ln")
+        .arg("-sfn") // Force, symbolic link
+        .arg(previous_profile)
+        .arg(SYSTEM_PROFILE)
+        .message("Rolling back system profile")
+        .with_required_env()
+        .run()
+        .wrap_err(
+          "NixOS: Failed to restore previous system profile after failed \
+           activation",
+        )?;
+    }
+
+    return Err(eyre!("Activation (switch) failed: {}", e))
+      .context("Failed to activate configuration");
+  }
+
+  Ok(())
 }
 
 impl OsBuildVmArgs {
@@ -254,8 +394,7 @@ impl OsRebuildActivateArgs {
       &out_path,
       &target_profile,
       actual_store_path.as_deref(),
-      elevate,
-      elevation,
+      elevate.then_some(elevation),
     )?;
 
     Ok(())
@@ -267,8 +406,7 @@ impl OsRebuildActivateArgs {
     out_path: &Path,
     target_profile: &Path,
     actual_store_path: Option<&Path>,
-    elevate: bool,
-    elevation: ElevationStrategy,
+    elevation: Option<ElevationStrategy>,
   ) -> Result<()> {
     use OsRebuildVariant::{Boot, Switch, Test};
 
@@ -368,68 +506,75 @@ impl OsRebuildActivateArgs {
         .context("Failed to resolve switch-to-configuration path")?
     };
 
-    let canonical_out_path =
-      switch_to_configuration.to_str().ok_or_else(|| {
-        eyre!("switch-to-configuration path contains invalid UTF-8")
-      })?;
+    let Some(target_host) = &self.rebuild.target_host else {
+      let action = match variant {
+        Switch => NixosActivationAction::Switch,
+        Boot => NixosActivationAction::Boot,
+        Test => NixosActivationAction::Test,
+        #[allow(clippy::unreachable, reason = "Should never happen.")]
+        _ => unreachable!(),
+      };
+      // Use the base system closure instead of the specialisation one. This
+      // is what makes all specialisations visible in the bootloader instead
+      // of only the generation with the specialisation. Resolved before
+      // activation; fall back only if it wasn't captured.
+      let system = base_store_path.map_or_else(
+        || {
+          out_path
+            .canonicalize()
+            .context("Failed to resolve base output path to store path")
+        },
+        Ok,
+      )?;
+      let activation = NixosActivation {
+        action,
+        switch_to_configuration,
+        system,
+        continue_on_activation_failure: self.continue_on_activation_failure,
+        install_bootloader: self.rebuild.install_bootloader,
+        show_activation_logs: self.show_activation_logs,
+        nix_args: self.rebuild.common.passthrough.generate_passthrough_args(),
+      };
+      match elevation {
+        Some(elevation) => {
+          PrivilegedOp::NixosActivate(activation)
+            .run_elevated(elevation)
+            .wrap_err("NixOS activation failed")?;
+        },
+        None => run_activation_commands(&activation)?,
+      }
+      debug!("Completed {variant:?} operation with output path: {out_path:?}");
+      return Ok(());
+    };
 
     if let Test | Switch = variant {
-      let activation_result = self.rebuild.target_host.as_ref().map_or_else(
-        || {
-          Command::new(canonical_out_path)
-            .arg("test")
-            .message("Activating configuration")
-            .elevate(elevate.then_some(elevation.clone()))
-            .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
-            .with_required_env()
-            .show_output(self.show_activation_logs)
-            .run()
-            .wrap_err("Activation (test) failed")
-        },
-        |target_host| {
-          let activation_type = match variant {
-            Test => nh_remote::ActivationType::Test,
-            Switch => nh_remote::ActivationType::Switch,
-            #[allow(clippy::unreachable, reason = "Should never happen.")]
-            _ => unreachable!(),
-          };
+      let activation_type = match variant {
+        Test => nh_remote::ActivationType::Test,
+        Switch => nh_remote::ActivationType::Switch,
+        #[allow(clippy::unreachable, reason = "Should never happen.")]
+        _ => unreachable!(),
+      };
 
-          nh_remote::activate_remote_with_build_args(
-            target_host,
-            &resolved_profile,
-            &nh_remote::ActivateRemoteConfig {
-              platform: nh_remote::Platform::NixOS,
-              activation_type,
-              install_bootloader: false,
-              show_logs: self.show_activation_logs,
-              elevation: elevate.then_some(elevation.clone()),
-            },
-            &self.rebuild.common.passthrough.generate_passthrough_args(),
-          )
-          .wrap_err(format!("Activation ({}) failed", activation_type.as_str()))
+      let activation_result = nh_remote::activate_remote_with_build_args(
+        target_host,
+        &resolved_profile,
+        &nh_remote::ActivateRemoteConfig {
+          platform: nh_remote::Platform::NixOS,
+          activation_type,
+          install_bootloader: false,
+          show_logs: self.show_activation_logs,
+          elevation: elevation.clone(),
         },
-      );
+        &self.rebuild.common.passthrough.generate_passthrough_args(),
+      )
+      .wrap_err(format!("Activation ({}) failed", activation_type.as_str()));
 
       if let Err(e) = activation_result {
-        // On `switch`, activation runs before the bootloader step, so a failure
-        // here normally skips it and leaves nothing new to boot into. `test`
-        // has no bootloader step, so its failures are always fatal.
-        let is_switch = matches!(variant, Switch);
-        if is_switch && self.continue_on_activation_failure {
-          warn!("{e:?}");
-          warn!(
-            "Activation failed; adding the generation to the bootloader \
-             anyway (NH_CONTINUE_ON_ACTIVATION_FAILURE set)."
-          );
-        } else {
-          if is_switch {
-            warn!(
-              "Activation failed; the new generation will not be added to the \
-               bootloader. Pass --continue-on-activation-failure to override."
-            );
-          }
-          return Err(e);
-        }
+        handle_activation_failure(
+          e,
+          matches!(variant, Switch),
+          self.continue_on_activation_failure,
+        )?;
       }
 
       if let Some(store_path) = actual_store_path {
@@ -445,62 +590,19 @@ impl OsRebuildActivateArgs {
     }
 
     if let Boot | Switch = variant {
-      if let Some(target_host) = &self.rebuild.target_host {
-        nh_remote::activate_remote_with_build_args(
-          target_host,
-          &resolved_profile,
-          &nh_remote::ActivateRemoteConfig {
-            platform:           nh_remote::Platform::NixOS,
-            activation_type:    nh_remote::ActivationType::Boot,
-            install_bootloader: self.rebuild.install_bootloader,
-            show_logs:          false,
-            elevation:          elevate.then_some(elevation),
-          },
-          &self.rebuild.common.passthrough.generate_passthrough_args(),
-        )
-        .wrap_err("Bootloader activation failed")?;
-      } else {
-        // Use the base system closure instead of the specialisation one. This
-        // is what makes all specialisations visible in the bootloader instead
-        // of only the generation with the specialisation. Resolved before
-        // activation; fall back only if it wasn't captured.
-        let base_store_path = base_store_path.map_or_else(
-          || {
-            out_path
-              .canonicalize()
-              .context("Failed to resolve base output path to store path")
-          },
-          Ok,
-        )?;
-
-        let (binary, args, _) = NixCommand::new(CommandKind::Build)
-          .print_build_logs(false)
-          .args(["--no-link", "--profile", SYSTEM_PROFILE])
-          .arg(&base_store_path)
-          .args(self.rebuild.common.passthrough.generate_passthrough_args())
-          .into_parts();
-        Command::new(binary)
-          .args(args)
-          .elevate(elevate.then_some(elevation.clone()))
-          .with_required_env()
-          .run()
-          .wrap_err("Failed to set system profile")?;
-
-        let mut cmd = Command::new(switch_to_configuration)
-          .arg("boot")
-          .elevate(elevate.then_some(elevation))
-          .message("Adding configuration to bootloader")
-          .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"]);
-
-        if self.rebuild.install_bootloader {
-          cmd = cmd.set_env("NIXOS_INSTALL_BOOTLOADER", "1");
-        }
-
-        cmd
-          .with_required_env()
-          .run()
-          .wrap_err("Bootloader activation failed")?;
-      }
+      nh_remote::activate_remote_with_build_args(
+        target_host,
+        &resolved_profile,
+        &nh_remote::ActivateRemoteConfig {
+          platform:           nh_remote::Platform::NixOS,
+          activation_type:    nh_remote::ActivationType::Boot,
+          install_bootloader: self.rebuild.install_bootloader,
+          show_logs:          false,
+          elevation:          elevation.clone(),
+        },
+        &self.rebuild.common.passthrough.generate_passthrough_args(),
+      )
+      .wrap_err("Bootloader activation failed")?;
     }
 
     if let Some(store_path) = actual_store_path {
@@ -808,7 +910,6 @@ impl OsRebuildArgs {
 }
 
 impl OsRollbackArgs {
-  #[expect(clippy::too_many_lines)]
   fn rollback(&self, elevation: ElevationStrategy) -> Result<()> {
     let elevate = has_elevation_status(self.bypass_root_check, &elevation)?;
 
@@ -886,19 +987,7 @@ impl OsRollbackArgs {
       }
     }
 
-    // Set the system profile
-    info!("Setting system profile...");
-
-    // Instead of direct symlink operations, use a command with proper elevation
-    Command::new("ln")
-            .arg("-sfn") // force, symbolic link
-            .arg(&generation_link)
-            .arg(SYSTEM_PROFILE)
-            .elevate(elevate.then_some(elevation.clone()))
-            .message("Setting system profile")
-            .with_required_env()
-            .run()
-            .wrap_err("Failed to set system profile during rollback")?;
+    let target_profile = generation_link.clone();
 
     // Determine the correct profile to use with specialisations
     let final_profile = match &target_specialisation {
@@ -918,9 +1007,6 @@ impl OsRollbackArgs {
       },
     };
 
-    // Activate the configuration
-    info!("Activating...");
-
     let switch_to_configuration =
       final_profile.join("bin").join("switch-to-configuration");
 
@@ -928,41 +1014,25 @@ impl OsRollbackArgs {
       return Err(missing_switch_to_configuration_error());
     }
 
-    match Command::new(&switch_to_configuration)
-      .arg("switch")
-      .elevate(elevate.then_some(elevation.clone()))
-      .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
-      .with_required_env()
-      .run()
-    {
-      Ok(()) => {
-        info!(
-          "Successfully rolled back to generation {}",
-          target_generation.number
-        );
-      },
-      Err(e) => {
-        // If activation fails, rollback the profile
-        if current_generation.number > 0 {
-          let current_gen_link = profile_dir
-            .join(format!("system-{}-link", current_generation.number));
-
-          Command::new("ln")
-                        .arg("-sfn") // Force, symbolic link
-                        .arg(&current_gen_link)
-                        .arg(SYSTEM_PROFILE)
-                        .elevate(elevate.then_some(elevation))
-                        .message("Rolling back system profile")
-                        .with_required_env()
-                        .run()
-                        .wrap_err("NixOS: Failed to restore previous system profile after failed activation")?;
-        }
-
-        return Err(eyre!("Activation (switch) failed: {}", e))
-          .context("Failed to activate configuration");
-      },
+    let rollback = NixosRollback {
+      target_profile,
+      previous_profile: (current_generation.number > 0).then(|| {
+        profile_dir.join(format!("system-{}-link", current_generation.number))
+      }),
+      switch_to_configuration,
+    };
+    if elevate {
+      PrivilegedOp::NixosRollback(rollback)
+        .run_elevated(elevation)
+        .wrap_err("NixOS rollback failed")?;
+    } else {
+      run_rollback_commands(&rollback)?;
     }
 
+    info!(
+      "Successfully rolled back to generation {}",
+      target_generation.number
+    );
     Ok(())
   }
 }
