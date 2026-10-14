@@ -1024,6 +1024,14 @@ impl OsBuildImageArgs {
 
     let attrs = ["images", &self.image_variant];
 
+    if self.common.common.dry {
+      info!(
+        "Dry run: would build NixOS image '{}' ({:?})",
+        self.image_variant, installable
+      );
+      return Ok(());
+    }
+
     self.common.build_only(
       &OsRebuildVariant::BuildIso,
       Some(&attrs),
