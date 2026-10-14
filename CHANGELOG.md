@@ -85,6 +85,7 @@ functionality, under the "Removed" section.
   file or expression installable, so commands inspect the selected configuration
   instead of looking for `config` at the top level
   ([#778](https://github.com/nix-community/nh/issues/778)).
+- `nh os build-image` now respects the `--dry` flag.
 
 ## 4.4.2
 
