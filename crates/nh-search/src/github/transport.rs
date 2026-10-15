@@ -1,9 +1,6 @@
 use std::time::Duration;
 
-use color_eyre::{
-  Result,
-  eyre::{Context, ContextCompat, bail},
-};
+use misstep::{OptionExt, Result, ResultExt, bail};
 use reqwest::{StatusCode, blocking::Client};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, de::DeserializeOwned};
@@ -104,12 +101,14 @@ impl GraphqlClient {
           std::thread::sleep(SEND_RETRY_DELAY * attempts);
         },
         Err(err) => {
-          return Err(err).with_context(|| {
-            format!(
-              "failed to send GitHub GraphQL request after {SEND_ATTEMPTS} \
-               attempts"
-            )
-          });
+          return Err(err)
+            .with_context(|| {
+              format!(
+                "failed to send GitHub GraphQL request after {SEND_ATTEMPTS} \
+                 attempts"
+              )
+            })
+            .erase();
         },
       }
     }
@@ -145,7 +144,7 @@ fn truncate_body(body: &str) -> String {
 mod tests {
   use std::env;
 
-  use color_eyre::eyre::bail;
+  use misstep::bail;
   use serial_test::serial;
   use tempfile::tempdir;
 

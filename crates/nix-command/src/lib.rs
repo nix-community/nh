@@ -7,8 +7,8 @@ use std::{
   time::{Duration, Instant},
 };
 
+use flub::Error;
 use subprocess::Exec;
-use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -16,7 +16,7 @@ pub enum Error {
   Io(#[from] io::Error),
   #[error("command '{command}' failed")]
   CommandFailed { command: String },
-  #[error("nix {command} timed out after {} seconds", duration.as_secs())]
+  #[error("nix {command} timed out after {} seconds", .duration.as_secs())]
   Timeout {
     command:  String,
     duration: Duration,

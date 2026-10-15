@@ -1,4 +1,3 @@
-use clap::{Args, Subcommand};
 use nh_core::{
   args::CommonRebuildArgs,
   checks::{
@@ -10,23 +9,33 @@ use nh_core::{
 };
 use nh_installable::{CommandContext, InstallableArgs};
 use nh_remote::RemoteHost;
+use pound::Parse;
 
-#[derive(Debug, Subcommand)]
+#[derive(Debug, Parse)]
 pub enum HomeSubcommand {
   /// Build and activate a home-manager configuration
-  Switch(HomeRebuildArgs),
+  Switch {
+    #[pound(flatten)]
+    args: HomeRebuildArgs,
+  },
 
   /// Build a home-manager configuration
-  Build(HomeRebuildArgs),
+  Build {
+    #[pound(flatten)]
+    args: HomeRebuildArgs,
+  },
 
   /// Load a home-manager configuration in a Nix REPL
-  Repl(HomeReplArgs),
+  Repl {
+    #[pound(flatten)]
+    args: HomeReplArgs,
+  },
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, Parse)]
 /// Home-manager functionality
 pub struct HomeArgs {
-  #[command(subcommand)]
+  #[pound(subcommand)]
   pub subcommand: HomeSubcommand,
 }
 
@@ -34,11 +43,11 @@ impl HomeArgs {
   #[must_use]
   pub fn get_feature_requirements(&self) -> Box<dyn FeatureRequirements> {
     match &self.subcommand {
-      HomeSubcommand::Repl(args) => {
+      HomeSubcommand::Repl { args } => {
         let is_flake = args.uses_flakes();
         Box::new(HomeReplFeatures { is_flake })
       },
-      HomeSubcommand::Switch(args) | HomeSubcommand::Build(args) => {
+      HomeSubcommand::Switch { args } | HomeSubcommand::Build { args } => {
         if args.uses_flakes() {
           Box::new(FlakeFeatures)
         } else {
@@ -49,42 +58,42 @@ impl HomeArgs {
   }
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, Parse)]
 pub struct HomeRebuildArgs {
-  #[command(flatten)]
+  #[pound(flatten)]
   pub common: CommonRebuildArgs,
 
-  #[command(flatten)]
+  #[pound(flatten)]
   pub update_args: nh_core::update::UpdateArgs,
 
   /// Name of the flake homeConfigurations attribute, like username@hostname
   ///
   /// If unspecified, will try <username>@<hostname> and <username>
-  #[arg(long, short)]
+  #[pound(long, short)]
   pub configuration: Option<String>,
 
   /// Explicitly select some specialisation
-  #[arg(long, short)]
+  #[pound(long, short)]
   pub specialisation: Option<String>,
 
   /// Ignore specialisations
-  #[arg(long, short = 'S')]
+  #[pound(long, short = 'S')]
   pub no_specialisation: bool,
 
   /// Extra arguments passed to nix build
-  #[arg(last = true)]
+  #[pound(last)]
   pub extra_args: Vec<String>,
 
   /// Move existing files by backing up with this file extension
-  #[arg(long, short = 'b')]
+  #[pound(long, short = 'b')]
   pub backup_extension: Option<String>,
 
   /// Show activation logs
-  #[arg(long, env = "NH_SHOW_ACTIVATION_LOGS", value_parser = clap::builder::BoolishValueParser::new())]
+  #[pound(long, env = "NH_SHOW_ACTIVATION_LOGS")]
   pub show_activation_logs: bool,
 
   /// Build the configuration on a different host over SSH
-  #[arg(long)]
+  #[pound(long, parse = str::parse::<RemoteHost>)]
   pub build_host: Option<RemoteHost>,
 }
 
@@ -95,19 +104,19 @@ impl HomeRebuildArgs {
   }
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, Parse)]
 pub struct HomeReplArgs {
-  #[command(flatten)]
+  #[pound(flatten)]
   pub installable: InstallableArgs,
 
   /// Name of the flake homeConfigurations attribute, like username@hostname
   ///
   /// If unspecified, will try <username>@<hostname> and <username>
-  #[arg(long, short)]
+  #[pound(long, short)]
   pub configuration: Option<String>,
 
   /// Extra arguments passed to nix repl
-  #[arg(last = true)]
+  #[pound(last)]
   pub extra_args: Vec<String>,
 }
 

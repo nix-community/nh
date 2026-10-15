@@ -1,5 +1,5 @@
-use color_eyre::{Result, eyre::bail};
 use jiff::{Timestamp, ToSpan};
+use misstep::{Result, bail};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -173,7 +173,7 @@ fn parse_state(merged: bool, state: &str) -> Result<PullRequestState> {
 
 #[cfg(test)]
 mod tests {
-  use color_eyre::Result;
+  use misstep::Result;
   use serde_json::json;
 
   use super::{

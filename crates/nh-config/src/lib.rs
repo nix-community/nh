@@ -6,10 +6,7 @@ use std::{
   path::{Path, PathBuf},
 };
 
-use color_eyre::{
-  Result,
-  eyre::{Context, bail},
-};
+use misstep::{Report, Result, ResultExt, bail};
 use toml_edit::DocumentMut;
 
 const CONFIG_ENV: &str = "NH_CONFIG";
@@ -45,14 +42,12 @@ impl ConfigStore {
   /// Returns an error when the file cannot be read or parsed.
   pub fn load_from(path: impl Into<PathBuf>) -> Result<Self> {
     let path = path.into();
-    let document = match fs::read_to_string(&path) {
-      Ok(raw) => parse_document(&path, &raw)?,
-      Err(err) if err.kind() == io::ErrorKind::NotFound => DocumentMut::new(),
-      Err(err) => {
-        return Err(err)
-          .with_context(|| format!("failed to read {}", path.display()));
-      },
-    };
+    let raw = fs::read_to_string(&path)
+      .recover_if::<io::Error, _>(|error| {
+        (error.kind() == io::ErrorKind::NotFound).then(String::new)
+      })
+      .with_context(|| format!("failed to read {}", path.display()))?;
+    let document = parse_document(&path, &raw)?;
 
     Ok(Self { path, document })
   }
@@ -113,7 +108,10 @@ pub fn default_config_path() -> Result<PathBuf> {
   bail!("could not determine NH configuration path; set {CONFIG_ENV}")
 }
 
-fn parse_document(path: &Path, raw: &str) -> Result<DocumentMut> {
+fn parse_document(
+  path: &Path,
+  raw: &str,
+) -> Result<DocumentMut, Report<toml_edit::TomlError>> {
   raw.parse::<DocumentMut>().with_context(|| {
     format!("failed to parse NH configuration at {}", path.display())
   })
@@ -142,7 +140,7 @@ fn write_private(path: &Path, contents: &[u8]) -> Result<()> {
   Ok(())
 }
 
-fn create_config_dir(path: &Path) -> Result<()> {
+fn create_config_dir(path: &Path) -> Result<(), Report<io::Error>> {
   let mut builder = fs::DirBuilder::new();
   builder.recursive(true).mode(0o700);
   builder
@@ -150,7 +148,7 @@ fn create_config_dir(path: &Path) -> Result<()> {
     .with_context(|| format!("failed to create {}", path.display()))
 }
 
-fn set_user_only_file(path: &Path) -> Result<()> {
+fn set_user_only_file(path: &Path) -> Result<(), Report<io::Error>> {
   fs::set_permissions(path, fs::Permissions::from_mode(0o600)).with_context(
     || format!("failed to set private permissions on {}", path.display()),
   )
@@ -160,7 +158,7 @@ fn set_user_only_file(path: &Path) -> Result<()> {
 mod tests {
   use std::{env, fs, os::unix::fs::PermissionsExt};
 
-  use color_eyre::Result;
+  use misstep::Result;
   use serial_test::serial;
   use tempfile::tempdir;
 

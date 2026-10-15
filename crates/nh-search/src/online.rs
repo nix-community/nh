@@ -1,5 +1,5 @@
-use color_eyre::Result;
 use elasticsearch_dsl::Search;
+use misstep::Result;
 use serde::de::DeserializeOwned;
 use tracing::debug;
 

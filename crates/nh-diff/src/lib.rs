@@ -5,7 +5,7 @@ use std::{
   thread,
 };
 
-use color_eyre::eyre::{Result, eyre};
+use misstep::{Report, Result, report};
 use nh_core::{args::DiffType, progress};
 use nh_remote::{RemoteHost, ResolvedRemoteStorePath};
 use tracing::{debug, info, warn};
@@ -41,7 +41,10 @@ impl DiffEndpoint {
 
   fn query_snapshot(&self) -> Result<dix::StoreSnapshot> {
     match self {
-      Self::Local(path) => dix::query_store_snapshot(path, true),
+      Self::Local(path) => {
+        dix::query_store_snapshot(path, true)
+          .map_err(|error| Report::from_boxed(error.into()))
+      },
       Self::Remote(root) => root.query_snapshot(),
     }
   }
@@ -71,7 +74,8 @@ fn query_local_dix_diff(
   old_generation: &Path,
   new_generation: &Path,
 ) -> Result<QueriedDiff> {
-  let report = dix::query_diff_report(old_generation, new_generation, true)?;
+  let report = dix::query_diff_report(old_generation, new_generation, true)
+    .map_err(|error| Report::from_boxed(error.into()))?;
 
   Ok(QueriedDiff {
     old_label: display_path(old_generation),
@@ -197,10 +201,10 @@ fn query_endpoint_diff(
 
     let old_snapshot = old_snapshot
       .join()
-      .map_err(|_| eyre!("old diff endpoint snapshot thread panicked"))??;
+      .map_err(|_| report!("old diff endpoint snapshot thread panicked"))??;
     let new_snapshot = new_snapshot
       .join()
-      .map_err(|_| eyre!("new diff endpoint snapshot thread panicked"))??;
+      .map_err(|_| report!("new diff endpoint snapshot thread panicked"))??;
 
     Ok(QueriedDiff {
       old_label: old.label(),

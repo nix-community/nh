@@ -4,11 +4,11 @@ use std::{
   path::{Path, PathBuf},
 };
 
-use clap::{Arg, ArgAction, Args, FromArgMatches, ValueHint, error::ErrorKind};
+use misstep::OptionExt;
 pub use nix_installable::Installable;
 use nix_installable::{parse_attribute, parse_flake_reference};
+use pound::{ArgSpec, CommandSpec, ErrorKind, Hint, Kind, Matches, Parse};
 use tracing::debug;
-use yansi::{Color, Paint};
 
 mod defaults;
 
@@ -58,7 +58,7 @@ impl EnvInstallableSource {
     }
   }
 
-  fn into_installable(self) -> color_eyre::Result<Installable> {
+  fn into_installable(self) -> misstep::Result<Installable> {
     match self {
       Self::SpecificFlake { env_var, value } => {
         debug!("Using {env_var}: {value}");
@@ -69,7 +69,7 @@ impl EnvInstallableSource {
         Ok(Installable::File {
           path:      PathBuf::from(path),
           attribute: parse_attribute(&attribute)
-            .map_err(|err| color_eyre::eyre::eyre!("NH_ATTRP {err}"))?,
+            .map_err(|err| misstep::report!("NH_ATTRP {err}"))?,
         })
       },
       Self::GenericFlake(value) => {
@@ -80,144 +80,96 @@ impl EnvInstallableSource {
   }
 }
 
-impl FromArgMatches for InstallableArgs {
-  fn from_arg_matches(matches: &clap::ArgMatches) -> Result<Self, clap::Error> {
-    let mut matches = matches.clone();
-    Self::from_arg_matches_mut(&mut matches)
-  }
+impl Parse for InstallableArgs {
+  const SPEC: &'static CommandSpec = &CommandSpec::new("installable")
+    .args(&[
+      ArgSpec::new(Kind::Opt).short('f').long("file").hidden(),
+      ArgSpec::new(Kind::Opt).short('E').long("expr").hidden(),
+      ArgSpec::new(Kind::Positional)
+        .hint(Hint::Path)
+        .value_name("INSTALLABLE")
+        .help("Which installable to use")
+        .long_help(
+          r"Which installable to use.
+Nix accepts various kinds of installables:
 
-  fn from_arg_matches_mut(
-    matches: &mut clap::ArgMatches,
-  ) -> Result<Self, clap::Error> {
-    let installable = matches.get_one::<String>("installable");
-    let file = matches.get_one::<String>("file");
-    let expr = matches.get_one::<String>("expr");
+[FLAKEREF[#ATTRPATH]]
+    Flake reference with an optional attribute path.
+    [env: NH_FLAKE, NH_OS_FLAKE, NH_HOME_FLAKE, NH_DARWIN_FLAKE]
 
-    if let Some(i) = installable {
-      let canonical = fs::canonicalize(i);
+-f, --file <FILE> [ATTRPATH]
+    Path to file with an optional attribute path.
+    [env: NH_FILE, NH_ATTRP]
 
-      if let Ok(p) = canonical
-        && p.starts_with("/nix/store")
-      {
-        return Ok(Self::Specified(Installable::Store { path: p }));
-      }
+-E, --expr <EXPR> [ATTRPATH]
+    Nix expression with an optional attribute path.
+
+[PATH]
+    Path or symlink to a /nix/store path",
+        ),
+    ])
+    .conflicts(&[(0, 1)]);
+
+  fn from_matches(
+    _spec: &'static CommandSpec,
+    matches: &Matches<'_>,
+  ) -> Result<Self, pound::Error> {
+    let file = matches.raw(0);
+    let expr = matches.raw(1);
+    let installable = matches.raw(2);
+
+    if let Some(i) = installable
+      && let Ok(path) = fs::canonicalize(i)
+      && path.starts_with("/nix/store")
+    {
+      return Ok(Self::Specified(Installable::Store { path }));
     }
 
-    if let Some(f) = file {
-      let attribute = parse_attribute(installable.map_or("", String::as_str))
-        .map_err(|err| {
-        clap::Error::raw(
-          ErrorKind::ValueValidation,
-          format!("attribute path {err}"),
-        )
-      })?;
+    let invalid = |value: &str, msg: String| {
+      pound::Error::from(ErrorKind::Value {
+        arg: "INSTALLABLE".to_owned(),
+        value: value.to_owned(),
+        msg,
+      })
+    };
+    if let Some(path) = file {
+      let raw = installable.unwrap_or("");
+      let attribute = parse_attribute(raw)
+        .map_err(|err| invalid(raw, format!("attribute path {err}")))?;
       return Ok(Self::Specified(Installable::File {
-        path: PathBuf::from(f),
+        path: PathBuf::from(path),
         attribute,
       }));
     }
-
-    if let Some(e) = expr {
-      let attribute = parse_attribute(installable.map_or("", String::as_str))
-        .map_err(|err| {
-        clap::Error::raw(
-          ErrorKind::ValueValidation,
-          format!("attribute path {err}"),
-        )
-      })?;
+    if let Some(expression) = expr {
+      let raw = installable.unwrap_or("");
+      let attribute = parse_attribute(raw)
+        .map_err(|err| invalid(raw, format!("attribute path {err}")))?;
       return Ok(Self::Specified(Installable::Expression {
-        expression: e.clone(),
+        expression: expression.to_owned(),
         attribute,
       }));
     }
-
-    if let Some(i) = installable {
-      let (reference, attribute) = parse_flake_reference(i).map_err(|err| {
-        clap::Error::raw(
-          ErrorKind::ValueValidation,
-          format!("installable argument {err}"),
-        )
-      })?;
+    if let Some(raw) = installable {
+      let (reference, attribute) = parse_flake_reference(raw)
+        .map_err(|err| invalid(raw, format!("installable argument {err}")))?;
       return Ok(Self::Specified(Installable::Flake {
         reference,
         attribute,
       }));
     }
-
     Ok(Self::Unspecified)
   }
 
-  fn update_from_arg_matches(
+  fn update_from_matches(
     &mut self,
-    matches: &clap::ArgMatches,
-  ) -> Result<(), clap::Error> {
-    *self = Self::from_arg_matches(matches)?;
+    spec: &'static CommandSpec,
+    matches: &Matches<'_>,
+  ) -> Result<(), pound::Error> {
+    if (0..3).any(|index| matches.given(index)) {
+      *self = Self::from_matches(spec, matches)?;
+    }
     Ok(())
-  }
-}
-
-impl Args for InstallableArgs {
-  fn augment_args(cmd: clap::Command) -> clap::Command {
-    cmd
-      .arg(
-        Arg::new("file")
-          .short('f')
-          .long("file")
-          .action(ArgAction::Set)
-          .hide(true),
-      )
-      .arg(
-        Arg::new("expr")
-          .short('E')
-          .long("expr")
-          .conflicts_with("file")
-          .hide(true)
-          .action(ArgAction::Set),
-      )
-      .arg(
-        Arg::new("installable")
-          .action(ArgAction::Set)
-          .value_hint(ValueHint::AnyPath)
-          .value_name("INSTALLABLE")
-          .help("Which installable to use")
-          .long_help(format!(
-            r"Which installable to use.
-Nix accepts various kinds of installables:
-
-[FLAKEREF[#ATTRPATH]]
-    Flake reference with an optional attribute path.
-    [env: NH_FLAKE={}]
-    [env: NH_OS_FLAKE={}]
-    [env: NH_HOME_FLAKE={}]
-    [env: NH_DARWIN_FLAKE={}]
-
-{}, {} <FILE> [ATTRPATH]
-    Path to file with an optional attribute path.
-    [env: NH_FILE={}]
-    [env: NH_ATTRP={}]
-
-{}, {} <EXPR> [ATTRPATH]
-    Nix expression with an optional attribute path.
-
-[PATH]
-    Path or symlink to a /nix/store path
-",
-            env::var("NH_FLAKE").unwrap_or_default(),
-            env::var("NH_OS_FLAKE").unwrap_or_default(),
-            env::var("NH_HOME_FLAKE").unwrap_or_default(),
-            env::var("NH_DARWIN_FLAKE").unwrap_or_default(),
-            Paint::new("-f").fg(Color::Yellow),
-            Paint::new("--file").fg(Color::Yellow),
-            env::var("NH_FILE").unwrap_or_default(),
-            env::var("NH_ATTRP").unwrap_or_default(),
-            Paint::new("-e").fg(Color::Yellow),
-            Paint::new("--expr").fg(Color::Yellow),
-          )),
-      )
-  }
-
-  fn augment_args_for_update(cmd: clap::Command) -> clap::Command {
-    Self::augment_args(cmd)
   }
 }
 
@@ -256,7 +208,7 @@ impl InstallableArgs {
   fn resolve(
     self,
     context: CommandContext,
-  ) -> color_eyre::Result<Option<Installable>> {
+  ) -> misstep::Result<Option<Installable>> {
     match self {
       Self::Unspecified => {
         env_installable_source(context)
@@ -282,7 +234,7 @@ impl InstallableArgs {
   pub fn resolve_or_default(
     self,
     context: CommandContext,
-  ) -> color_eyre::Result<Installable> {
+  ) -> misstep::Result<Installable> {
     let Some(mut installable) = self.resolve(context)? else {
       return default_installable_for(context);
     };
@@ -330,7 +282,7 @@ pub trait ConfigurationInstallable {
     &mut self,
     layout: ConfigurationLayout<'_>,
     inferred_name: Option<&str>,
-  ) -> color_eyre::Result<()>;
+  ) -> misstep::Result<()>;
 }
 
 impl ConfigurationInstallable for Installable {
@@ -338,7 +290,7 @@ impl ConfigurationInstallable for Installable {
     &mut self,
     layout: ConfigurationLayout<'_>,
     inferred_name: Option<&str>,
-  ) -> color_eyre::Result<()> {
+  ) -> misstep::Result<()> {
     let build_attr = || layout.build_attr.iter().copied().map(String::from);
 
     match self {
@@ -364,7 +316,7 @@ fn configuration_selector(
   attribute: &[String],
   set: &str,
   inferred_name: Option<&str>,
-) -> color_eyre::Result<Vec<String>> {
+) -> misstep::Result<Vec<String>> {
   let name_part = match attribute.split_first() {
     Some((first, rest)) if first.as_str() == set => rest,
     _ => attribute,
@@ -374,15 +326,11 @@ fn configuration_selector(
     [name] => name.clone(),
     [] => {
       inferred_name
-        .ok_or_else(|| {
-          color_eyre::eyre::eyre!(
-            "No configuration name given. Specify one, e.g. '.#name'."
-          )
-        })?
+        .context("No configuration name given. Specify one, e.g. '.#name'.")?
         .to_owned()
     },
     [first, ..] => {
-      return Err(color_eyre::eyre::eyre!(
+      return Err(misstep::report!(
         "Attribute path is too specific: {}. Specify only the configuration \
          name, e.g. '.#{first}'.",
         attribute.join(".")
@@ -420,16 +368,13 @@ fn env_installable_source(
 
 fn default_installable_for(
   context: CommandContext,
-) -> color_eyre::Result<Installable> {
+) -> misstep::Result<Installable> {
   defaults::installable_for(context)
 }
 
-fn flake_from_env_var(
-  name: &str,
-  value: &str,
-) -> color_eyre::Result<Installable> {
+fn flake_from_env_var(name: &str, value: &str) -> misstep::Result<Installable> {
   let (reference, attribute) = parse_flake_reference(value)
-    .map_err(|err| color_eyre::eyre::eyre!("{name} {err}"))?;
+    .map_err(|err| misstep::report!("{name} {err}"))?;
   Ok(Installable::Flake {
     reference,
     attribute,
@@ -448,7 +393,7 @@ fn flake_from_env_var(
 fn validate_local_flake_ref(
   installable: &Installable,
   context: CommandContext,
-) -> color_eyre::Result<()> {
+) -> misstep::Result<()> {
   let Installable::Flake { reference, .. } = installable else {
     return Ok(());
   };

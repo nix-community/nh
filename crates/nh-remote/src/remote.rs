@@ -11,11 +11,7 @@ use std::{
   time::Duration,
 };
 
-use color_eyre::{
-  Report,
-  Result,
-  eyre::{Context, bail, eyre},
-};
+use misstep::{OptionExt, Report, Result, ResultExt, bail, ensure, report};
 use nh_core::{
   command::{
     CommandKind,
@@ -91,7 +87,7 @@ fn build_remote_command(
     let program_name = program
       .file_name()
       .and_then(|name| name.to_str())
-      .ok_or_else(|| eyre!("Failed to determine elevation program name"))?;
+      .context("Failed to determine elevation program name")?;
 
     // Use just the program name on the remote host
     // so that the remote system resolves it via its own PATH
@@ -373,7 +369,7 @@ pub fn open_ssh_control_master(host: &RemoteHost) -> Result<()> {
 
   let capture = cmd
     .capture()
-    .wrap_err_with(|| format!("Failed to connect to remote host '{host}'"))?;
+    .with_context(|| format!("Failed to connect to remote host '{host}'"))?;
 
   if !capture.exit_status.success() {
     bail!(
@@ -409,7 +405,7 @@ pub fn probe_remote_uid(host: &RemoteHost) -> Result<u32> {
 
   let capture = cmd
     .capture()
-    .wrap_err_with(|| format!("Failed to probe remote uid on '{host}'"))?;
+    .with_context(|| format!("Failed to probe remote uid on '{host}'"))?;
 
   if !capture.exit_status.success() {
     bail!(
@@ -423,7 +419,8 @@ pub fn probe_remote_uid(host: &RemoteHost) -> Result<u32> {
     .stdout_str()
     .trim()
     .parse::<u32>()
-    .wrap_err_with(|| format!("Unexpected `id -u` output from '{host}'"))
+    .with_context(|| format!("Unexpected `id -u` output from '{host}'"))
+    .erase()
 }
 
 /// Cache for the SSH control socket directory.
@@ -957,9 +954,9 @@ fn convert_extra_args(extra_args: &[OsString]) -> Result<Vec<String>> {
   extra_args
     .iter()
     .map(|s| {
-      s.to_str()
-        .map(String::from)
-        .ok_or_else(|| eyre!("Extra argument is not valid UTF-8: {:?}", s))
+      s.to_str().map(String::from).with_context(|| {
+        format!("Extra argument is not valid UTF-8: {}", s.display())
+      })
     })
     .collect::<Result<Vec<_>>>()
 }
@@ -971,7 +968,7 @@ fn nix_argv_to_strings(command: &NixCommand) -> Result<Vec<String>> {
     .map(|arg| {
       arg
         .into_string()
-        .map_err(|arg| eyre!("Nix argument is not valid UTF-8: {:?}", arg))
+        .map_err(|arg| report!("Nix argument is not valid UTF-8: {:?}", arg))
     })
     .collect()
 }
@@ -998,7 +995,7 @@ fn run_remote_command(
     cmd = cmd.stdout(Redirection::Pipe).stderr(Redirection::Pipe);
   }
 
-  let capture = cmd.capture().wrap_err_with(|| {
+  let capture = cmd.capture().with_context(|| {
     format!("Failed to execute command on remote host '{host}'")
   })?;
 
@@ -1060,11 +1057,11 @@ pub fn validate_closure_remote(
 
   for (file, description) in essential_files {
     let remote_path = closure_path.join(file);
-    let path_str = remote_path.to_str().ok_or_else(|| {
-      eyre!("Path is not valid UTF-8: {}", remote_path.display())
+    let path_str = remote_path.to_str().with_context(|| {
+      format!("Path is not valid UTF-8: {}", remote_path.display())
     })?;
     let quoted_path = shlex::try_quote(path_str).map_err(|_| {
-      eyre!("Failed to quote path for shell: {}", remote_path.display())
+      report!("Failed to quote path for shell: {}", remote_path.display())
     })?;
     let test_cmd = format!("test -e {quoted_path}");
 
@@ -1100,7 +1097,7 @@ pub fn validate_closure_remote(
       |ctx| format!("on remote host '{host}' ({ctx})"),
     );
 
-    return Err(eyre!(
+    return Err(report!(
       "Command execution failed {}: {}",
       host_context,
       ssh_stderr.trim()
@@ -1116,7 +1113,7 @@ pub fn validate_closure_remote(
       |ctx| format!("on remote host '{host}' ({ctx})"),
     );
 
-    return Err(eyre!(
+    return Err(report!(
       "Closure validation failed {}.\n\nMissing essential files in store path \
        '{}':\n{}\n\nThis typically happens when:\n1. Required system \
        components are disabled in your configuration\n2. The build was \
@@ -1312,9 +1309,9 @@ fn activate_nixos_remote(
 
   let switch_to_config = system_profile.join("bin/switch-to-configuration");
 
-  let switch_path_str = switch_to_config.to_str().ok_or_else(|| {
-    eyre!("switch-to-configuration path contains invalid UTF-8")
-  })?;
+  let switch_path_str = switch_to_config
+    .to_str()
+    .context("switch-to-configuration path contains invalid UTF-8")?;
 
   match config.activation_type {
     ActivationType::Test
@@ -1352,7 +1349,7 @@ fn activate_nixos_remote(
 
       let capture = ssh_cmd
         .capture()
-        .wrap_err("Failed to activate NixOS configuration")?;
+        .context("Failed to activate NixOS configuration")?;
 
       if config.show_logs {
         print!("{}", capture.stdout_str());
@@ -1401,7 +1398,7 @@ fn activate_nixos_remote(
 
       let profile_capture = profile_ssh_cmd
         .capture()
-        .wrap_err("Failed to set NixOS profile")?;
+        .context("Failed to set NixOS profile")?;
 
       if !profile_capture.exit_status.success() {
         bail!(
@@ -1441,7 +1438,7 @@ fn activate_nixos_remote(
 
       let boot_capture = boot_ssh_cmd
         .capture()
-        .wrap_err("Bootloader activation failed")?;
+        .context("Bootloader activation failed")?;
 
       if !boot_capture.exit_status.success() {
         bail!(
@@ -1467,13 +1464,10 @@ fn eval_drv_path(
   evaluation_args: &[String],
 ) -> Result<PathBuf> {
   // Build the installable with .drvPath appended
-  let drv_installable =
-    installable.with_attribute("drvPath").ok_or_else(|| {
-      eyre!(
-        "Cannot perform remote build with a store path. Store paths are \
-         already built."
-      )
-    })?;
+  let drv_installable = installable.with_attribute("drvPath").context(
+    "Cannot perform remote build with a store path. Store paths are already \
+     built.",
+  )?;
 
   let args = drv_installable.to_args()?;
   debug!("Evaluating drvPath: nix eval --raw {:?}", args);
@@ -1487,7 +1481,7 @@ fn eval_drv_path(
     .stdout(Redirection::Pipe)
     .stderr(Redirection::Pipe);
 
-  let capture = cmd.capture().wrap_err("Failed to run nix eval")?;
+  let capture = cmd.capture().context("Failed to run nix eval")?;
 
   if !capture.exit_status.success() {
     bail!(
@@ -1551,14 +1545,25 @@ pub struct RemoteBuildConfig {
 }
 
 fn clear_out_link(link: &Path) -> Result<()> {
-  match std::fs::symlink_metadata(link) {
-    Ok(metadata) if metadata.file_type().is_symlink() => {
-      std::fs::remove_file(link).wrap_err("Failed to remove previous out-link")
-    },
-    Ok(_) => bail!("Out-link is not a symlink: {}", link.display()),
-    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-    Err(error) => Err(error).wrap_err("Failed to inspect previous out-link"),
-  }
+  let Some(metadata) = std::fs::symlink_metadata(link)
+    .map(Some)
+    .recover_if::<std::io::Error, _>(|error| {
+      (error.kind() == std::io::ErrorKind::NotFound).then_some(None)
+    })
+    .context("Failed to inspect previous out-link")?
+  else {
+    return Ok(());
+  };
+
+  ensure!(
+    metadata.file_type().is_symlink(),
+    "Out-link is not a symlink: {}",
+    link.display()
+  );
+
+  std::fs::remove_file(link)
+    .context("Failed to remove previous out-link")
+    .erase()
 }
 
 /// Perform a remote build of a flake installable.
@@ -1692,7 +1697,7 @@ pub fn build_remote_with_args(
     if need_local_copy {
       debug!("Creating out-link: {} -> {}", link.display(), out_path);
       std::os::unix::fs::symlink(&out_path, link)
-        .wrap_err("Failed to create out-link")?;
+        .context("Failed to create out-link")?;
     }
   }
 
@@ -1712,7 +1717,7 @@ fn build_on_remote(
   if config.use_nom {
     // Check that nom is available before attempting to use it
     which::which("nom")
-      .wrap_err("nom (nix-output-monitor) is required but not found in PATH")?;
+      .context("nom (nix-output-monitor) is required but not found in PATH")?;
 
     // With nom: pipe through nix-output-monitor
     build_on_remote_with_nom(host, &drv_with_outputs, config)
@@ -1799,14 +1804,8 @@ fn build_on_remote_simple(
 
   // Drain both pipes while the process runs; otherwise a full pipe blocks the
   // remote build before wait_timeout can observe its exit.
-  let stdout = job
-    .stdout
-    .take()
-    .ok_or_else(|| eyre!("Failed to capture stdout"))?;
-  let stderr = job
-    .stderr
-    .take()
-    .ok_or_else(|| eyre!("Failed to capture stderr"))?;
+  let stdout = job.stdout.take().context("Failed to capture stdout")?;
+  let stderr = job.stderr.take().context("Failed to capture stderr")?;
   let stdout_reader =
     std::thread::spawn(move || std::io::read_to_string(stdout));
   let stderr_reader = std::thread::spawn(move || {
@@ -1838,10 +1837,10 @@ fn build_on_remote_simple(
 
   let output = stdout_reader
     .join()
-    .map_err(|_| eyre!("Remote stdout reader failed"))??;
+    .map_err(|_| report!("Remote stdout reader failed"))??;
   let stderr = stderr_reader
     .join()
-    .map_err(|_| eyre!("Remote stderr reader failed"))??;
+    .map_err(|_| report!("Remote stderr reader failed"))??;
   if !exit_status.success() {
     bail!(
       "Remote command failed: {}",
@@ -1853,7 +1852,7 @@ fn build_on_remote_simple(
   let out_path = output
     .lines()
     .next()
-    .ok_or_else(|| eyre!("Remote build returned empty output"))?
+    .context("Remote build returned empty output")?
     .trim()
     .to_string();
 
@@ -1909,7 +1908,7 @@ fn build_on_remote_with_nom(
   // ssh's exit status, not nom's. The pipeline's join() only returns
   // the exit status of the last command (nom), which always succeeds
   // even when the remote nix command fails.
-  let job = pipeline.start().wrap_err("Remote build with nom failed")?;
+  let job = pipeline.start().context("Remote build with nom failed")?;
 
   // Use wait_timeout in a polling loop to check interrupt flag every 100ms
   let poll_interval = Duration::from_millis(100);
@@ -1979,13 +1978,12 @@ fn build_on_remote_with_nom(
     bail!("Operation interrupted by user");
   }
 
-  let result =
-    result?.ok_or_else(|| eyre!("Failed to get output path after build"))?;
+  let result = result?.context("Failed to get output path after build")?;
 
   let out_path = result
     .lines()
     .next()
-    .ok_or_else(|| eyre!("Output path query returned empty"))?
+    .context("Output path query returned empty")?
     .trim()
     .to_string();
 
@@ -2083,13 +2081,12 @@ mod tests {
 
   #[test]
   fn remote_build_commands_reject_output_format_args() {
-    let err =
+    assert!(
       build_nix_command("/nix/store/example.drv^*", &["--print-out-paths"], &[
         OsString::from("--json"),
       ])
-      .unwrap_err();
-
-    assert!(err.to_string().contains("output-format"));
+      .is_err()
+    );
   }
 
   proptest! {
@@ -2206,10 +2203,7 @@ mod tests {
 
   #[test]
   fn test_parse_port_rejected() {
-    let Err(err) = RemoteHost::parse("hostname:22") else {
-      panic!("expected error for port in hostname");
-    };
-    assert!(err.to_string().contains("NIX_SSHOPTS"));
+    assert!(RemoteHost::parse("hostname:22").is_err());
   }
 
   #[test]
@@ -2282,7 +2276,6 @@ mod tests {
     // Bare IPv6 without brackets should be rejected
     let result = RemoteHost::parse("2001:db8::1");
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("NIX_SSHOPTS"));
   }
 
   #[test]

@@ -11,9 +11,9 @@ publish                = true
 path = "src/remote.rs"
 
 [dependencies]
-color-eyre.workspace     = true
 dix.workspace            = true
 inquire.workspace        = true
+misstep.workspace        = true
 nh-core.workspace        = true
 nh-installable.workspace = true
 nix-command.workspace    = true
