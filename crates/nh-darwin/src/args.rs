@@ -1,6 +1,6 @@
 use clap::{Args, Subcommand};
 use nh_core::{
-  args::CommonRebuildArgs,
+  args::{CommonRebuildArgs, DiffType},
   checks::{
     DarwinReplFeatures,
     FeatureRequirements,
@@ -36,6 +36,7 @@ impl DarwinArgs {
           Box::new(LegacyFeatures)
         }
       },
+      DarwinSubcommand::Rollback(_) => Box::new(LegacyFeatures),
     }
   }
 }
@@ -46,8 +47,37 @@ pub enum DarwinSubcommand {
   Switch(DarwinRebuildArgs),
   /// Build a nix-darwin configuration
   Build(DarwinRebuildArgs),
+  /// Activate a previous nix-darwin generation without rebuilding
+  Rollback(DarwinRollbackArgs),
   /// Load a nix-darwin configuration in a Nix REPL
   Repl(DarwinReplArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct DarwinRollbackArgs {
+  /// Only print actions, without performing them
+  #[arg(long, short = 'n')]
+  pub dry: bool,
+
+  /// Ask for confirmation
+  #[arg(long, short, env = "NH_ASK", value_parser = clap::builder::BoolishValueParser::new())]
+  pub ask: bool,
+
+  /// Select a generation number (defaults to the previous generation)
+  #[arg(long, short)]
+  pub to: Option<u64>,
+
+  /// Whether to display a package diff
+  #[arg(long, short, value_enum, default_value_t = DiffType::Auto)]
+  pub diff: DiffType,
+
+  /// Don't panic if calling nh as root
+  #[arg(short = 'R', long, env = "NH_BYPASS_ROOT_CHECK")]
+  pub bypass_root_check: bool,
+
+  /// Show activation logs
+  #[arg(long, env = "NH_SHOW_ACTIVATION_LOGS", value_parser = clap::builder::BoolishValueParser::new())]
+  pub show_activation_logs: bool,
 }
 
 #[derive(Debug, Args)]
