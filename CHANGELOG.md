@@ -56,8 +56,8 @@ functionality, under the "Removed" section.
   is still used if discovery fails.
 
 - NixOS activation now runs in a transient systemd service when systemd is
-  available, so switching the system does not terminate its own session.
-  This requires systemd 261. Activation still runs directly on systems without
+  available, so switching the system does not terminate its own session. This
+  requires systemd 261. Activation still runs directly on systems without
   systemd, or with `--no-systemd-run` (`NH_NO_SYSTEMD_RUN`).
 - Specialisation activation now validates and activates the selected closure
   while installing the base closure as the boot profile.
@@ -67,8 +67,7 @@ functionality, under the "Removed" section.
   preventing deadlocks when either pipe fills.
 - Remote-only results now clear an old local out-link, preventing subsequent
   activation from using an unrelated previous build.
-- `nh os build-vm --run` now ignores `--target-host`, since the VM runs
-  locally.
+- `nh os build-vm --run` now ignores `--target-host`, since the VM runs locally.
 - When a direct copy between remote hosts fails, the local relay now copies the
   closure to the target as well as from the builder.
 - Legacy image builds now use the same hostname or explicit configuration
