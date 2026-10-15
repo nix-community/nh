@@ -191,6 +191,7 @@ mod tests {
   }
 
   #[test]
+  #[serial]
   fn passthrough_requires_separator() {
     assert!(matches!(
       Main::try_parse_from(["os", "build", ".", "unexpected"]),
@@ -199,6 +200,7 @@ mod tests {
   }
 
   #[test]
+  #[serial]
   fn passthrough_without_installable_keeps_every_word()
   -> Result<(), pound::Error> {
     let parsed = Main::try_parse_from([
@@ -216,6 +218,7 @@ mod tests {
   }
 
   #[test]
+  #[serial]
   fn passthrough_preserves_installable_and_option_boundaries()
   -> Result<(), pound::Error> {
     let parsed = Main::try_parse_from([
@@ -234,6 +237,7 @@ mod tests {
   }
 
   #[test]
+  #[serial]
   fn verbosity_is_global_and_mutually_exclusive() -> Result<(), pound::Error> {
     let parsed = Main::try_parse_from(["clean", "all", "-vv"])?;
     assert_eq!(parsed.verbosity.verbose, 2);
