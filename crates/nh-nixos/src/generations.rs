@@ -9,9 +9,11 @@ use clap::ValueEnum;
 use color_eyre::eyre::Result;
 use jiff::{Timestamp, tz::TimeZone};
 use nh_core::command::{CommandKind, NixCommand};
+use serde::Serialize;
 use tracing::{debug, warn};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GenerationInfo {
   /// Number of a generation
   pub number: u64,
@@ -33,6 +35,7 @@ pub struct GenerationInfo {
   pub specialisations: Option<Vec<String>>,
 
   /// Whether a given generation is the current one.
+  #[serde(rename = "running")]
   pub current: bool,
 
   /// Closure size of the generation.
@@ -88,17 +91,23 @@ impl Field {
     }
   }
 }
+
+fn parse_generation_name(name: &str) -> Option<(&str, u64)> {
+  let (profile, number) = name.strip_suffix("-link")?.rsplit_once('-')?;
+  Some((profile, number.parse().ok()?))
+}
+
 #[must_use]
 pub fn from_dir(generation_dir: &Path) -> Option<u64> {
-  generation_dir
-    .file_name()
-    .and_then(|os_str| os_str.to_str())
-    .and_then(|generation_base| {
-      let no_link_gen = generation_base.trim_end_matches("-link");
-      no_link_gen
-        .rsplit_once('-')
-        .and_then(|(_, generation_num)| generation_num.parse::<u64>().ok())
-    })
+  parse_generation_name(generation_dir.file_name()?.to_str()?)
+    .map(|(_, number)| number)
+}
+
+#[must_use]
+pub fn from_profile_dir(generation_dir: &Path, profile: &str) -> Option<u64> {
+  let (name, number) =
+    parse_generation_name(generation_dir.file_name()?.to_str()?)?;
+  (name == profile).then_some(number)
 }
 
 fn closure_size_from_json(
@@ -389,6 +398,58 @@ pub fn describe(
   })
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InfoJson<'info> {
+  running_generation: Option<u64>,
+  boot_generation:    Option<u64>,
+  generations:        Vec<GenerationJson<'info>>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenerationJson<'info> {
+  #[serde(flatten)]
+  info:         &'info GenerationInfo,
+  boot_default: bool,
+}
+
+/// Print generation status and metadata as JSON.
+///
+/// # Errors
+///
+/// Returns an error if serialization fails.
+pub fn print_json(
+  generations: &[GenerationInfo],
+  boot_generation: Option<u64>,
+) -> Result<()> {
+  let mut running = generations.iter().filter(|generation| generation.current);
+  let running_generation = match (running.next(), running.next()) {
+    (Some(generation), None) => Some(generation.number),
+    _ => None,
+  };
+
+  let mut rows: Vec<_> = generations
+    .iter()
+    .map(|info| {
+      GenerationJson {
+        info,
+        boot_default: boot_generation == Some(info.number),
+      }
+    })
+    .collect();
+  rows.sort_by_key(|row| row.info.number);
+
+  let info = InfoJson {
+    running_generation,
+    boot_generation,
+    generations: rows,
+  };
+
+  println!("{}", serde_json::to_string(&info)?);
+  Ok(())
+}
+
 /// Print information about the given generations.
 ///
 /// # Errors
@@ -398,6 +459,7 @@ pub fn describe(
 pub fn print_info(
   mut generations: Vec<GenerationInfo>,
   fields: Option<&[Field]>,
+  boot_generation: Option<u64>,
 ) -> Result<()> {
   // Parse all dates at once and cache them
   let mut parsed_dates = HashMap::with_capacity(generations.len());
@@ -480,7 +542,7 @@ pub fn print_info(
     .unwrap_or(5);
 
   let widths = ColumnWidths {
-    id:      max_generation_no_len + 10, // "Generation No"
+    id:      max_generation_no_len + 16, // "Generation No"
     date:    20,                         // "Build Date"
     nver:    max_nixos_version_len,
     kernel:  max_kernel_len,
@@ -520,11 +582,16 @@ pub fn print_info(
         let (_, width) = f.column_info(widths);
         let cell_content = match f {
           Field::Id => {
-            format!(
-              "{}{}",
-              generation.number,
-              if generation.current { " (current)" } else { "" }
-            )
+            let marker = match (
+              generation.current,
+              boot_generation == Some(generation.number),
+            ) {
+              (true, true) => " (running, boot)",
+              (true, false) => " (running)",
+              (false, true) => " (boot)",
+              (false, false) => "",
+            };
+            format!("{}{marker}", generation.number)
           },
           Field::Date => formatted_date.clone(),
           Field::Nver => generation.nixos_version.clone(),
@@ -546,4 +613,27 @@ pub fn print_info(
   }
 
   Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+  use std::path::Path;
+
+  use super::from_profile_dir;
+
+  #[test]
+  fn exact_profile_generation_names() {
+    assert_eq!(
+      from_profile_dir(Path::new("system-12-link"), "system"),
+      Some(12)
+    );
+    for name in [
+      "system-backup-12-link",
+      "system-12-link-link",
+      "system-abc-link",
+      "system-12",
+    ] {
+      assert_eq!(from_profile_dir(Path::new(name), "system"), None);
+    }
+  }
 }

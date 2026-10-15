@@ -298,6 +298,10 @@ from ground up _with the addition of_:
 - Build-tree displays via **nix-output-monitor** (nom).
 - Pretty diffs of changes via **dix**
 - Confirmation
+- `nh os dry-activate` builds a configuration and previews activation without
+  applying it; `nh os switch --dry` builds without running activation.
+- `nh os build --dry` shows what a local build would do without building it.
+- `nh os info --json` reports running and boot-default generations separately.
 
 and other additional changes to make the UI more intuitive, from supporting
 environment variables to additional safeguards. Is this all? No, more is to

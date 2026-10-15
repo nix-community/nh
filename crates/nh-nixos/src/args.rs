@@ -42,7 +42,10 @@ impl OsArgs {
           Box::new(LegacyFeatures)
         }
       },
-      OsSubcommand::Build(args) => {
+      OsSubcommand::Build(args)
+      | OsSubcommand::DryActivate(OsDryActivateArgs {
+        rebuild: args, ..
+      }) => {
         if args.uses_flakes() {
           Box::new(FlakeFeatures)
         } else {
@@ -81,6 +84,9 @@ pub enum OsSubcommand {
 
   /// Build and activate the new configuration
   Test(OsRebuildActivateArgs),
+
+  /// Build and preview activation without applying it
+  DryActivate(OsDryActivateArgs),
 
   /// Build the new configuration
   Build(OsRebuildArgs),
@@ -150,10 +156,6 @@ pub struct OsRebuildArgs {
   #[arg(long, short = 'S')]
   pub no_specialisation: bool,
 
-  /// Install bootloader for switch and boot commands
-  #[arg(long)]
-  pub install_bootloader: bool,
-
   /// Extra arguments passed to nix build
   #[arg(last = true)]
   pub extra_args: Vec<String>,
@@ -176,9 +178,24 @@ pub struct OsRebuildArgs {
 }
 
 #[derive(Debug, Args)]
+pub struct OsDryActivateArgs {
+  #[command(flatten)]
+  pub rebuild: OsRebuildArgs,
+
+  /// Run switch-to-configuration directly instead of in a transient systemd
+  /// unit
+  #[arg(long, env = "NH_NO_SYSTEMD_RUN", value_parser = clap::builder::BoolishValueParser::new())]
+  pub no_systemd_run: bool,
+}
+
+#[derive(Debug, Args)]
 pub struct OsRebuildActivateArgs {
   #[command(flatten)]
   pub rebuild: OsRebuildArgs,
+
+  /// Install bootloader for switch and boot commands
+  #[arg(long)]
+  pub install_bootloader: bool,
 
   /// Show activation logs
   #[arg(long, env = "NH_SHOW_ACTIVATION_LOGS", value_parser = clap::builder::BoolishValueParser::new())]
@@ -190,6 +207,11 @@ pub struct OsRebuildActivateArgs {
   /// failed activation aborts before it. This continues regardless.
   #[arg(long, env = "NH_CONTINUE_ON_ACTIVATION_FAILURE", value_parser = clap::builder::BoolishValueParser::new())]
   pub continue_on_activation_failure: bool,
+
+  /// Run switch-to-configuration directly instead of in a transient systemd
+  /// unit
+  #[arg(long, env = "NH_NO_SYSTEMD_RUN", value_parser = clap::builder::BoolishValueParser::new())]
+  pub no_systemd_run: bool,
 }
 
 impl OsRebuildArgs {
@@ -234,6 +256,11 @@ pub struct OsRollbackArgs {
   /// Whether to display a package diff
   #[arg(long, short, value_enum, default_value_t = DiffType::Auto)]
   pub diff: DiffType,
+
+  /// Run switch-to-configuration directly instead of in a transient systemd
+  /// unit
+  #[arg(long, env = "NH_NO_SYSTEMD_RUN", value_parser = clap::builder::BoolishValueParser::new())]
+  pub no_systemd_run: bool,
 }
 
 #[derive(Debug, Args)]
@@ -297,4 +324,8 @@ pub struct OsGenerationsArgs {
   /// Comma-delimited list of field(s) to display
   #[arg(long, value_delimiter = ',')]
   pub fields: Option<Vec<Field>>,
+
+  /// Print generation status and metadata as JSON
+  #[arg(long, conflicts_with = "fields")]
+  pub json: bool,
 }

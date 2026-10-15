@@ -23,6 +23,7 @@ use nh_installable::{
   ConfigurationInstallable,
   ConfigurationLayout,
   Installable,
+  InstallableArgs,
 };
 use nh_remote::{self, RemoteBuildConfig, RemoteHost};
 use tracing::{debug, info, warn};
@@ -57,6 +58,18 @@ const ESSENTIAL_FILES: &[(&str, &str)] = &[
   ("sw/bin", "system path"),
 ];
 
+fn activation_command(path: &Path, action: &str, systemd_run: bool) -> Command {
+  let command = if systemd_run && Path::new("/run/systemd/system").is_dir() {
+    Command::new("systemd-run")
+      .args(nh_remote::SYSTEMD_RUN_ARGS)
+      .arg(path)
+  } else {
+    Command::new(path)
+  };
+
+  command.arg(action)
+}
+
 impl args::OsArgs {
   /// Executes the NixOS subcommand.
   ///
@@ -78,7 +91,7 @@ impl args::OsArgs {
   /// - Nix evaluation or building fails
   /// - File system operations fail
   pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
-    use OsRebuildVariant::{Boot, Build, Switch, Test};
+    use OsRebuildVariant::{Boot, Build, DryActivate, Switch, Test};
     match self.subcommand {
       OsSubcommand::Boot(args) => {
         args.rebuild_and_activate(&Boot, None, elevation)
@@ -89,11 +102,26 @@ impl args::OsArgs {
       OsSubcommand::Switch(args) => {
         args.rebuild_and_activate(&Switch, None, elevation)
       },
+      OsSubcommand::DryActivate(args) => {
+        let activate = OsRebuildActivateArgs {
+          rebuild:                        args.rebuild,
+          install_bootloader:             false,
+          show_activation_logs:           true,
+          continue_on_activation_failure: false,
+          no_systemd_run:                 args.no_systemd_run,
+        };
+        activate.rebuild_and_activate(&DryActivate, None, elevation)
+      },
       OsSubcommand::Build(args) => {
-        if args.common.ask || args.common.dry {
-          warn!("`--ask` and `--dry` have no effect for `nh os build`");
+        if args.common.ask {
+          warn!("`--ask` has no effect for `nh os build`");
         }
-        args.build_only(&Build, None, &elevation)
+
+        if args.common.dry {
+          args.dry_build()
+        } else {
+          args.build_only(&Build, None, &elevation)
+        }
       },
       OsSubcommand::BuildVm(args) => args.build_vm(&elevation),
       OsSubcommand::Repl(args) => args.run(),
@@ -110,6 +138,7 @@ enum OsRebuildVariant {
   Switch,
   Boot,
   Test,
+  DryActivate,
   BuildVm,
   BuildIso,
 }
@@ -139,11 +168,17 @@ impl OsBuildVmArgs {
       );
     }
 
-    self.common.build_only(
-      &OsRebuildVariant::BuildVm,
-      Some(&[attr]),
-      elevation,
-    )?;
+    // The VM runs locally, but the target's name still picks the config.
+    let mut rebuild = self.common;
+    if self.run
+      && let Some(target_host) = rebuild.target_host.take()
+    {
+      rebuild.hostname.get_or_insert_with(|| {
+        target_host.hostname_without_domain().to_owned()
+      });
+    }
+
+    rebuild.build_only(&OsRebuildVariant::BuildVm, Some(&[attr]), elevation)?;
 
     // If --run flag is set, execute the VM
     if self.run {
@@ -270,9 +305,17 @@ impl OsRebuildActivateArgs {
     elevate: bool,
     elevation: ElevationStrategy,
   ) -> Result<()> {
-    use OsRebuildVariant::{Boot, Switch, Test};
+    use OsRebuildVariant::{
+      Boot,
+      Build,
+      BuildIso,
+      BuildVm,
+      DryActivate,
+      Switch,
+      Test,
+    };
 
-    if self.rebuild.common.ask {
+    if self.rebuild.common.ask && !matches!(variant, DryActivate) {
       let confirmation = inquire::Confirm::new("Apply the config?")
         .with_default(false)
         .prompt()?;
@@ -282,52 +325,49 @@ impl OsRebuildActivateArgs {
       }
     }
 
-    if let Some(target_host) = &self.rebuild.target_host {
-      // Only copy if the output path exists locally (i.e., was copied back from
-      // remote build)
-      if out_path.exists() {
-        nh_remote::copy_to_remote_with_args(
-          target_host,
-          target_profile,
-          self.rebuild.common.passthrough.use_substitutes
-            && !self.rebuild.common.passthrough.network_restricted(),
-          &self.rebuild.common.passthrough.generate_evaluation_args(),
-        )
-        .context("Failed to copy configuration to target host")?;
-      }
-    }
-
-    // Validate system closure before activation, unless bypassed. For remote
-    // builds, use the actual store path returned from the build. For local
-    // builds, canonicalize the target_profile.
-    let is_remote_build = self.rebuild.target_host.is_some();
-    let resolved_profile: PathBuf = if let Some(store_path) = actual_store_path
-    {
-      // Remote build - use the actual store path from the build output
-      store_path.to_path_buf()
-    } else if is_remote_build && !out_path.exists() {
-      // Remote build with no local result and no store path captured
-      // (shouldn't happen, but fallback)
-      target_profile.to_path_buf()
-    } else {
-      // Local build - canonicalize the symlink to get the store path
-      target_profile
-        .canonicalize()
-        .context("Failed to resolve output path to actual store path")?
-    };
-
     // Resolve the base store path before activation. Activation can bind-mount
     // over /tmp, shadowing our tempdir so out_path stops resolving afterwards.
     // The bootloader step below reuses this.
-    let base_store_path: Option<PathBuf> = if out_path.exists() {
-      Some(
+    let base_store_path = actual_store_path.map_or_else(
+      || {
         out_path
           .canonicalize()
-          .context("Failed to resolve base output path to store path")?,
-      )
+          .context("Failed to resolve base output path to store path")
+      },
+      |path| Ok(path.to_path_buf()),
+    )?;
+
+    let specialisation_path = target_profile
+      .strip_prefix(out_path)
+      .context("Selected profile is outside the build output")?;
+    let selected_store_path = if specialisation_path.as_os_str().is_empty() {
+      base_store_path.clone()
     } else {
-      None
+      base_store_path.join(specialisation_path)
     };
+
+    // A remote build has already copied the closure to the target host.
+    if let Some(target_host) = &self.rebuild.target_host
+      && actual_store_path.is_none()
+    {
+      nh_remote::copy_to_remote_with_args(
+        target_host,
+        &base_store_path,
+        self.rebuild.common.passthrough.use_substitutes
+          && !self.rebuild.common.passthrough.network_restricted(),
+        &self.rebuild.common.passthrough.generate_evaluation_args(),
+      )
+      .context("Failed to copy configuration to target host")?;
+    }
+
+    let resolved_profile =
+      if self.rebuild.target_host.is_some() && !target_profile.exists() {
+        selected_store_path
+      } else {
+        target_profile
+          .canonicalize()
+          .context("Failed to resolve selected system profile")?
+      };
 
     let should_skip = self.rebuild.no_validate;
 
@@ -353,45 +393,44 @@ impl OsRebuildActivateArgs {
       validate_system_closure(&resolved_profile)?;
     }
 
-    // Resolve switch-to-configuration path for activation commands. For
-    // remote-only builds where out_path doesn't exist locally, skip this
-    // since we'll execute these commands via SSH on the remote host
-    let switch_to_configuration_path =
+    let switch_to_configuration =
       resolved_profile.join("bin").join("switch-to-configuration");
 
-    let switch_to_configuration = if is_remote_build && !out_path.exists() {
-      // Remote build with no local result. Use uncanonicalized path for SSH
-      switch_to_configuration_path
-    } else {
-      switch_to_configuration_path
-        .canonicalize()
-        .context("Failed to resolve switch-to-configuration path")?
-    };
-
-    let canonical_out_path =
-      switch_to_configuration.to_str().ok_or_else(|| {
-        eyre!("switch-to-configuration path contains invalid UTF-8")
-      })?;
-
-    if let Test | Switch = variant {
+    if let Test | Switch | DryActivate = variant {
+      let action = if matches!(variant, DryActivate) {
+        "dry-activate"
+      } else {
+        "test"
+      };
       let activation_result = self.rebuild.target_host.as_ref().map_or_else(
         || {
-          Command::new(canonical_out_path)
-            .arg("test")
-            .message("Activating configuration")
-            .elevate(elevate.then_some(elevation.clone()))
-            .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
-            .with_required_env()
-            .show_output(self.show_activation_logs)
-            .run()
-            .wrap_err("Activation (test) failed")
+          activation_command(
+            &switch_to_configuration,
+            action,
+            !self.no_systemd_run,
+          )
+          .message(if matches!(variant, DryActivate) {
+            "Previewing activation"
+          } else {
+            "Activating configuration"
+          })
+          .elevate(elevate.then_some(elevation.clone()))
+          .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
+          .with_required_env()
+          .show_output(self.show_activation_logs)
+          .run()
+          .wrap_err(format!("Activation ({action}) failed"))
         },
         |target_host| {
           let activation_type = match variant {
             Test => nh_remote::ActivationType::Test,
             Switch => nh_remote::ActivationType::Switch,
-            #[allow(clippy::unreachable, reason = "Should never happen.")]
-            _ => unreachable!(),
+            DryActivate => nh_remote::ActivationType::DryActivate,
+            #[expect(
+              clippy::unreachable,
+              reason = "guarded by the enclosing if"
+            )]
+            Boot | Build | BuildVm | BuildIso => unreachable!(),
           };
 
           nh_remote::activate_remote_with_build_args(
@@ -402,6 +441,7 @@ impl OsRebuildActivateArgs {
               activation_type,
               install_bootloader: false,
               show_logs: self.show_activation_logs,
+              systemd_run: !self.no_systemd_run,
               elevation: elevate.then_some(elevation.clone()),
             },
             &self.rebuild.common.passthrough.generate_passthrough_args(),
@@ -448,31 +488,21 @@ impl OsRebuildActivateArgs {
       if let Some(target_host) = &self.rebuild.target_host {
         nh_remote::activate_remote_with_build_args(
           target_host,
-          &resolved_profile,
+          &base_store_path,
           &nh_remote::ActivateRemoteConfig {
             platform:           nh_remote::Platform::NixOS,
             activation_type:    nh_remote::ActivationType::Boot,
-            install_bootloader: self.rebuild.install_bootloader,
+            install_bootloader: self.install_bootloader,
             show_logs:          false,
+            systemd_run:        !self.no_systemd_run,
             elevation:          elevate.then_some(elevation),
           },
           &self.rebuild.common.passthrough.generate_passthrough_args(),
         )
         .wrap_err("Bootloader activation failed")?;
       } else {
-        // Use the base system closure instead of the specialisation one. This
-        // is what makes all specialisations visible in the bootloader instead
-        // of only the generation with the specialisation. Resolved before
-        // activation; fall back only if it wasn't captured.
-        let base_store_path = base_store_path.map_or_else(
-          || {
-            out_path
-              .canonicalize()
-              .context("Failed to resolve base output path to store path")
-          },
-          Ok,
-        )?;
-
+        // Install the base closure as the boot profile, retaining every
+        // specialisation as a boot option.
         let (binary, args, _) = NixCommand::new(CommandKind::Build)
           .print_build_logs(false)
           .args(["--no-link", "--profile", SYSTEM_PROFILE])
@@ -486,13 +516,16 @@ impl OsRebuildActivateArgs {
           .run()
           .wrap_err("Failed to set system profile")?;
 
-        let mut cmd = Command::new(switch_to_configuration)
-          .arg("boot")
-          .elevate(elevate.then_some(elevation))
-          .message("Adding configuration to bootloader")
-          .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"]);
+        let mut cmd = activation_command(
+          &switch_to_configuration,
+          "boot",
+          !self.no_systemd_run,
+        )
+        .elevate(elevate.then_some(elevation))
+        .message("Adding configuration to bootloader")
+        .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"]);
 
-        if self.rebuild.install_bootloader {
+        if self.install_bootloader {
           cmd = cmd.set_env("NIXOS_INSTALL_BOOTLOADER", "1");
         }
 
@@ -618,11 +651,10 @@ impl OsRebuildArgs {
       .clone()
       .resolve_or_default(CommandContext::Os)?;
 
-    toplevel_for(
-      target_hostname,
-      installable,
-      final_attrs.unwrap_or_else(|| &["toplevel"][..]),
-    )
+    let mut build_attr = vec!["config", "system", "build"];
+    build_attr.extend_from_slice(final_attrs.unwrap_or(&["toplevel"]));
+
+    toplevel_for(target_hostname, installable, &build_attr)
   }
 
   fn execute_build(
@@ -723,8 +755,9 @@ impl OsRebuildArgs {
           }
 
           // Inferred from the running system, but absent from the config being
-          // built. This happens with `nh os build-vm` while booted into a
-          // specialisation. Fall back to the base config instead of failing.
+          // built. This happens with `nh os build --hostname <other>` while
+          // booted into a specialisation. Fall back to the base config instead
+          // of failing.
           warn!(
             "Booted specialisation '{spec}' does not exist in the built \
              configuration. Falling back to the base configuration. Pass \
@@ -752,6 +785,32 @@ impl OsRebuildArgs {
     Ok(target_profile)
   }
 
+  fn dry_build(&self) -> Result<()> {
+    if self.build_host.is_some() || self.target_host.is_some() {
+      bail!(
+        "`nh os build --dry` does not support remote build or target hosts"
+      );
+    }
+
+    let hostname = get_hostname(self.hostname.clone())?;
+    let installable = self.resolve_installable_and_toplevel(&hostname, None)?;
+
+    if self.update_args.update_all || self.update_args.update_input.is_some() {
+      update_with_args(
+        &installable,
+        self.update_args.update_input.clone(),
+        &self.common.passthrough,
+      )?;
+    }
+
+    command::Build::new(installable)
+      .extra_arg("--dry-run")
+      .extra_args(&self.extra_args)
+      .passthrough(&self.common.passthrough)
+      .run()
+      .wrap_err("Failed to calculate build plan")
+  }
+
   // final_attr is the attribute of config.system.build.X to evaluate.
   // Used by Build and BuildVm subcommands which don't activate
   fn build_only(
@@ -766,8 +825,31 @@ impl OsRebuildArgs {
 
     let (out_path, _tempdir_guard) = self.determine_output_path(variant)?;
 
-    let toplevel =
-      self.resolve_installable_and_toplevel(&target_hostname, final_attrs)?;
+    let toplevel = if matches!(variant, BuildVm)
+      && !self.no_specialisation
+      && let Some(spec) = self.specialisation.as_deref()
+    {
+      let installable = self
+        .common
+        .installable
+        .clone()
+        .resolve_or_default(CommandContext::Os)?;
+      let attr = final_attrs
+        .and_then(|attrs| attrs.first())
+        .ok_or_else(|| eyre!("Missing VM build attribute"))?;
+
+      toplevel_for(&target_hostname, installable, &[
+        "config",
+        "specialisation",
+        spec,
+        "configuration",
+        "system",
+        "build",
+        attr,
+      ])?
+    } else {
+      self.resolve_installable_and_toplevel(&target_hostname, final_attrs)?
+    };
 
     if self.update_args.update_all || self.update_args.update_input.is_some() {
       update_with_args(
@@ -790,7 +872,11 @@ impl OsRebuildArgs {
 
     let actual_store_path = self.execute_build(toplevel, &out_path, message)?;
 
-    let target_profile = self.resolve_specialisation_and_profile(&out_path)?;
+    let target_profile = if matches!(variant, BuildVm) {
+      out_path.clone()
+    } else {
+      self.resolve_specialisation_and_profile(&out_path)?
+    };
 
     handle_nixos_diff(
       &self.common.diff,
@@ -814,15 +900,22 @@ impl OsRollbackArgs {
 
     let generations = list_generations()?;
 
-    let current_generation = generations
-      .iter()
-      .find(|g| g.current)
-      .ok_or_else(|| eyre!("Current generation not found"))?;
+    let selected_generation = fs::read_link(SYSTEM_PROFILE)
+      .ok()
+      .and_then(|link| generations::from_profile_dir(&link, "system"))
+      .and_then(|number| {
+        generations
+          .iter()
+          .find(|generation| generation.number == number)
+      });
 
-    // Find previous generation or specific generation
+    // An explicit generation can repair a missing selected profile; only an
+    // automatic rollback needs a valid selected generation for comparison.
     let target_generation = if let Some(gen_number) = self.to {
       get_generation_by_number(gen_number, &generations)?
     } else {
+      let current_generation = selected_generation
+        .ok_or_else(|| eyre!("Selected system profile is not a generation"))?;
       &find_previous_generation(current_generation.number, &generations)?
     };
 
@@ -850,6 +943,34 @@ impl OsRollbackArgs {
     };
 
     debug!("target_specialisation: {target_specialisation:?}");
+
+    // Resolve the target before changing the selected system profile.
+    let switch_to_configuration = match &target_specialisation {
+      None => generation_link.join("bin/switch-to-configuration"),
+      Some(spec) => {
+        let spec_path = generation_link.join("specialisation").join(spec);
+        if spec_path.exists() {
+          spec_path.join("bin/switch-to-configuration")
+        } else if self.specialisation.is_some() {
+          bail!(
+            "Specialisation '{}' does not exist in generation {}",
+            spec,
+            target_generation.number
+          );
+        } else {
+          warn!(
+            "Specialisation '{}' does not exist in generation {}",
+            spec, target_generation.number
+          );
+          warn!("Using base configuration without specialisations");
+          generation_link.join("bin/switch-to-configuration")
+        }
+      },
+    };
+
+    if !switch_to_configuration.exists() {
+      return Err(missing_switch_to_configuration_error());
+    }
 
     // Compare changes between current and target generation
     if matches!(self.diff, DiffType::Never) {
@@ -900,40 +1021,17 @@ impl OsRollbackArgs {
             .run()
             .wrap_err("Failed to set system profile during rollback")?;
 
-    // Determine the correct profile to use with specialisations
-    let final_profile = match &target_specialisation {
-      None => generation_link,
-      Some(spec) => {
-        let spec_path = generation_link.join("specialisation").join(spec);
-        if spec_path.exists() {
-          spec_path
-        } else {
-          warn!(
-            "Specialisation '{}' does not exist in generation {}",
-            spec, target_generation.number
-          );
-          warn!("Using base configuration without specialisations");
-          generation_link
-        }
-      },
-    };
-
-    // Activate the configuration
     info!("Activating...");
 
-    let switch_to_configuration =
-      final_profile.join("bin").join("switch-to-configuration");
-
-    if !switch_to_configuration.exists() {
-      return Err(missing_switch_to_configuration_error());
-    }
-
-    match Command::new(&switch_to_configuration)
-      .arg("switch")
-      .elevate(elevate.then_some(elevation.clone()))
-      .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
-      .with_required_env()
-      .run()
+    match activation_command(
+      &switch_to_configuration,
+      "switch",
+      !self.no_systemd_run,
+    )
+    .elevate(elevate.then_some(elevation.clone()))
+    .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
+    .with_required_env()
+    .run()
     {
       Ok(()) => {
         info!(
@@ -943,7 +1041,9 @@ impl OsRollbackArgs {
       },
       Err(e) => {
         // If activation fails, rollback the profile
-        if current_generation.number > 0 {
+        if let Some(current_generation) =
+          selected_generation.filter(|generation| generation.number > 0)
+        {
           let current_gen_link = profile_dir
             .join(format!("system-{}-link", current_generation.number));
 
@@ -980,25 +1080,38 @@ impl OsBuildImageArgs {
       );
     }
 
-    let installable = self
+    let mut installable = self
       .common
       .common
       .installable
       .clone()
       .resolve_or_default(CommandContext::Os)?;
 
+    if self.common.update_args.update_all
+      || self.common.update_args.update_input.is_some()
+    {
+      update_with_args(
+        &installable,
+        self.common.update_args.update_input.clone(),
+        &self.common.common.passthrough,
+      )?;
+    }
+
     // Get the available image variants for validation
-    let valid_variants = match &installable {
+    let (valid_variants, legacy_attribute) = match &installable {
       Installable::Flake { .. } => {
         let images_installable =
-          toplevel_for(&target_hostname, installable.clone(), &["images"])?;
-        get_build_image_variants_flake_with_args(
+          toplevel_for(&target_hostname, installable.clone(), &[
+            "config", "system", "build", "images",
+          ])?;
+        let variants = get_build_image_variants_flake_with_args(
           &images_installable,
           self.common.common.passthrough.generate_evaluation_args(),
-        )?
+        )?;
+        (variants, None)
       },
       Installable::File { .. } | Installable::Expression { .. } => {
-        get_build_image_variants_with_args(
+        let images = get_build_image_variants_with_args(
           &installable,
           &target_hostname,
           self
@@ -1006,7 +1119,8 @@ impl OsBuildImageArgs {
             .common
             .passthrough
             .generate_legacy_evaluation_args(),
-        )?
+        )?;
+        (images.variants, Some(images.attribute))
       },
       Installable::Store { .. } => {
         bail!("Unsupported installable type for image building")
@@ -1022,7 +1136,12 @@ impl OsBuildImageArgs {
       );
     }
 
-    let attrs = ["images", &self.image_variant];
+    if let Some(selected) = legacy_attribute
+      && let Installable::File { attribute, .. }
+      | Installable::Expression { attribute, .. } = &mut installable
+    {
+      *attribute = selected;
+    }
 
     if self.common.common.dry {
       info!(
@@ -1032,11 +1151,13 @@ impl OsBuildImageArgs {
       return Ok(());
     }
 
-    self.common.build_only(
-      &OsRebuildVariant::BuildIso,
-      Some(&attrs),
-      elevation,
-    )?;
+    let mut rebuild = self.common;
+    rebuild.update_args.update_all = false;
+    rebuild.update_args.update_input = None;
+    rebuild.common.installable = InstallableArgs::Specified(installable);
+
+    let attrs = ["images", &self.image_variant];
+    rebuild.build_only(&OsRebuildVariant::BuildIso, Some(&attrs), elevation)?;
 
     Ok(())
   }
@@ -1335,9 +1456,7 @@ fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
     };
 
     let path = entry.path();
-    if let Some(name) = path.file_name().and_then(|s| s.to_str())
-      && name.starts_with("system-")
-      && name.ends_with("-link")
+    if generations::from_profile_dir(&path, "system").is_some()
       && let Some(gen_info) = generations::describe(&path, None)
     {
       generations.push(gen_info);
@@ -1355,7 +1474,8 @@ fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
   Ok(generations)
 }
 
-/// Resolve a NixOS installable to the requested system build attributes.
+/// Resolve a NixOS installable to an attribute path within the selected
+/// configuration.
 ///
 /// # Errors
 ///
@@ -1364,16 +1484,13 @@ fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
 pub fn toplevel_for<S: AsRef<str>>(
   hostname: S,
   installable: Installable,
-  final_attrs: &[&str],
+  build_attr: &[&str],
 ) -> Result<Installable> {
-  let mut build_attr = vec!["config", "system", "build"];
-  build_attr.extend_from_slice(final_attrs);
-
   let mut res = installable;
   res.resolve_configuration(
     ConfigurationLayout {
-      set:        "nixosConfigurations",
-      build_attr: &build_attr,
+      set: "nixosConfigurations",
+      build_attr,
     },
     Some(hostname.as_ref()),
   )?;
@@ -1428,21 +1545,15 @@ impl OsGenerationsArgs {
     }
 
     let profile_dir = profile.parent().unwrap_or_else(|| Path::new("."));
+    let profile_name = profile
+      .file_name()
+      .and_then(|name| name.to_str())
+      .ok_or_else(|| eyre!("Profile name contains invalid UTF-8"))?;
 
     let generations: Vec<_> = fs::read_dir(profile_dir)?
       .filter_map(|entry| {
-        entry.ok().and_then(|e| {
-          let path = e.path();
-          if path
-            .file_name()?
-            .to_str()?
-            .starts_with(profile.file_name()?.to_str()?)
-          {
-            Some(path)
-          } else {
-            None
-          }
-        })
+        let path = entry.ok()?.path();
+        generations::from_profile_dir(&path, profile_name).map(|_| path)
       })
       .collect();
 
@@ -1458,7 +1569,19 @@ impl OsGenerationsArgs {
       })
       .collect();
 
-    generations::print_info(descriptions, self.fields.as_deref())?;
+    let boot_generation = fs::read_link(&profile)
+      .ok()
+      .and_then(|link| generations::from_profile_dir(&link, profile_name));
+
+    if self.json {
+      return generations::print_json(&descriptions, boot_generation);
+    }
+
+    generations::print_info(
+      descriptions,
+      self.fields.as_deref(),
+      boot_generation,
+    )?;
 
     Ok(())
   }
