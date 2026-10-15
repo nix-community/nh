@@ -3,10 +3,7 @@ pub mod args;
 use std::{convert::Into, path::PathBuf};
 
 use args::{DarwinArgs, DarwinRebuildArgs, DarwinReplArgs, DarwinSubcommand};
-use color_eyre::{
-  Result,
-  eyre::{Context, bail},
-};
+use misstep::{Result, ResultExt, bail};
 use nh_core::{
   args::DiffType,
   command::{Command, CommandKind, ElevationStrategy, NixCommand},
@@ -49,14 +46,14 @@ impl DarwinArgs {
   pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
     use DarwinRebuildVariant::{Build, Switch};
     match self.subcommand {
-      DarwinSubcommand::Switch(args) => args.rebuild(&Switch, elevation),
-      DarwinSubcommand::Build(args) => {
+      DarwinSubcommand::Switch { args } => args.rebuild(&Switch, elevation),
+      DarwinSubcommand::Build { args } => {
         if args.common.ask || args.common.dry {
           warn!("`--ask` and `--dry` have no effect for `nh darwin build`");
         }
         args.rebuild(&Build, elevation)
       },
-      DarwinSubcommand::Repl(args) => args.run(),
+      DarwinSubcommand::Repl { args } => args.run(),
     }
   }
 }
@@ -142,7 +139,7 @@ impl DarwinRebuildArgs {
         Some(&out_path),
         &self.common.passthrough.generate_evaluation_args(),
       )
-      .wrap_err("Failed to build Darwin configuration")?;
+      .context("Failed to build Darwin configuration")?;
     } else {
       nh_core::command::Build::new(toplevel)
         .extra_arg("--out-link")
@@ -152,7 +149,7 @@ impl DarwinRebuildArgs {
         .message("Building Darwin configuration")
         .nom(use_nom(self.common.no_nom))
         .run()
-        .wrap_err("Failed to build Darwin configuration")?;
+        .context("Failed to build Darwin configuration")?;
     }
 
     let target_profile = out_path.clone();
@@ -198,7 +195,7 @@ impl DarwinRebuildArgs {
         .dry(self.common.dry)
         .with_required_env()
         .run()
-        .wrap_err("Failed to set Darwin system profile")?;
+        .context("Failed to set Darwin system profile")?;
 
       let activate = out_path.join("activate");
       let activate_user = out_path.join("activate-user");
@@ -219,7 +216,7 @@ impl DarwinRebuildArgs {
         .show_output(self.show_activation_logs)
         .with_required_env()
         .run()
-        .wrap_err("Darwin activation failed")?;
+        .context("Darwin activation failed")?;
     }
 
     debug!("Completed operation with output path: {out_path:?}");

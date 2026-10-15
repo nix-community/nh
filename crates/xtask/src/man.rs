@@ -1,7 +1,6 @@
-use std::path::Path;
+use std::{io::Write, path::Path};
 
-use clap::CommandFactory;
-use roff::{Roff, bold, roman};
+use pound::Parse;
 
 type Entry = (&'static str, &'static str);
 
@@ -188,9 +187,26 @@ pub fn generate(out_dir: &str) -> Result<(), String> {
   let man_path = gen_dir.join("nh.1");
   let mut buffer: Vec<u8> = Vec::new();
 
-  let mut cmd = nh::interface::Main::command();
-  render_standard_sections(&cmd, &mut buffer)?;
-  render_command_recursive(&mut cmd, 1, &mut buffer)?;
+  for page in caress::man::pages(nh::interface::Main::SPEC, "") {
+    let content = page
+      .content
+      .split(".Sh SEE ALSO")
+      .next()
+      .unwrap_or(&page.content);
+    if page.name == "nh" {
+      buffer.extend_from_slice(content.as_bytes());
+    } else {
+      let heading = format!(".Sh \"SUBCOMMAND {}\"\n", page.name);
+      buffer.extend_from_slice(heading.as_bytes());
+      for line in content.lines().skip(3) {
+        let line = line
+          .strip_prefix(".Sh ")
+          .map_or_else(|| line.to_owned(), |heading| format!(".Ss {heading}"));
+        buffer.extend_from_slice(line.as_bytes());
+        buffer.push(b'\n');
+      }
+    }
+  }
   render_indented_section("EXIT STATUS", EXIT_STATUSES, &mut buffer)?;
   render_indented_section("ENVIRONMENT", ENVIRONMENT, &mut buffer)?;
   render_indented_section("FILES", FILES, &mut buffer)?;
@@ -204,127 +220,35 @@ pub fn generate(out_dir: &str) -> Result<(), String> {
   Ok(())
 }
 
-fn render_standard_sections(
-  cmd: &clap::Command,
-  buffer: &mut Vec<u8>,
-) -> Result<(), String> {
-  let man = clap_mangen::Man::new(cmd.clone()).manual("nh manual".to_string());
-  man
-    .render_title(&mut *buffer)
-    .map_err(|e| format!("Failed to render title: {e}"))?;
-  man
-    .render_name_section(&mut *buffer)
-    .map_err(|e| format!("Failed to render name section: {e}"))?;
-  man
-    .render_synopsis_section(&mut *buffer)
-    .map_err(|e| format!("Failed to render synopsis section: {e}"))?;
-  man
-    .render_description_section(buffer)
-    .map_err(|e| format!("Failed to render description section: {e}"))
-}
-
 fn render_indented_section(
   title: &str,
   entries: &[Entry],
   buffer: &mut Vec<u8>,
 ) -> Result<(), String> {
-  let mut section = Roff::new();
-  section.control("SH", [title]);
-
-  for &(label, description) in entries {
-    section.control("IP", [label]).text([roman(description)]);
-  }
-
-  section
-    .to_writer(buffer)
-    .map_err(|e| format!("Failed to write {title} section: {e}"))
+  let mut render = || -> std::io::Result<()> {
+    writeln!(buffer, ".Sh \"{title}\"")?;
+    writeln!(buffer, ".Bl -tag -width Ds")?;
+    for &(label, description) in entries {
+      writeln!(buffer, ".It Sy \"{label}\"")?;
+      writeln!(buffer, "{description}")?;
+    }
+    writeln!(buffer, ".El")
+  };
+  render().map_err(|e| format!("Failed to write {title} section: {e}"))
 }
 
 fn render_examples(
   examples: &[Entry],
   buffer: &mut Vec<u8>,
 ) -> Result<(), String> {
-  let mut section = Roff::new();
-  section.control("SH", ["EXAMPLES"]);
-
-  for &(description, command) in examples {
-    section
-      .control("TP", [])
-      .text([roman(description)])
-      .text([bold(format!("$ {command}"))])
-      .control("br", []);
-  }
-
-  section
-    .to_writer(buffer)
-    .map_err(|e| format!("Failed to write examples section: {e}"))
-}
-
-fn render_command_recursive(
-  cmd: &mut clap::Command,
-  depth: usize,
-  buffer: &mut Vec<u8>,
-) -> Result<(), String> {
-  let mut sect = Roff::new();
-
-  // Section header
-  let title = if depth == 1 { "OPTIONS" } else { "SUBCOMMAND" };
-  sect.control("SH", [title]);
-
-  // About/long_about/help
-  if let Some(about) = cmd.get_long_about().or_else(|| cmd.get_about()) {
-    sect.text([roman(about.to_string())]);
-  }
-
-  // Usage
-  let usage = cmd.render_usage().to_string();
-  sect.control("TP", []);
-  sect.text([bold(usage)]);
-
-  // Arguments/options
-  for arg in cmd.get_arguments() {
-    if arg.is_hide_set() {
-      continue;
+  let mut render = || -> std::io::Result<()> {
+    writeln!(buffer, ".Sh EXAMPLES")?;
+    writeln!(buffer, ".Bl -tag -width Ds")?;
+    for &(description, command) in examples {
+      writeln!(buffer, ".It \"{description}\"")?;
+      writeln!(buffer, ".Dl \"$ {command}\"")?;
     }
-    sect.control("TP", []);
-    let mut opt = String::new();
-    if let Some(short) = arg.get_short() {
-      opt.push('-');
-      opt.push(short);
-      if arg.get_long().is_some() {
-        opt.push_str(", ");
-      }
-    }
-    if let Some(long) = arg.get_long() {
-      opt.push_str("--");
-      opt.push_str(long);
-    }
-    if !opt.is_empty() {
-      sect.text([bold(opt)]);
-    }
-    if let Some(help) = arg.get_long_help().or_else(|| arg.get_help()) {
-      sect.text([roman(help.to_string())]);
-    }
-    if let Some(env) = arg.get_env() {
-      sect.text([roman(format!(" [env: {}]", env.to_string_lossy()))]);
-    }
-    let mut defaults_iter = arg.get_default_values().iter();
-    if let Some(default) = defaults_iter.next() {
-      sect.text([roman(format!(" [default: {}]", default.to_string_lossy()))]);
-    }
-    if arg.is_required_set() {
-      sect.text([roman(" [required]")]);
-    }
-  }
-
-  sect
-    .to_writer(buffer)
-    .map_err(|e| format!("Failed to render command section: {e}"))?;
-
-  // Subcommands
-  for sub in cmd.get_subcommands_mut() {
-    render_command_recursive(sub, depth + 1, buffer)?;
-  }
-
-  Ok(())
+    writeln!(buffer, ".El")
+  };
+  render().map_err(|e| format!("Failed to write examples section: {e}"))
 }

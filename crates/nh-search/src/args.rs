@@ -1,49 +1,29 @@
 use std::path::PathBuf;
 
-use clap::{Args, Subcommand, ValueEnum};
-use color_eyre::{Result, eyre::bail};
+use misstep::{Result, bail};
+use pound::{Parse, ValueEnum};
 
-const DEFAULT_LIMIT: u64 = 30;
 const DEFAULT_CHANNEL: &str = "nixos-unstable";
-const DEFAULT_BACKEND_FALLBACKS: u32 = 1;
 
-#[derive(Args, Debug)]
 /// Searches packages or NixOS/home-manager options via search.nixos.org,
 /// or a local SPAM database
+#[derive(Debug)]
 pub struct SearchArgs {
-  #[command(flatten)]
   pub limit: LimitArg,
 
-  #[command(flatten)]
   pub channel: ChannelArg,
 
-  #[command(flatten)]
   pub platforms: PlatformsArg,
 
-  #[command(flatten)]
   pub backend: BackendArgs,
 
   /// Output results as JSON
-  #[arg(
-    long,
-    short = 'j',
-    env = "NH_SEARCH_JSON",
-    value_parser = clap::builder::BoolishValueParser::new(),
-    global = true
-  )]
   pub json: bool,
 
   /// Default search mode used when no subcommand is given.
   /// Accepts `packages` or `options` (scope defaults to `all`).
-  #[arg(
-    long,
-    env = "NH_DEFAULT_SEARCH",
-    default_value = "packages",
-    value_name = "MODE"
-  )]
   pub default_search: SearchDefault,
 
-  #[command(subcommand)]
   pub mode: Option<SearchMode>,
 
   /// Query shorthand: equivalent to `nh search packages <query>` or
@@ -51,139 +31,278 @@ pub struct SearchArgs {
   pub query: Vec<String>,
 }
 
-#[derive(Subcommand, Debug)]
-pub enum SearchMode {
-  /// Search packages via search.nixos.org
-  Packages(PackagesArgs),
-  /// Search NixOS/home-manager options via search.nixos.org
-  Options(OptionsArgs),
-  /// Search local SPAM database(s) without network access
-  Offline(OfflineArgs),
-  /// Search Nixpkgs pull requests and branch reachability
-  Prs(PrsArgs),
-  /// Search Nixpkgs issues, excluding pull requests
-  Issues(IssuesArgs),
+impl Parse for SearchArgs {
+  const SPEC: &'static pound::CommandSpec =
+    &pound::CommandSpec::new("SearchArgs")
+      .about(
+        "Searches packages or NixOS/home-manager options via \
+         search.nixos.org, or a local SPAM database",
+      )
+      .args(&[
+        pound::ArgSpec::new(pound::Kind::Flag)
+          .long("json")
+          .short('j')
+          .env("NH_SEARCH_JSON")
+          .global()
+          .help("Output results as JSON")
+          .value_name("JSON"),
+        pound::ArgSpec::new(pound::Kind::Opt)
+          .long("default-search")
+          .possible_opt(<SearchDefault as pound::FromArg>::POSSIBLE)
+          .hint(<SearchDefault as pound::FromArg>::HINT)
+          .env("NH_DEFAULT_SEARCH")
+          .value_name("MODE")
+          .default("packages")
+          .help(
+            "Default search mode used when no subcommand is given. Accepts \
+             `packages` or `options` (scope defaults to `all`).",
+          ),
+        pound::ArgSpec::new(pound::Kind::Positional)
+          .hidden()
+          .possible_opt(<String as pound::FromArg>::POSSIBLE)
+          .hint(<String as pound::FromArg>::HINT)
+          .help(
+            "Query shorthand: equivalent to `nh search packages <query>` or \
+             `nh search options <query>` depending on `--default-search`",
+          )
+          .value_name("QUERY"),
+        pound::ArgSpec::new(pound::Kind::Positional)
+          .multi()
+          .possible_opt(<String as pound::FromArg>::POSSIBLE)
+          .hint(<String as pound::FromArg>::HINT)
+          .help(
+            "Query shorthand: equivalent to `nh search packages <query>` or \
+             `nh search options <query>` depending on `--default-search`",
+          )
+          .value_name("QUERY"),
+      ])
+      .flattened(&[
+        <LimitArg as Parse>::SPEC,
+        <ChannelArg as Parse>::SPEC,
+        <PlatformsArg as Parse>::SPEC,
+        <BackendArgs as Parse>::SPEC,
+      ])
+      .argument_order(&[
+        pound::ArgumentOrder::Flattened(0),
+        pound::ArgumentOrder::Flattened(1),
+        pound::ArgumentOrder::Flattened(2),
+        pound::ArgumentOrder::Flattened(3),
+        pound::ArgumentOrder::Direct(0),
+        pound::ArgumentOrder::Direct(1),
+        pound::ArgumentOrder::Direct(2),
+        pound::ArgumentOrder::Direct(3),
+      ])
+      .subs(SearchMode::SPEC.subs)
+      .sub_optional();
+
+  fn from_matches(
+    spec: &'static pound::CommandSpec,
+    matches: &pound::Matches<'_>,
+  ) -> Result<Self, pound::Error> {
+    Ok(Self {
+      limit:          <LimitArg as Parse>::from_matches(
+        spec.flattened[0],
+        matches.flattened(0),
+      )?,
+      channel:        <ChannelArg as Parse>::from_matches(
+        spec.flattened[1],
+        matches.flattened(1),
+      )?,
+      platforms:      <PlatformsArg as Parse>::from_matches(
+        spec.flattened[2],
+        matches.flattened(2),
+      )?,
+      backend:        <BackendArgs as Parse>::from_matches(
+        spec.flattened[3],
+        matches.flattened(3),
+      )?,
+      json:           matches.switch(spec, 0)?,
+      default_search: matches.required(spec, 1)?,
+      mode:           if matches.sub().is_some() {
+        Some(SearchMode::from_matches(spec, matches)?)
+      } else {
+        None
+      },
+      query:          matches
+        .optional::<String>(spec, 2)?
+        .into_iter()
+        .chain(matches.many::<String>(spec, 3)?)
+        .collect(),
+    })
+  }
+
+  fn update_from_matches(
+    &mut self,
+    spec: &'static pound::CommandSpec,
+    matches: &pound::Matches<'_>,
+  ) -> Result<(), pound::Error> {
+    self
+      .limit
+      .update_from_matches(spec.flattened[0], matches.flattened(0))?;
+    self
+      .channel
+      .update_from_matches(spec.flattened[1], matches.flattened(1))?;
+    self
+      .platforms
+      .update_from_matches(spec.flattened[2], matches.flattened(2))?;
+    self
+      .backend
+      .update_from_matches(spec.flattened[3], matches.flattened(3))?;
+    if matches.given(0) {
+      self.json = matches.switch(spec, 0)?;
+    }
+    if matches.given(1) {
+      self.default_search = matches.required(spec, 1)?;
+    }
+    if matches.sub().is_some() {
+      self.mode = Some(SearchMode::from_matches(spec, matches)?);
+    }
+    if matches.given(2) {
+      self.query = matches
+        .optional::<String>(spec, 2)?
+        .into_iter()
+        .chain(matches.many::<String>(spec, 3)?)
+        .collect();
+    }
+    Ok(())
+  }
 }
 
-#[derive(Args, Debug)]
+#[derive(Parse, Debug)]
+pub enum SearchMode {
+  /// Search packages via search.nixos.org
+  Packages {
+    #[pound(flatten)]
+    args: PackagesArgs,
+  },
+  /// Search NixOS/home-manager options via search.nixos.org
+  Options {
+    #[pound(flatten)]
+    args: OptionsArgs,
+  },
+  /// Search local SPAM database(s) without network access
+  Offline {
+    #[pound(flatten)]
+    args: OfflineArgs,
+  },
+  /// Search Nixpkgs pull requests and branch reachability
+  Prs {
+    #[pound(flatten)]
+    args: PrsArgs,
+  },
+  /// Search Nixpkgs issues, excluding pull requests
+  Issues {
+    #[pound(flatten)]
+    args: IssuesArgs,
+  },
+}
+
+#[derive(Parse, Debug)]
 pub struct PackagesArgs {
-  #[command(flatten)]
+  #[pound(flatten)]
   pub limit: LimitArg,
 
-  #[command(flatten)]
+  #[pound(flatten)]
   pub channel: ChannelArg,
 
-  #[command(flatten)]
+  #[pound(flatten)]
   pub platforms: PlatformsArg,
 
-  #[command(flatten)]
+  #[pound(flatten)]
   pub backend: BackendArgs,
 
   /// Name of the package to search
-  #[arg(required = true)]
+  #[pound(min_values = 1)]
   pub query: Vec<String>,
 }
 
-#[derive(Args, Debug)]
+#[derive(Parse, Debug)]
 pub struct OptionsArgs {
-  #[command(flatten)]
+  #[pound(flatten)]
   pub limit: LimitArg,
 
-  #[command(flatten)]
+  #[pound(flatten)]
   pub channel: ChannelArg,
 
   /// Options scope: nixpkgs, home-manager, nix-darwin, or all (default)
-  #[arg(
-    long,
-    num_args = 0..=1,
-    default_missing_value = "all",
-    require_equals = true,
-    value_name = "SCOPE"
-  )]
+  #[pound(long, default_missing = "all", value_name = "SCOPE")]
   pub scope: Option<OptionScope>,
 
-  #[command(flatten)]
+  #[pound(flatten)]
   pub backend: BackendArgs,
 
   /// Name of the option to search
-  #[arg(required = true)]
+  #[pound(min_values = 1)]
   pub query: Vec<String>,
 }
 
-#[derive(Args, Debug)]
+#[derive(Parse, Debug)]
 pub struct OfflineArgs {
-  #[command(flatten)]
+  #[pound(flatten)]
   pub limit: LimitArg,
 
   /// Path to a SPAM database file. Specify multiple times to search across
   /// several databases
-  #[arg(
+  #[pound(
     long = "db",
     short = 'D',
     value_name = "PATH",
     env = "NH_OFFLINE_DB",
-    value_delimiter = ':',
-    required = true
+    delimiter = ':',
+    min_values = 1
   )]
   pub databases: Vec<PathBuf>,
 
   /// Name of the package or option to search
-  #[arg(required = true)]
+  #[pound(min_values = 1)]
   pub query: Vec<String>,
 }
 
-#[derive(Args, Debug)]
+#[derive(Parse, Debug)]
 pub struct PrsArgs {
-  #[command(flatten)]
+  #[pound(flatten)]
   pub days: DaysArg,
 
   /// Pull request search query
-  #[arg(required = true)]
+  #[pound(min_values = 1)]
   pub query: Vec<String>,
 }
 
-#[derive(Args, Debug)]
+#[derive(Parse, Debug)]
 pub struct IssuesArgs {
-  #[command(flatten)]
+  #[pound(flatten)]
   pub days: DaysArg,
 
   /// Issue search query
-  #[arg(required = true)]
+  #[pound(min_values = 1)]
   pub query: Vec<String>,
 }
 
-#[derive(Args, Debug, Clone, Copy)]
+#[derive(Parse, Debug, Clone, Copy)]
 pub struct LimitArg {
   /// Number of search results to display
-  #[arg(
-    id = "limit",
-    long = "limit",
-    short = 'l',
-    default_value_t = DEFAULT_LIMIT
-  )]
+  #[pound(long = "limit", short = 'l', default = "30")]
   pub value: u64,
 }
 
-#[derive(Args, Debug, Clone)]
+#[derive(Parse, Debug, Clone)]
 pub struct ChannelArg {
   /// Name of the channel to query (e.g nixos-23.11, nixos-unstable, etc)
-  #[arg(
-    id = "channel",
+  #[pound(
     long = "channel",
     short = 'c',
     env = "NH_SEARCH_CHANNEL",
-    default_value = DEFAULT_CHANNEL
+    default = { DEFAULT_CHANNEL }
   )]
   pub value: String,
 }
 
-#[derive(Args, Debug, Clone, Copy)]
+#[derive(Parse, Debug, Clone, Copy)]
 pub struct BackendArgs {
   /// Backend index version to query on search.nixos.org. Defaults to the
   /// newest version available for the channel, or the version bundled with nh
   /// if that cannot be determined
-  #[arg(
-    id = "backend-version",
+  #[pound(
     long = "backend-version",
     env = "NH_SEARCH_BACKEND_VERSION",
     value_name = "VERSION"
@@ -192,38 +311,26 @@ pub struct BackendArgs {
 
   /// Number of newer index versions to try when the requested version is
   /// outdated (missing on the backend)
-  #[arg(
-    id = "backend-version-fallbacks",
+  #[pound(
     long = "backend-version-fallbacks",
     env = "NH_SEARCH_BACKEND_FALLBACKS",
-    default_value_t = DEFAULT_BACKEND_FALLBACKS,
+    default = "1",
     value_name = "COUNT"
   )]
   pub fallbacks: u32,
 }
 
-#[derive(Args, Debug, Clone, Copy)]
+#[derive(Parse, Debug, Clone, Copy)]
 pub struct PlatformsArg {
   /// Show supported platforms for each package
-  #[arg(
-    id = "platforms",
-    long = "platforms",
-    short = 'P',
-    env = "NH_SEARCH_PLATFORM",
-    value_parser = clap::builder::BoolishValueParser::new()
-  )]
+  #[pound(long = "platforms", short = 'P', env = "NH_SEARCH_PLATFORM")]
   pub value: bool,
 }
 
-#[derive(Args, Debug, Clone, Copy)]
+#[derive(Parse, Debug, Clone, Copy)]
 pub struct DaysArg {
   /// Search GitHub results updated in the last n days (default: 15).
-  #[arg(
-    id = "days",
-    short = 'd',
-    long = "days",
-    value_parser = clap::value_parser!(u32).range(1..)
-  )]
+  #[pound(short = 'd', long = "days", min = 1)]
   pub value: Option<u32>,
 }
 
@@ -232,10 +339,10 @@ pub enum OptionScope {
   /// Search NixOS options and modular services
   Nixpkgs,
   /// Search home-manager options
-  #[value(name = "home-manager")]
+  #[pound(name = "home-manager")]
   HomeManager,
   /// Search nix-darwin options
-  #[value(name = "nix-darwin")]
+  #[pound(name = "nix-darwin")]
   Darwin,
   /// Search all options (NixOS, services, home-manager, and nix-darwin)
   All,
@@ -283,7 +390,7 @@ impl SearchArgs {
   /// shorthand option search receives package-only flags.
   pub fn resolved_mode(&self) -> Result<ResolvedSearchMode<'_>> {
     match &self.mode {
-      Some(SearchMode::Packages(args)) => {
+      Some(SearchMode::Packages { args }) => {
         Ok(ResolvedSearchMode::Packages {
           channel:   &args.channel.value,
           limit:     args.limit.value,
@@ -292,7 +399,7 @@ impl SearchArgs {
           query:     &args.query,
         })
       },
-      Some(SearchMode::Options(args)) => {
+      Some(SearchMode::Options { args }) => {
         Ok(ResolvedSearchMode::Options {
           channel: &args.channel.value,
           limit:   args.limit.value,
@@ -301,15 +408,15 @@ impl SearchArgs {
           query:   &args.query,
         })
       },
-      Some(SearchMode::Offline(args)) => {
+      Some(SearchMode::Offline { args }) => {
         Ok(ResolvedSearchMode::Offline {
           limit:     args.limit.value,
           databases: &args.databases,
           query:     &args.query,
         })
       },
-      Some(SearchMode::Prs(args)) => Ok(ResolvedSearchMode::Prs(args)),
-      Some(SearchMode::Issues(args)) => Ok(ResolvedSearchMode::Issues(args)),
+      Some(SearchMode::Prs { args }) => Ok(ResolvedSearchMode::Prs(args)),
+      Some(SearchMode::Issues { args }) => Ok(ResolvedSearchMode::Issues(args)),
       None => self.resolved_shorthand_mode(),
     }
   }
@@ -351,44 +458,45 @@ impl SearchArgs {
 
 #[cfg(test)]
 mod tests {
-  use clap::{Parser, Subcommand, error::ErrorKind};
+  use pound::{ErrorKind, Parse};
 
   use super::{SearchArgs, SearchDefault, SearchMode};
 
-  #[derive(Debug, Parser)]
+  #[derive(Debug, Parse)]
   struct TestCli {
-    #[command(subcommand)]
+    #[pound(subcommand)]
     command: TestCommand,
   }
 
-  #[derive(Debug, Subcommand)]
+  #[derive(Debug, Parse)]
   enum TestCommand {
-    Search(SearchArgs),
+    Search {
+      #[pound(flatten)]
+      args: SearchArgs,
+    },
   }
 
-  fn parse_search(args: &[&str]) -> clap::error::Result<SearchArgs> {
-    let cli = TestCli::try_parse_from(
-      std::iter::once("nh").chain(args.iter().copied()),
-    )?;
+  fn parse_search(
+    args: &[&str],
+  ) -> Result<SearchArgs, Box<dyn std::error::Error>> {
+    let cli = TestCli::try_parse_from(args.iter().copied())?;
     match cli.command {
-      TestCommand::Search(search) => Ok(search),
+      TestCommand::Search { args: search } => Ok(search),
     }
   }
 
-  fn parse_search_error(args: &[&str]) -> clap::error::Result<clap::Error> {
+  fn parse_search_error(
+    args: &[&str],
+  ) -> Result<pound::Error, Box<dyn std::error::Error>> {
     match parse_search(args) {
-      Ok(args) => {
-        Err(clap::Error::raw(
-          ErrorKind::InvalidValue,
-          format!("expected parse error, got {args:?}"),
-        ))
-      },
-      Err(err) => Ok(err),
+      Ok(args) => Err(format!("expected parse error, got {args:?}").into()),
+      Err(err) => Ok(*err.downcast::<pound::Error>()?),
     }
   }
 
   #[test]
-  fn online_root_flags_parse_before_subcommand() -> clap::error::Result<()> {
+  fn online_root_flags_parse_before_subcommand()
+  -> Result<(), Box<dyn std::error::Error>> {
     let args = parse_search(&[
       "search",
       "packages",
@@ -399,23 +507,21 @@ mod tests {
     ])?;
 
     match args.mode {
-      Some(SearchMode::Packages(packages)) => {
+      Some(SearchMode::Packages { args: packages }) => {
         assert_eq!(packages.channel.value, "nixos-unstable");
         assert!(packages.platforms.value);
         assert_eq!(packages.query, ["hello"]);
       },
       other => {
-        return Err(clap::Error::raw(
-          ErrorKind::InvalidValue,
-          format!("expected packages mode, got {other:?}"),
-        ));
+        return Err(format!("expected packages mode, got {other:?}").into());
       },
     }
     Ok(())
   }
 
   #[test]
-  fn online_root_flags_parse_after_subcommand() -> clap::error::Result<()> {
+  fn online_root_flags_parse_after_subcommand()
+  -> Result<(), Box<dyn std::error::Error>> {
     let args = parse_search(&[
       "search",
       "packages",
@@ -426,44 +532,40 @@ mod tests {
     ])?;
 
     match args.mode {
-      Some(SearchMode::Packages(packages)) => {
+      Some(SearchMode::Packages { args: packages }) => {
         assert_eq!(packages.channel.value, "nixos-unstable");
         assert!(packages.platforms.value);
         assert_eq!(packages.query, ["hello"]);
       },
       other => {
-        return Err(clap::Error::raw(
-          ErrorKind::InvalidValue,
-          format!("expected packages mode, got {other:?}"),
-        ));
+        return Err(format!("expected packages mode, got {other:?}").into());
       },
     }
     Ok(())
   }
 
   #[test]
-  fn global_limit_and_json_parse_after_subcommand() -> clap::error::Result<()> {
+  fn global_limit_and_json_parse_after_subcommand()
+  -> Result<(), Box<dyn std::error::Error>> {
     let args =
       parse_search(&["search", "packages", "--limit", "5", "--json", "hello"])?;
 
     assert!(args.json);
     match args.mode {
-      Some(SearchMode::Packages(packages)) => {
+      Some(SearchMode::Packages { args: packages }) => {
         assert_eq!(packages.limit.value, 5);
         assert_eq!(packages.query, ["hello"]);
       },
       other => {
-        return Err(clap::Error::raw(
-          ErrorKind::InvalidValue,
-          format!("expected packages mode, got {other:?}"),
-        ));
+        return Err(format!("expected packages mode, got {other:?}").into());
       },
     }
     Ok(())
   }
 
   #[test]
-  fn shorthand_flags_parse_after_query() -> clap::error::Result<()> {
+  fn shorthand_flags_parse_after_query()
+  -> Result<(), Box<dyn std::error::Error>> {
     let args = parse_search(&[
       "search",
       "hello",
@@ -486,7 +588,8 @@ mod tests {
   }
 
   #[test]
-  fn default_search_parses_after_shorthand_query() -> clap::error::Result<()> {
+  fn default_search_parses_after_shorthand_query()
+  -> Result<(), Box<dyn std::error::Error>> {
     let args =
       parse_search(&["search", "hello", "--default-search", "options"])?;
 
@@ -497,7 +600,8 @@ mod tests {
   }
 
   #[test]
-  fn backend_version_flags_parse_and_default() -> clap::error::Result<()> {
+  fn backend_version_flags_parse_and_default()
+  -> Result<(), Box<dyn std::error::Error>> {
     let args = parse_search(&[
       "search",
       "packages",
@@ -509,45 +613,39 @@ mod tests {
     ])?;
 
     match args.mode {
-      Some(SearchMode::Packages(packages)) => {
+      Some(SearchMode::Packages { args: packages }) => {
         assert_eq!(packages.backend.version, Some(51));
         assert_eq!(packages.backend.fallbacks, 3);
       },
       other => {
-        return Err(clap::Error::raw(
-          ErrorKind::InvalidValue,
-          format!("expected packages mode, got {other:?}"),
-        ));
+        return Err(format!("expected packages mode, got {other:?}").into());
       },
     }
 
     let defaults = parse_search(&["search", "options", "hello"])?;
     match defaults.mode {
-      Some(SearchMode::Options(options)) => {
+      Some(SearchMode::Options { args: options }) => {
         assert_eq!(options.backend.version, None);
         assert_eq!(options.backend.fallbacks, 1);
       },
       other => {
-        return Err(clap::Error::raw(
-          ErrorKind::InvalidValue,
-          format!("expected options mode, got {other:?}"),
-        ));
+        return Err(format!("expected options mode, got {other:?}").into());
       },
     }
     Ok(())
   }
 
   #[test]
-  fn options_reject_platforms() -> clap::error::Result<()> {
+  fn options_reject_platforms() -> Result<(), Box<dyn std::error::Error>> {
     let err =
       parse_search_error(&["search", "options", "hello", "--platforms"])?;
 
-    assert_eq!(err.kind(), ErrorKind::UnknownArgument);
+    assert!(matches!(err.kind, ErrorKind::Unknown { .. }));
     Ok(())
   }
 
   #[test]
-  fn offline_rejects_channel() -> clap::error::Result<()> {
+  fn offline_rejects_channel() -> Result<(), Box<dyn std::error::Error>> {
     let err = parse_search(&[
       "search",
       "offline",
@@ -559,100 +657,88 @@ mod tests {
     ]);
     let err = match err {
       Ok(args) => {
-        return Err(clap::Error::raw(
-          ErrorKind::InvalidValue,
-          format!("expected parse error, got {args:?}"),
-        ));
+        return Err(format!("expected parse error, got {args:?}").into());
       },
-      Err(err) => err,
+      Err(err) => *err.downcast::<pound::Error>()?,
     };
 
-    assert_eq!(err.kind(), ErrorKind::UnknownArgument);
+    assert!(matches!(err.kind, ErrorKind::Unknown { .. }));
     Ok(())
   }
 
   #[test]
-  fn prs_accepts_variadic_query_and_days_after_query() -> clap::error::Result<()>
-  {
+  fn prs_accepts_variadic_query_and_days_after_query()
+  -> Result<(), Box<dyn std::error::Error>> {
     let args = parse_search(&["search", "prs", "foo", "bar", "--days", "30"])?;
 
     match args.mode {
-      Some(SearchMode::Prs(prs)) => {
+      Some(SearchMode::Prs { args: prs }) => {
         assert_eq!(prs.days.value, Some(30));
         assert_eq!(prs.query, ["foo", "bar"]);
       },
       other => {
-        return Err(clap::Error::raw(
-          ErrorKind::InvalidValue,
-          format!("expected prs mode, got {other:?}"),
-        ));
+        return Err(format!("expected prs mode, got {other:?}").into());
       },
     }
     Ok(())
   }
 
   #[test]
-  fn prs_accepts_json_after_query() -> clap::error::Result<()> {
+  fn prs_accepts_json_after_query() -> Result<(), Box<dyn std::error::Error>> {
     let args = parse_search(&["search", "prs", "hello", "--json"])?;
 
     assert!(args.json);
     match args.mode {
-      Some(SearchMode::Prs(prs)) => {
+      Some(SearchMode::Prs { args: prs }) => {
         assert_eq!(prs.query, ["hello"]);
       },
       other => {
-        return Err(clap::Error::raw(
-          ErrorKind::InvalidValue,
-          format!("expected prs mode, got {other:?}"),
-        ));
+        return Err(format!("expected prs mode, got {other:?}").into());
       },
     }
     Ok(())
   }
 
   #[test]
-  fn prs_rejects_limit() -> clap::error::Result<()> {
+  fn prs_rejects_limit() -> Result<(), Box<dyn std::error::Error>> {
     let err = parse_search_error(&["search", "prs", "hello", "--limit", "5"])?;
 
-    assert_eq!(err.kind(), ErrorKind::UnknownArgument);
+    assert!(matches!(err.kind, ErrorKind::Unknown { .. }));
     Ok(())
   }
 
   #[test]
-  fn prs_rejects_zero_days() -> clap::error::Result<()> {
+  fn prs_rejects_zero_days() -> Result<(), Box<dyn std::error::Error>> {
     let err = parse_search_error(&["search", "prs", "hello", "--days", "0"])?;
 
-    assert_eq!(err.kind(), ErrorKind::ValueValidation);
+    assert!(matches!(err.kind, ErrorKind::Value { .. }));
     Ok(())
   }
 
   #[test]
   fn issues_accepts_variadic_query_and_days_after_query()
-  -> clap::error::Result<()> {
+  -> Result<(), Box<dyn std::error::Error>> {
     let args =
       parse_search(&["search", "issues", "foo", "bar", "--days", "30"])?;
 
     match args.mode {
-      Some(SearchMode::Issues(issues)) => {
+      Some(SearchMode::Issues { args: issues }) => {
         assert_eq!(issues.days.value, Some(30));
         assert_eq!(issues.query, ["foo", "bar"]);
       },
       other => {
-        return Err(clap::Error::raw(
-          ErrorKind::InvalidValue,
-          format!("expected issues mode, got {other:?}"),
-        ));
+        return Err(format!("expected issues mode, got {other:?}").into());
       },
     }
     Ok(())
   }
 
   #[test]
-  fn issues_rejects_limit() -> clap::error::Result<()> {
+  fn issues_rejects_limit() -> Result<(), Box<dyn std::error::Error>> {
     let err =
       parse_search_error(&["search", "issues", "hello", "--limit", "5"])?;
 
-    assert_eq!(err.kind(), ErrorKind::UnknownArgument);
+    assert!(matches!(err.kind, ErrorKind::Unknown { .. }));
     Ok(())
   }
 }

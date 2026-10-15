@@ -1,9 +1,6 @@
 use std::{path::PathBuf, time::Instant};
 
-use color_eyre::{
-  Result,
-  eyre::{Context, bail},
-};
+use misstep::{Result, ResultExt, bail};
 use spam_db::{FileRecord, OptionRecord, SpamDb};
 use tracing::debug;
 use yansi::{Color, Paint};

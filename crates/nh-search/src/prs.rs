@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use color_eyre::Result;
+use misstep::Result;
 use serde::Serialize;
 
 use crate::{

@@ -1,4 +1,4 @@
-use color_eyre::{Result, eyre::bail};
+use misstep::{Result, bail};
 use tracing::warn;
 
 // List of deprecated NixOS versions.

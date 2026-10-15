@@ -6,10 +6,7 @@ use std::{
   sync::{LazyLock, OnceLock},
 };
 
-use color_eyre::{
-  Result,
-  eyre::{self, Context, bail, eyre},
-};
+use misstep::{OptionExt, Result, ResultExt, bail, report};
 use nix_command::{CommandKind, NixCommand};
 use regex::Regex;
 use serde::Deserialize;
@@ -45,7 +42,7 @@ fn capture_nix_stdout(command: &NixCommand) -> Result<String> {
   let command_text = format_argv(&argv);
   let output = command
     .output()
-    .wrap_err_with(|| format!("Failed to run {command_text}"))?;
+    .with_context(|| format!("Failed to run {command_text}"))?;
 
   if !output.status.success() {
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -60,7 +57,8 @@ fn capture_nix_stdout(command: &NixCommand) -> Result<String> {
   }
 
   String::from_utf8(output.stdout)
-    .wrap_err_with(|| format!("{command_text} produced non-UTF-8 stdout"))
+    .with_context(|| format!("{command_text} produced non-UTF-8 stdout"))
+    .erase()
 }
 
 /// Fetches and caches the raw output from `nix --version` command.
@@ -208,10 +206,10 @@ pub fn get_nix_version() -> Result<String> {
 
   let version_str = output
     .as_ref()
-    .ok_or_else(|| eyre::eyre!("No output from nix --version command"))?
+    .context("No output from nix --version command")?
     .lines()
     .next()
-    .ok_or_else(|| eyre::eyre!("No version string found"))?;
+    .context("No version string found")?;
 
   Ok(version_str.to_string())
 }
@@ -284,16 +282,16 @@ pub fn get_hostname(supplied_hostname: Option<String>) -> Result<String> {
   }
   #[cfg(not(target_os = "macos"))]
   {
-    use color_eyre::eyre::Context;
+    use misstep::ResultExt;
 
     nix::unistd::gethostname()
       .context("Failed to get hostname, and no hostname supplied")?
       .into_string()
-      .map_err(|_| eyre::eyre!("Hostname contains invalid UTF-8"))
+      .map_err(|_| report!("Hostname contains invalid UTF-8"))
   }
   #[cfg(target_os = "macos")]
   {
-    use color_eyre::eyre::bail;
+    use misstep::bail;
     use system_configuration::{
       core_foundation::{base::TCFType, string::CFString},
       sys::dynamic_store_copy_specific::SCDynamicStoreCopyLocalHostName,
@@ -481,7 +479,7 @@ pub fn get_build_image_variants_with_args(
       attribute,
     } => (expression.clone(), attribute),
     _ => {
-      return Err(eyre!(
+      return Err(report!(
         "get_build_image_variants only supports file and expression \
          installables"
       ));
@@ -514,7 +512,9 @@ in
       .arg(expr),
   )?;
 
-  serde_json::from_str(&result).wrap_err("Failed to parse image variants JSON")
+  serde_json::from_str(&result)
+    .context("Failed to parse image variants JSON")
+    .erase()
 }
 
 fn nix_string(value: &str) -> String {
@@ -586,7 +586,7 @@ pub fn get_build_image_variants_flake_with_args(
   )?;
 
   let variants: Vec<String> = serde_json::from_str(&result)
-    .wrap_err("Failed to parse image variants JSON")?;
+    .context("Failed to parse image variants JSON")?;
 
   Ok(variants)
 }

@@ -6,10 +6,7 @@ use std::{
   path::{Path, PathBuf},
 };
 
-use color_eyre::{
-  Result,
-  eyre::{Context, bail},
-};
+use misstep::{OptionExt, Result, ResultExt, bail};
 use secrecy::{ExposeSecret, SecretString};
 use yansi::Paint;
 
@@ -127,13 +124,14 @@ pub(super) fn token_recovery_hint() -> String {
 }
 
 fn read_token_file(path: &Path) -> Result<Option<SecretString>> {
-  let raw = match fs::read_to_string(path) {
-    Ok(raw) => raw,
-    Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
-    Err(err) => {
-      return Err(err)
-        .with_context(|| format!("failed to read {}", path.display()));
-    },
+  let Some(raw) = fs::read_to_string(path)
+    .map(Some)
+    .recover_if::<io::Error, _>(|error| {
+      (error.kind() == io::ErrorKind::NotFound).then_some(None)
+    })
+    .with_context(|| format!("failed to read {}", path.display()))?
+  else {
+    return Ok(None);
   };
   token_from_str(&raw, TokenSource::File(path))
 }
@@ -214,8 +212,8 @@ fn invalid_token_message(source: TokenSource<'_>) -> String {
 /// - Returns an error if the token cannot be written to a temporary file.
 /// - Returns an error if the temporary file cannot persisted to the target path
 fn write_token_file(path: &Path, token: &SecretString) -> Result<()> {
-  let parent_dir = path.parent().ok_or_else(|| {
-    color_eyre::eyre::eyre!(
+  let parent_dir = path.parent().with_context(|| {
+    format!(
       "Invalid token path {}: no parent directory found",
       path.display()
     )
@@ -265,10 +263,7 @@ fn write_token_file(path: &Path, token: &SecretString) -> Result<()> {
 mod tests {
   use std::{env, fs, os::unix::fs::PermissionsExt};
 
-  use color_eyre::{
-    Result,
-    eyre::{ContextCompat, bail},
-  };
+  use misstep::{OptionExt, Result, bail};
   use secrecy::ExposeSecret;
   use serial_test::serial;
   use tempfile::tempdir;

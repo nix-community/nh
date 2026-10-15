@@ -1,4 +1,4 @@
-use color_eyre::Result;
+use misstep::Result;
 
 fn main() -> Result<()> {
   nh::main()

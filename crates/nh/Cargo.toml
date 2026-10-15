@@ -11,19 +11,18 @@ rust-version.workspace = true
 default-run            = "nh"
 
 [dependencies]
-anstyle.workspace             = true
-clap.workspace                = true
-clap-verbosity-flag.workspace = true
-color-eyre.workspace          = true
-nh-clean.workspace            = true
-nh-core.workspace             = true
-nh-darwin.workspace           = true
-nh-home.workspace             = true
-nh-nixos.workspace            = true
-nh-search.workspace           = true
-tracing.workspace             = true
-tracing-subscriber.workspace  = true
-yansi.workspace               = true
+caress.workspace             = true
+misstep.workspace            = true
+nh-clean.workspace           = true
+nh-core.workspace            = true
+nh-darwin.workspace          = true
+nh-home.workspace            = true
+nh-nixos.workspace           = true
+nh-search.workspace          = true
+pound.workspace              = true
+tracing.workspace            = true
+tracing-subscriber.workspace = true
+yansi.workspace              = true
 
 [dev-dependencies]
 serial_test.workspace = true

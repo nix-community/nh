@@ -25,19 +25,17 @@ nh-search      = { path = "crates/nh-search", version = "4.5.0-beta1" }
 nix-command     = { path = "crates/nix-command", version = "0.2.4" }
 nix-installable = { path = "crates/nix-installable", version = "0.1.0" }
 
-anstyle               = "1.0.13"
-clap                  = { features = [ "cargo", "color", "derive", "env", "unstable-styles" ], version = "4.5.51" }
-clap-verbosity-flag   = { default-features = false, features = [ "tracing" ], version = "3.0.4" }
-clap_complete         = "4.5.61"
-clap_complete_nushell = "4.5.10"
-clap_mangen           = { features = [ "env" ], version = "0.3.0" }
-color-eyre            = { default-features = false, features = [ "track-caller" ], version = "0.6.5" }
-dix                   = "2.1.0"
-elasticsearch-dsl     = "0.4.24"
-humantime             = "2.3.0"
-indicatif             = "0.18.4"
-inquire               = { default-features = false, features = [ "crossterm" ], version = "0.9.1" }
-jiff                  = { default-features = false, features = [ "std", "tzdb-zoneinfo" ], version = "0.2.35" }
+caress            = "0.2.1"
+dix               = "2.2.0"
+elasticsearch-dsl = "0.4.24"
+flub              = "0.1.0"
+humantime         = "2.3.0"
+indicatif         = "0.18.4"
+inquire           = { default-features = false, features = [ "crossterm" ], version = "0.9.1" }
+jiff              = { default-features = false, features = [ "std", "tzdb-zoneinfo" ], version = "0.2.35" }
+misstep           = { features = [ "pretty", "color", "panic-hook", "location", "backtrace" ], version = "0.4.1" }
+pound             = "0.5.2"
+spam-db           = "0.2.4"
 
 nix = { default-features = false, features = [ "fs", "user", "hostname" ], version = "0.31.1" }
 proptest = "1.9.0"
@@ -47,7 +45,6 @@ reqwest = { default-features = false, features = [
   "json",
   "rustls",
 ], version = "0.13.1" }
-roff = "1.0.0"
 secrecy = { features = [ "serde" ], version = "0.10.3" }
 semver = "1.0.27"
 serde = { features = [ "derive" ], version = "1.0.228" }
@@ -55,13 +52,11 @@ serde_json = "1.0.145"
 serial_test = "3.2.0"
 shlex = "2.0.1"
 signal-hook = "0.4.1"
-spam-db = "0.2.4"
 subprocess = "1.0.3"
 supports-hyperlinks = "3.1.0"
 system-configuration = "0.8.0"
 tempfile = "3.23.0"
 textwrap = { features = [ "terminal_size" ], version = "0.16.2" }
-thiserror = "2.0.17"
 toml_edit = "0.25.12"
 tracing = "0.1.41"
 tracing-subscriber = { features = [ "env-filter", "registry", "std" ], version = "0.3.20" }

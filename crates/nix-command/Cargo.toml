@@ -9,8 +9,8 @@ homepage.workspace     = true
 publish                = true
 
 [dependencies]
+flub.workspace       = true
 subprocess.workspace = true
-thiserror.workspace  = true
 
 [lints]
 workspace = true
