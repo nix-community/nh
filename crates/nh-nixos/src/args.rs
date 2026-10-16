@@ -113,8 +113,11 @@ pub struct OsBuildImageArgs {
   pub common: OsRebuildArgs,
 
   /// Image variant
+  ///
+  /// If not provided, the command will fallback to
+  /// `config.system.build.isoImage`.
   #[arg(long)]
-  pub image_variant: String,
+  pub image_variant: Option<String>,
 }
 
 #[derive(Debug, Args)]
