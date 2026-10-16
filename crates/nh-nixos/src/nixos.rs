@@ -1070,13 +1070,14 @@ impl OsRollbackArgs {
 impl OsBuildImageArgs {
   fn build_image(self, elevation: &ElevationStrategy) -> Result<()> {
     let (_, target_hostname) = self.common.setup_build_context(elevation)?;
+    let display_variant = self.image_variant.as_deref().unwrap_or("isoImage");
 
     // Show warning if no hostname was explicitly provided for image builds
     if self.common.hostname.is_none() {
       tracing::warn!(
         "Guessing system is {target_hostname} for an image ({}). If this \
          isn't intended, use --hostname to change.",
-        self.image_variant
+        display_variant
       );
     }
 
@@ -1097,44 +1098,52 @@ impl OsBuildImageArgs {
       )?;
     }
 
-    // Get the available image variants for validation
-    let (valid_variants, legacy_attribute) = match &installable {
-      Installable::Flake { .. } => {
-        let images_installable =
-          toplevel_for(&target_hostname, installable.clone(), &[
-            "config", "system", "build", "images",
-          ])?;
-        let variants = get_build_image_variants_flake_with_args(
-          &images_installable,
-          self.common.common.passthrough.generate_evaluation_args(),
-        )?;
-        (variants, None)
-      },
-      Installable::File { .. } | Installable::Expression { .. } => {
-        let images = get_build_image_variants_with_args(
-          &installable,
-          &target_hostname,
-          self
-            .common
-            .common
-            .passthrough
-            .generate_legacy_evaluation_args(),
-        )?;
-        (images.variants, Some(images.attribute))
-      },
-      Installable::Store { .. } => {
-        bail!("Unsupported installable type for image building")
-      },
-    };
-
-    // Validate that the requested variant exists
-    if !valid_variants.contains(&self.image_variant) {
-      bail!(
-        "Invalid image variant '{}'. Available variants:\n- {}",
-        self.image_variant,
-        valid_variants.join("\n- ")
-      );
+    if matches!(installable, Installable::Store { .. }) {
+      bail!("Unsupported installable type for image building")
     }
+
+    let legacy_attribute = if let Some(ref variant) = self.image_variant {
+      let (valid_variants, attribute) = match &installable {
+        Installable::Flake { .. } => {
+          let images_installable =
+            toplevel_for(&target_hostname, installable.clone(), &[
+              "config", "system", "build", "images",
+            ])?;
+          let variants = get_build_image_variants_flake_with_args(
+            &images_installable,
+            self.common.common.passthrough.generate_evaluation_args(),
+          )?;
+          (variants, None)
+        },
+        Installable::File { .. } | Installable::Expression { .. } => {
+          let images = get_build_image_variants_with_args(
+            &installable,
+            &target_hostname,
+            self
+              .common
+              .common
+              .passthrough
+              .generate_legacy_evaluation_args(),
+          )?;
+          (images.variants, Some(images.attribute))
+        },
+        #[expect(clippy::unreachable)]
+        Installable::Store { .. } => unreachable!("already checked above"),
+      };
+
+      // Validate that the requested variant exists
+      if !valid_variants.contains(variant) {
+        bail!(
+          "Invalid image variant '{}'. Available variants:\n- {}",
+          variant,
+          valid_variants.join("\n- ")
+        );
+      }
+
+      attribute
+    } else {
+      None
+    };
 
     if let Some(selected) = legacy_attribute
       && let Installable::File { attribute, .. }
@@ -1146,7 +1155,7 @@ impl OsBuildImageArgs {
     if self.common.common.dry {
       info!(
         "Dry run: would build NixOS image '{}' ({:?})",
-        self.image_variant, installable
+        display_variant, installable
       );
       return Ok(());
     }
@@ -1156,7 +1165,10 @@ impl OsBuildImageArgs {
     rebuild.update_args.update_input = None;
     rebuild.common.installable = InstallableArgs::Specified(installable);
 
-    let attrs = ["images", &self.image_variant];
+    let attrs = self
+      .image_variant
+      .as_deref()
+      .map_or_else(|| vec!["isoImage"], |variant| vec!["images", variant]);
     rebuild.build_only(&OsRebuildVariant::BuildIso, Some(&attrs), elevation)?;
 
     Ok(())
