@@ -8,12 +8,12 @@ license.workspace      = true
 publish                = true
 
 [dependencies]
-clap.workspace                = true
-color-eyre.workspace          = true
 elasticsearch-dsl.workspace   = true
 inquire.workspace             = true
 jiff.workspace                = true
+misstep.workspace             = true
 nh-core.workspace             = true
+pound.workspace               = true
 regex.workspace               = true
 reqwest.workspace             = true
 secrecy.workspace             = true

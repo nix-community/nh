@@ -1,4 +1,3 @@
-use clap::{Args, Subcommand};
 use nh_core::{
   args::CommonRebuildArgs,
   checks::{
@@ -11,13 +10,14 @@ use nh_core::{
 };
 use nh_installable::{CommandContext, InstallableArgs};
 use nh_remote::RemoteHost;
+use pound::Parse;
 
 /// Nix-darwin functionality
 ///
 /// Implements functionality mostly around but not exclusive to darwin-rebuild
-#[derive(Debug, Args)]
+#[derive(Debug, Parse)]
 pub struct DarwinArgs {
-  #[command(subcommand)]
+  #[pound(subcommand)]
   pub subcommand: DarwinSubcommand,
 }
 
@@ -25,11 +25,11 @@ impl DarwinArgs {
   #[must_use]
   pub fn get_feature_requirements(&self) -> Box<dyn FeatureRequirements> {
     match &self.subcommand {
-      DarwinSubcommand::Repl(args) => {
+      DarwinSubcommand::Repl { args } => {
         let is_flake = args.uses_flakes();
         Box::new(DarwinReplFeatures { is_flake })
       },
-      DarwinSubcommand::Switch(args) | DarwinSubcommand::Build(args) => {
+      DarwinSubcommand::Switch { args } | DarwinSubcommand::Build { args } => {
         if args.uses_flakes() {
           Box::new(FlakeFeatures)
         } else {
@@ -40,43 +40,52 @@ impl DarwinArgs {
   }
 }
 
-#[derive(Debug, Subcommand)]
+#[derive(Debug, Parse)]
 pub enum DarwinSubcommand {
   /// Build and activate a nix-darwin configuration
-  Switch(DarwinRebuildArgs),
+  Switch {
+    #[pound(flatten)]
+    args: DarwinRebuildArgs,
+  },
   /// Build a nix-darwin configuration
-  Build(DarwinRebuildArgs),
+  Build {
+    #[pound(flatten)]
+    args: DarwinRebuildArgs,
+  },
   /// Load a nix-darwin configuration in a Nix REPL
-  Repl(DarwinReplArgs),
+  Repl {
+    #[pound(flatten)]
+    args: DarwinReplArgs,
+  },
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, Parse)]
 pub struct DarwinRebuildArgs {
-  #[command(flatten)]
+  #[pound(flatten)]
   pub common: CommonRebuildArgs,
 
-  #[command(flatten)]
+  #[pound(flatten)]
   pub update_args: UpdateArgs,
 
   /// When using a flake installable, select this hostname from
   /// darwinConfigurations
-  #[arg(long, short = 'H', global = true)]
+  #[pound(long, short = 'H', global)]
   pub hostname: Option<String>,
 
   /// Extra arguments passed to nix build
-  #[arg(last = true)]
+  #[pound(last)]
   pub extra_args: Vec<String>,
 
   /// Don't panic if calling nh as root
-  #[arg(short = 'R', long, env = "NH_BYPASS_ROOT_CHECK")]
+  #[pound(short = 'R', long, env = "NH_BYPASS_ROOT_CHECK")]
   pub bypass_root_check: bool,
 
   /// Show activation logs
-  #[arg(long, env = "NH_SHOW_ACTIVATION_LOGS", value_parser = clap::builder::BoolishValueParser::new())]
+  #[pound(long, env = "NH_SHOW_ACTIVATION_LOGS")]
   pub show_activation_logs: bool,
 
   /// Build the configuration on a different host over SSH
-  #[arg(long)]
+  #[pound(long, parse = str::parse::<RemoteHost>)]
   pub build_host: Option<RemoteHost>,
 }
 
@@ -87,14 +96,14 @@ impl DarwinRebuildArgs {
   }
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, Parse)]
 pub struct DarwinReplArgs {
-  #[command(flatten)]
+  #[pound(flatten)]
   pub installable: InstallableArgs,
 
   /// When using a flake installable, select this hostname from
   /// darwinConfigurations
-  #[arg(long, short = 'H', global = true)]
+  #[pound(long, short = 'H', global)]
   pub hostname: Option<String>,
 }
 

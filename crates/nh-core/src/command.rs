@@ -9,15 +9,12 @@ use std::{
   sync::{Mutex, OnceLock},
 };
 
-use color_eyre::{
-  Result,
-  eyre::{self, Context, bail},
-};
+use flub::Error;
+use misstep::{OptionExt, Result, ResultExt, bail, report};
 use nh_installable::Installable;
 pub use nix_command::{CommandKind, NixCommand};
 use secrecy::{ExposeSecret, SecretString};
 use subprocess::{Exec, ExitStatus, Redirection};
-use thiserror::Error;
 use tracing::{debug, info, warn};
 use which::which;
 
@@ -71,12 +68,9 @@ pub fn exec_with_streaming(
   let mut job = cmd
     .stdout(Redirection::Pipe)
     .start()
-    .wrap_err("Failed to start command")?;
+    .context("Failed to start command")?;
 
-  let stdout_pipe = job
-    .stdout
-    .take()
-    .ok_or_else(|| eyre::eyre!("Failed to capture stdout"))?;
+  let stdout_pipe = job.stdout.take().context("Failed to capture stdout")?;
 
   let stdout_thread = std::thread::spawn(move || {
     let mut stdout_reader = std::io::BufReader::new(stdout_pipe);
@@ -140,13 +134,13 @@ pub fn exec_with_streaming(
 
   let exit_status = job
     .wait()
-    .wrap_err("Failed to wait for command completion")?;
+    .context("Failed to wait for command completion")?;
 
   let stdout_output = stdout_thread
     .join()
-    .map_err(|_| eyre::eyre!("Stdout thread panicked"))?;
+    .map_err(|_| report!("Stdout thread panicked"))?;
   let stderr_output = stderr_thread
-    .map(|t| t.join().map_err(|_| eyre::eyre!("Stderr thread panicked")))
+    .map(|t| t.join().map_err(|_| report!("Stderr thread panicked")))
     .transpose()?
     .unwrap_or_default();
 
@@ -175,7 +169,7 @@ pub fn get_cached_password(host: &str) -> Result<Option<SecretString>> {
   let cache = PASSWORD_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
   let guard = cache
     .lock()
-    .map_err(|_| eyre::eyre!("Password cache lock poisoned"))?;
+    .map_err(|_| report!("Password cache lock poisoned"))?;
   Ok(guard.get(host).cloned())
 }
 
@@ -200,7 +194,7 @@ pub fn cache_password(host: &str, password: SecretString) -> Result<()> {
 
   cache
     .lock()
-    .map_err(|_| eyre::eyre!("Password cache lock poisoned"))?
+    .map_err(|_| report!("Password cache lock poisoned"))?
     .insert(host.to_string(), password);
 
   Ok(())
@@ -345,9 +339,11 @@ impl ElevationStrategy {
         })
       },
       Self::Force(program_name) => {
-        which(program_name).context(format!(
-          "Forced elevation program '{program_name}' not found in PATH"
-        ))
+        which(program_name)
+          .context(format!(
+            "Forced elevation program '{program_name}' not found in PATH"
+          ))
+          .erase()
       },
       // Only reachable if resolve() is called directly. Safe since callers
       // check is_some() before invoking resolve().
@@ -414,7 +410,7 @@ impl ElevationStrategy {
       }
     }
 
-    Err(eyre::eyre!(
+    Err(report!(
       "No elevation strategy found. Checked: {}",
       STRATEGIES.join(", ")
     ))
@@ -637,7 +633,7 @@ impl Command {
     let elevation_strategy = self
       .elevate
       .as_ref()
-      .ok_or_else(|| eyre::eyre!("Command not found for elevation"))?;
+      .context("Command not found for elevation")?;
 
     let elevation_program = elevation_strategy
       .resolve()
@@ -651,9 +647,7 @@ impl Command {
     let program_name = elevation_program
       .file_name()
       .and_then(|name| name.to_str())
-      .ok_or_else(|| {
-        eyre::eyre!("Failed to determine elevation program name")
-      })?;
+      .context("Failed to determine elevation program name")?;
     if program_name == "sudo"
       && !matches!(elevation_strategy, ElevationStrategy::Passwordless)
       && let Ok(askpass) = env::var("NH_SUDO_ASKPASS")
@@ -700,7 +694,7 @@ impl Command {
     let elevation_program = self
       .elevate
       .as_ref()
-      .ok_or_else(|| eyre::eyre!("Command not found for elevation"))?
+      .context("Command not found for elevation")?
       .resolve()
       .context("Failed to resolve elevation program")?;
 
@@ -709,9 +703,7 @@ impl Command {
     let program_name = elevation_program
       .file_name()
       .and_then(|name| name.to_str())
-      .ok_or_else(|| {
-        eyre::eyre!("Failed to determine elevation program name")
-      })?;
+      .context("Failed to determine elevation program name")?;
     if program_name == "sudo"
       && let Ok(_askpass) = env::var("NH_SUDO_ASKPASS")
     {
@@ -803,9 +795,10 @@ impl Command {
     // Note: Only sudo supports stdin password input. For remote deployments
     // with doas/run0, use --elevation-strategy=passwordless instead.
     let sudo_password = if self.ssh.is_some() && self.elevate.is_some() {
-      let host = self.ssh.as_ref().ok_or_else(|| {
-        eyre::eyre!("SSH host is None but elevation is required")
-      })?;
+      let host = self
+        .ssh
+        .as_ref()
+        .context("SSH host is None but elevation is required")?;
       if let Some(cached_password) = get_cached_password(host)? {
         Some(cached_password)
       } else {
@@ -833,18 +826,14 @@ impl Command {
       let elevation_program = self
         .elevate
         .as_ref()
-        .ok_or_else(|| {
-          eyre::eyre!("Elevation program is None but elevation is required")
-        })?
+        .context("Elevation program is None but elevation is required")?
         .resolve_remote()
         .context("Failed to resolve elevation program")?;
 
       let program_name = elevation_program
         .file_name()
         .and_then(|name| name.to_str())
-        .ok_or_else(|| {
-          eyre::eyre!("Failed to determine elevation program name")
-        })?;
+        .context("Failed to determine elevation program name")?;
 
       let mut elev_cmd = Exec::cmd(&elevation_program);
 
@@ -907,12 +896,9 @@ impl Command {
       .unwrap_or_else(|| "Command failed".to_string());
 
     if self.show_output {
-      let exit_status = cmd.join().wrap_err(msg.clone())?;
+      let exit_status = cmd.join().context(msg.clone())?;
       if !exit_status.success() {
-        return Err(eyre::eyre!(format!(
-          "{} (exit status {:?})",
-          msg, exit_status
-        )));
+        return Err(report!("{} (exit status {:?})", msg, exit_status));
       }
       Ok(())
     } else {
@@ -923,19 +909,18 @@ impl Command {
           if !status.success() {
             let stderr = capture.stderr_str();
             if stderr.trim().is_empty() {
-              return Err(eyre::eyre!(format!(
-                "{} (exit status {:?})",
-                msg, status
-              )));
+              return Err(report!("{} (exit status {:?})", msg, status));
             }
-            return Err(eyre::eyre!(format!(
+            return Err(report!(
               "{} (exit status {:?})\nstderr:\n{}",
-              msg, status, stderr
-            )));
+              msg,
+              status,
+              stderr
+            ));
           }
           Ok(())
         },
-        Err(e) => Err(e).wrap_err(msg),
+        Err(e) => Err(e).context(msg).erase(),
       }
     }
   }

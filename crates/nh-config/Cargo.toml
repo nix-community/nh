@@ -7,8 +7,8 @@ license.workspace      = true
 rust-version.workspace = true
 
 [dependencies]
-color-eyre.workspace = true
-toml_edit.workspace  = true
+misstep.workspace   = true
+toml_edit.workspace = true
 
 [dev-dependencies]
 serial_test.workspace = true

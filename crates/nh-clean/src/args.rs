@@ -1,86 +1,90 @@
 use std::path::PathBuf;
 
-use clap::{Args, Subcommand};
+use pound::Parse;
 
 // Needed a struct to have multiple sub-subcommands
-#[derive(Debug, Clone, Args)]
+#[derive(Debug, Clone, Parse)]
 pub struct CleanProxy {
-  #[clap(subcommand)]
+  #[pound(subcommand)]
   pub command: CleanMode,
 }
 
-#[derive(Debug, Clone, Subcommand)]
+#[derive(Debug, Clone, Parse)]
 /// Enhanced nix cleanup
 pub enum CleanMode {
   /// Clean all profiles
-  All(CleanArgs),
+  All {
+    #[pound(flatten)]
+    args: CleanArgs,
+  },
   /// Clean the current user's profiles
-  User(CleanArgs),
+  User {
+    #[pound(flatten)]
+    args: CleanArgs,
+  },
   /// Clean a specific profile
-  Profile(CleanProfileArgs),
+  Profile {
+    #[pound(flatten)]
+    args: CleanProfileArgs,
+  },
 }
 
-#[derive(Args, Clone, Debug)]
+#[derive(Clone, Debug, Parse)]
 pub struct CleanArgs {
-  #[arg(long, short, default_value = "1")]
   /// At least keep this number of generations
+  #[pound(long, short, default = "1")]
   pub keep: u32,
 
-  #[arg(long, short = 'K', default_value = "0h")]
   /// At least keep gcroots and generations in this time range since now.
   ///
   /// See the documentation of humantime for possible formats: <https://docs.rs/humantime/latest/humantime/fn.parse_duration.html>
+  #[pound(long, short = 'K', default = "0h", parse = str::parse::<humantime::Duration>)]
   pub keep_since:     humantime::Duration,
   /// Allow removing the selected generation when it exceeds retention limits.
   /// This can leave the profile symlink dangling.
-  #[arg(long)]
+  #[pound(long)]
   pub delete_current: bool,
 
   /// Only print actions, without performing them
-  #[arg(long, short = 'n')]
+  #[pound(long, short = 'n')]
   pub dry: bool,
 
   /// Ask for confirmation
-  #[arg(
-    long,
-    short,
-    env = "NH_ASK",
-    value_parser = clap::builder::BoolishValueParser::new()
-  )]
+  #[pound(long, short, env = "NH_ASK")]
   pub ask: bool,
 
   /// Don't run nix store --gc
-  #[arg(long = "no-gc", alias = "nogc")]
+  #[pound(long = "no-gc", alias = "nogc")]
   pub no_gc: bool,
 
   /// Don't clean gcroots
-  #[arg(long = "no-gcroots", alias = "nogcroots")]
+  #[pound(long = "no-gcroots", alias = "nogcroots")]
   pub no_gcroots: bool,
 
   /// Don't clean direnv gcroots
-  #[arg(long = "no-direnv", alias = "nodirenv")]
+  #[pound(long = "no-direnv", alias = "nodirenv")]
   pub no_direnv: bool,
 
   /// Run nix-store --optimise after gc
-  #[arg(long)]
+  #[pound(long)]
   pub optimise: bool,
 
   /// Pass --max to nix store gc
-  #[arg(long)]
+  #[pound(long)]
   pub max: Option<String>,
 
   /// Keep at least one gcroot per direnv project
-  #[arg(long)]
+  #[pound(long)]
   pub keep_one: bool,
 
   /// Cross filesystem boundaries when scanning gcroots
-  #[arg(long, short = 'x')]
+  #[pound(long, short = 'x')]
   pub cross_filesystems: bool,
 }
 
-#[derive(Debug, Clone, Args)]
+#[derive(Debug, Clone, Parse)]
 pub struct CleanProfileArgs {
-  #[command(flatten)]
+  #[pound(flatten)]
   pub common: CleanArgs,
 
   /// Which profile to clean

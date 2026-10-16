@@ -5,10 +5,10 @@ use std::{
   process,
 };
 
-use clap::ValueEnum;
-use color_eyre::eyre::Result;
 use jiff::{Timestamp, tz::TimeZone};
+use misstep::Result;
 use nh_core::command::{CommandKind, NixCommand};
+use pound::ValueEnum;
 use serde::Serialize;
 use tracing::{debug, warn};
 
@@ -57,7 +57,7 @@ pub enum Field {
   Kernel,
 
   /// Configuration Revision
-  #[clap(name = "confRev")]
+  #[pound(name = "confRev")]
   Confrev,
 
   /// Specialisations

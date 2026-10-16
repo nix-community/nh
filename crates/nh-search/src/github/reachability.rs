@@ -1,6 +1,6 @@
 use std::thread;
 
-use color_eyre::{Report, Result, eyre::ContextCompat};
+use misstep::{OptionExt, Result};
 use serde_json::{Map, Value, json};
 
 use super::transport::GraphqlClient;
@@ -50,7 +50,7 @@ fn probe_chunk(
   match compare_branches(client, requests) {
     Ok(results) => results,
     Err(err) => {
-      let reason = error_chain(&err);
+      let reason = err.to_string();
       requests
         .iter()
         .map(|request| {
@@ -152,14 +152,6 @@ fn compare_status_to_reachability(status: &str) -> BranchReachabilityStatus {
   }
 }
 
-fn error_chain(error: &Report) -> String {
-  error
-    .chain()
-    .map(ToString::to_string)
-    .collect::<Vec<_>>()
-    .join(": ")
-}
-
 #[cfg(test)]
 mod tests {
   use serde_json::json;
@@ -169,7 +161,6 @@ mod tests {
     BranchReachabilityStatus,
     compare_query,
     compare_status_to_reachability,
-    error_chain,
   };
 
   #[test]
@@ -205,17 +196,5 @@ mod tests {
     assert!(query.contains("compare(headRef: $commit0)"));
     assert_eq!(variables.get("branch0"), Some(&json!("master")));
     assert_eq!(variables.get("commit0"), Some(&json!("abc123")));
-  }
-
-  #[test]
-  fn unknown_reason_includes_error_chain() {
-    use color_eyre::eyre::eyre;
-
-    let error = eyre!("transport timed out").wrap_err("failed to send request");
-
-    assert_eq!(
-      error_chain(&error),
-      "failed to send request: transport timed out"
-    );
   }
 }

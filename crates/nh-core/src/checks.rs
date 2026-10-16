@@ -1,6 +1,6 @@
 use std::{cmp::Ordering, env};
 
-use color_eyre::Result;
+use misstep::Result;
 use semver::Version;
 use tracing::{debug, warn};
 
@@ -211,7 +211,7 @@ pub trait FeatureRequirements {
 
     let missing = util::get_missing_experimental_features(required)?;
     if !missing.is_empty() {
-      return Err(color_eyre::eyre::eyre!(
+      return Err(misstep::report!(
         "Missing required experimental features for this command: {}",
         missing.join(", ")
       ));

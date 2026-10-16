@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 
-use clap::{Args, Subcommand};
 use nh_core::{
   args::{DiffType, NixBuildPassthroughArgs},
   checks::{
@@ -12,16 +11,16 @@ use nh_core::{
 };
 use nh_installable::{CommandContext, InstallableArgs};
 use nh_remote::RemoteHost;
+use pound::Parse;
 
 use crate::generations::Field;
 
-#[derive(Args, Debug)]
-#[clap(verbatim_doc_comment)]
+#[derive(Parse, Debug)]
 /// `NixOS` functionality
 ///
 /// Implements functionality mostly around but not exclusive to nixos-rebuild
 pub struct OsArgs {
-  #[command(subcommand)]
+  #[pound(subcommand)]
   pub subcommand: OsSubcommand,
 }
 
@@ -29,41 +28,41 @@ impl OsArgs {
   #[must_use]
   pub fn get_feature_requirements(&self) -> Box<dyn FeatureRequirements> {
     match &self.subcommand {
-      OsSubcommand::Repl(args) => {
+      OsSubcommand::Repl { args } => {
         let is_flake = args.uses_flakes();
         Box::new(OsReplFeatures { is_flake })
       },
-      OsSubcommand::Switch(args)
-      | OsSubcommand::Boot(args)
-      | OsSubcommand::Test(args) => {
+      OsSubcommand::Switch { args }
+      | OsSubcommand::Boot { args }
+      | OsSubcommand::Test { args } => {
         if args.rebuild.uses_flakes() {
           Box::new(FlakeFeatures)
         } else {
           Box::new(LegacyFeatures)
         }
       },
-      OsSubcommand::Build(args)
-      | OsSubcommand::DryActivate(OsDryActivateArgs {
-        rebuild: args, ..
-      }) => {
+      OsSubcommand::Build { args }
+      | OsSubcommand::DryActivate {
+        args: OsDryActivateArgs { rebuild: args, .. },
+      } => {
         if args.uses_flakes() {
           Box::new(FlakeFeatures)
         } else {
           Box::new(LegacyFeatures)
         }
       },
-      OsSubcommand::BuildVm(args) => {
+      OsSubcommand::BuildVm { args } => {
         if args.common.uses_flakes() {
           Box::new(FlakeFeatures)
         } else {
           Box::new(LegacyFeatures)
         }
       },
-      OsSubcommand::Info(_) | OsSubcommand::Rollback(_) => {
+      OsSubcommand::Info { .. } | OsSubcommand::Rollback { .. } => {
         Box::new(LegacyFeatures)
       },
 
-      OsSubcommand::BuildImage(args) => {
+      OsSubcommand::BuildImage { args } => {
         if args.common.uses_flakes() {
           Box::new(FlakeFeatures)
         } else {
@@ -74,69 +73,99 @@ impl OsArgs {
   }
 }
 
-#[derive(Debug, Subcommand)]
+#[derive(Debug, Parse)]
 pub enum OsSubcommand {
   /// Build and activate the new configuration, and make it the boot default
-  Switch(OsRebuildActivateArgs),
+  Switch {
+    #[pound(flatten)]
+    args: OsRebuildActivateArgs,
+  },
 
   /// Build the new configuration and make it the boot default
-  Boot(OsRebuildActivateArgs),
+  Boot {
+    #[pound(flatten)]
+    args: OsRebuildActivateArgs,
+  },
 
   /// Build and activate the new configuration
-  Test(OsRebuildActivateArgs),
+  Test {
+    #[pound(flatten)]
+    args: OsRebuildActivateArgs,
+  },
 
   /// Build and preview activation without applying it
-  DryActivate(OsDryActivateArgs),
+  DryActivate {
+    #[pound(flatten)]
+    args: OsDryActivateArgs,
+  },
 
   /// Build the new configuration
-  Build(OsRebuildArgs),
+  Build {
+    #[pound(flatten)]
+    args: OsRebuildArgs,
+  },
 
   /// Load system in a repl
-  Repl(OsReplArgs),
+  Repl {
+    #[pound(flatten)]
+    args: OsReplArgs,
+  },
 
   /// List available generations from profile path
-  Info(OsGenerationsArgs),
+  Info {
+    #[pound(flatten)]
+    args: OsGenerationsArgs,
+  },
 
   /// Rollback to a previous generation
-  Rollback(OsRollbackArgs),
+  Rollback {
+    #[pound(flatten)]
+    args: OsRollbackArgs,
+  },
 
   /// Build a `NixOS` VM image
-  BuildVm(OsBuildVmArgs),
+  BuildVm {
+    #[pound(flatten)]
+    args: OsBuildVmArgs,
+  },
 
   /// Build a `NixOS` disk-image variant
-  BuildImage(OsBuildImageArgs),
+  BuildImage {
+    #[pound(flatten)]
+    args: OsBuildImageArgs,
+  },
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, Parse)]
 pub struct OsBuildImageArgs {
-  #[command(flatten)]
+  #[pound(flatten)]
   pub common: OsRebuildArgs,
 
   /// Image variant
-  #[arg(long)]
+  #[pound(long)]
   pub image_variant: String,
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, Parse)]
 pub struct OsBuildVmArgs {
-  #[command(flatten)]
+  #[pound(flatten)]
   pub common: OsRebuildArgs,
 
   /// Build with bootloader. Bootloader is bypassed by default.
-  #[arg(long, short = 'B')]
+  #[pound(long, short = 'B')]
   pub with_bootloader: bool,
 
   /// Run the VM immediately after building
-  #[arg(long, short = 'r')]
+  #[pound(long, short = 'r')]
   pub run: bool,
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, Parse)]
 pub struct OsRebuildArgs {
-  #[command(flatten)]
+  #[pound(flatten)]
   pub common: CommonRebuildArgs,
 
-  #[command(flatten)]
+  #[pound(flatten)]
   pub update_args: nh_core::update::UpdateArgs,
 
   /// When using a flake installable, select this hostname from
@@ -145,72 +174,72 @@ pub struct OsRebuildArgs {
   /// When unspecified, defaults to the local hostname for local
   /// deployments, and hostname of the target machine for remote
   /// deployments (see --target-host).
-  #[arg(long, short = 'H', global = true)]
+  #[pound(long, short = 'H', global)]
   pub hostname: Option<String>,
 
   /// Explicitly select some specialisation
-  #[arg(long, short)]
+  #[pound(long, short)]
   pub specialisation: Option<String>,
 
   /// Ignore specialisations
-  #[arg(long, short = 'S')]
+  #[pound(long, short = 'S')]
   pub no_specialisation: bool,
 
   /// Extra arguments passed to nix build
-  #[arg(last = true)]
+  #[pound(last)]
   pub extra_args: Vec<String>,
 
   /// Don't panic if calling nh as root
-  #[arg(short = 'R', long, env = "NH_BYPASS_ROOT_CHECK")]
+  #[pound(short = 'R', long, env = "NH_BYPASS_ROOT_CHECK")]
   pub bypass_root_check: bool,
 
   /// Deploy the built configuration to a different host over SSH
-  #[arg(long)]
+  #[pound(long, parse = str::parse::<RemoteHost>)]
   pub target_host: Option<RemoteHost>,
 
   /// Build the configuration on a different host over SSH
-  #[arg(long)]
+  #[pound(long, parse = str::parse::<RemoteHost>)]
   pub build_host: Option<RemoteHost>,
 
   /// Skip pre-activation system validation checks
-  #[arg(long, env = "NH_NO_VALIDATE")]
+  #[pound(long, env = "NH_NO_VALIDATE")]
   pub no_validate: bool,
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, Parse)]
 pub struct OsDryActivateArgs {
-  #[command(flatten)]
+  #[pound(flatten)]
   pub rebuild: OsRebuildArgs,
 
   /// Run switch-to-configuration directly instead of in a transient systemd
   /// unit
-  #[arg(long, env = "NH_NO_SYSTEMD_RUN", value_parser = clap::builder::BoolishValueParser::new())]
+  #[pound(long, env = "NH_NO_SYSTEMD_RUN")]
   pub no_systemd_run: bool,
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, Parse)]
 pub struct OsRebuildActivateArgs {
-  #[command(flatten)]
+  #[pound(flatten)]
   pub rebuild: OsRebuildArgs,
 
   /// Install bootloader for switch and boot commands
-  #[arg(long)]
+  #[pound(long)]
   pub install_bootloader: bool,
 
   /// Show activation logs
-  #[arg(long, env = "NH_SHOW_ACTIVATION_LOGS", value_parser = clap::builder::BoolishValueParser::new())]
+  #[pound(long, env = "NH_SHOW_ACTIVATION_LOGS")]
   pub show_activation_logs: bool,
 
   /// Add the generation to the bootloader even if activation fails
   ///
   /// During `switch`, activation runs before the bootloader step; by default a
   /// failed activation aborts before it. This continues regardless.
-  #[arg(long, env = "NH_CONTINUE_ON_ACTIVATION_FAILURE", value_parser = clap::builder::BoolishValueParser::new())]
+  #[pound(long, env = "NH_CONTINUE_ON_ACTIVATION_FAILURE")]
   pub continue_on_activation_failure: bool,
 
   /// Run switch-to-configuration directly instead of in a transient systemd
   /// unit
-  #[arg(long, env = "NH_NO_SYSTEMD_RUN", value_parser = clap::builder::BoolishValueParser::new())]
+  #[pound(long, env = "NH_NO_SYSTEMD_RUN")]
   pub no_systemd_run: bool,
 }
 
@@ -221,90 +250,80 @@ impl OsRebuildArgs {
   }
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, Parse)]
 pub struct OsRollbackArgs {
   /// Only print actions, without performing them
-  #[arg(long, short = 'n')]
+  #[pound(long, short = 'n')]
   pub dry: bool,
 
   /// Ask for confirmation
-  #[arg(
-    long,
-    short,
-    env = "NH_ASK",
-    value_parser = clap::builder::BoolishValueParser::new()
-  )]
+  #[pound(long, short, env = "NH_ASK")]
   pub ask: bool,
 
   /// Explicitly select some specialisation
-  #[arg(long, short)]
+  #[pound(long, short)]
   pub specialisation: Option<String>,
 
   /// Ignore specialisations
-  #[arg(long, short = 'S')]
+  #[pound(long, short = 'S')]
   pub no_specialisation: bool,
 
   /// Rollback to a specific generation number (defaults to previous
   /// generation)
-  #[arg(long, short)]
+  #[pound(long, short)]
   pub to: Option<u64>,
 
   /// Don't panic if calling nh as root
-  #[arg(short = 'R', long, env = "NH_BYPASS_ROOT_CHECK")]
+  #[pound(short = 'R', long, env = "NH_BYPASS_ROOT_CHECK")]
   pub bypass_root_check: bool,
 
   /// Whether to display a package diff
-  #[arg(long, short, value_enum, default_value_t = DiffType::Auto)]
+  #[pound(long, short, default = DiffType::Auto)]
   pub diff: DiffType,
 
   /// Run switch-to-configuration directly instead of in a transient systemd
   /// unit
-  #[arg(long, env = "NH_NO_SYSTEMD_RUN", value_parser = clap::builder::BoolishValueParser::new())]
+  #[pound(long, env = "NH_NO_SYSTEMD_RUN")]
   pub no_systemd_run: bool,
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, Parse)]
 pub struct CommonRebuildArgs {
   /// Only print actions, without performing them
-  #[arg(long, short = 'n')]
+  #[pound(long, short = 'n')]
   pub dry: bool,
 
   /// Ask for confirmation
-  #[arg(
-    long,
-    short,
-    env = "NH_ASK",
-    value_parser = clap::builder::BoolishValueParser::new()
-  )]
+  #[pound(long, short, env = "NH_ASK")]
   pub ask: bool,
 
-  #[command(flatten)]
+  #[pound(flatten)]
   pub installable: InstallableArgs,
 
   /// Don't use nix-output-monitor for the build process
-  #[arg(long)]
+  #[pound(long)]
   pub no_nom: bool,
 
   /// Path to save the result link, defaults to using a temporary directory
-  #[arg(long, short)]
+  #[pound(long, short)]
   pub out_link: Option<PathBuf>,
 
   /// Whether to display a package diff
-  #[arg(long, short, value_enum, default_value_t = DiffType::Auto)]
+  #[pound(long, short, default = DiffType::Auto)]
   pub diff: DiffType,
 
-  #[command(flatten)]
+  #[pound(flatten)]
   pub passthrough: NixBuildPassthroughArgs,
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, Parse)]
 pub struct OsReplArgs {
-  #[command(flatten)]
+  #[pound(flatten)]
   pub installable: InstallableArgs,
 
   /// When using a flake installable, select this hostname from
   /// nixosConfigurations
-  #[arg(long, short = 'H', global = true)]
+  #[pound(long, short = 'H', global)]
   pub hostname: Option<String>,
 }
 
@@ -315,17 +334,17 @@ impl OsReplArgs {
   }
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, Parse)]
 pub struct OsGenerationsArgs {
   /// Path to Nix' profiles directory
-  #[arg(long, short = 'P', default_value = "/nix/var/nix/profiles/system")]
+  #[pound(long, short = 'P', default = "/nix/var/nix/profiles/system")]
   pub profile: Option<String>,
 
   /// Comma-delimited list of field(s) to display
-  #[arg(long, value_delimiter = ',')]
+  #[pound(long, delimiter = ',')]
   pub fields: Option<Vec<Field>>,
 
   /// Print generation status and metadata as JSON
-  #[arg(long, conflicts_with = "fields")]
+  #[pound(long, conflicts_with = "fields")]
   pub json: bool,
 }

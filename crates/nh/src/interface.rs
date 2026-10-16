@@ -1,52 +1,32 @@
-use anstyle::Style;
-use clap::{Parser, Subcommand, builder::Styles};
-use clap_verbosity_flag::InfoLevel;
 use nh_core::{
   checks::{FeatureRequirements, NoFeatures},
   command::ElevationStrategy,
 };
 use nh_nixos;
+use pound::Parse;
 
 use crate::Result;
 
-const fn make_style() -> Styles {
-  Styles::plain().header(Style::new().bold()).literal(
-    Style::new()
-      .bold()
-      .fg_color(Some(anstyle::Color::Ansi(anstyle::AnsiColor::Yellow))),
-  )
+#[derive(Parse, Debug, Clone, Copy, Default)]
+pub struct Verbosity {
+  /// Increase logging verbosity
+  #[pound(short = 'v', long, count, global)]
+  pub verbose: u32,
+
+  /// Decrease logging verbosity
+  #[pound(short = 'q', long, count, global, conflicts_with = verbose)]
+  pub quiet: u32,
 }
 
-#[derive(Parser, Debug)]
-#[command(
-    version,
-    about,
-    long_about = None,
-    styles=make_style(),
-    propagate_version = false,
-    help_template = "
-{name} {version}
-{about-with-newline}
-{usage-heading} {usage}
-
-{all-args}{after-help}
-"
-)]
 /// Yet another nix helper
+#[derive(Parse, Debug)]
+#[pound(name = "nh")]
 pub struct Main {
-  #[command(flatten)]
   /// Increase logging verbosity, can be passed multiple times for
   /// more detailed logs.
-  pub verbosity: clap_verbosity_flag::Verbosity<InfoLevel>,
+  #[pound(flatten)]
+  pub verbosity: Verbosity,
 
-  #[arg(
-    short,
-    long,
-    global = true,
-    env = "NH_ELEVATION_STRATEGY",
-    value_hint = clap::ValueHint::CommandName,
-    alias = "elevation-program"
-  )]
   /// Choose the privilege elevation strategy.
   ///
   /// Can be a path to an elevation program (e.g., /usr/bin/sudo),
@@ -54,30 +34,62 @@ pub struct Main {
   /// 'passwordless' (use elevation without password prompt for remote hosts
   /// with NOPASSWD configured), or 'auto' (automatically detect available
   /// elevation programs in order: doas, sudo, run0, pkexec)
+  #[pound(
+    short,
+    long,
+    global,
+    env = "NH_ELEVATION_STRATEGY",
+    alias = "elevation-program",
+    parse = str::parse::<nh_core::command::ElevationStrategyArg>
+  )]
   pub elevation_strategy: Option<nh_core::command::ElevationStrategyArg>,
 
-  #[command(subcommand)]
+  #[pound(subcommand)]
   pub command: NHCommand,
 }
 
-#[derive(Subcommand, Debug)]
-#[command(disable_help_subcommand = true)]
+#[derive(Parse, Debug)]
 pub enum NHCommand {
-  Os(nh_nixos::args::OsArgs),
-  Home(nh_home::args::HomeArgs),
-  Darwin(nh_darwin::args::DarwinArgs),
-  Search(nh_search::args::SearchArgs),
-  Clean(nh_clean::args::CleanProxy),
+  /// NixOS functionality
+  ///
+  /// Implements functionality mostly around but not exclusive to nixos-rebuild
+  Os {
+    #[pound(flatten)]
+    args: nh_nixos::args::OsArgs,
+  },
+  /// Home-manager functionality
+  Home {
+    #[pound(flatten)]
+    args: nh_home::args::HomeArgs,
+  },
+  /// Nix-darwin functionality
+  ///
+  /// Implements functionality mostly around but not exclusive to darwin-rebuild
+  Darwin {
+    #[pound(flatten)]
+    args: nh_darwin::args::DarwinArgs,
+  },
+  /// Searches packages or NixOS/home-manager options via search.nixos.org,
+  /// or a local SPAM database
+  Search {
+    #[pound(flatten)]
+    args: nh_search::args::SearchArgs,
+  },
+  /// Enhanced nix cleanup
+  Clean {
+    #[pound(flatten)]
+    args: nh_clean::args::CleanProxy,
+  },
 }
 
 impl NHCommand {
   #[must_use]
   pub fn get_feature_requirements(&self) -> Box<dyn FeatureRequirements> {
     match self {
-      Self::Os(args) => args.get_feature_requirements(),
-      Self::Home(args) => args.get_feature_requirements(),
-      Self::Darwin(args) => args.get_feature_requirements(),
-      Self::Search(..) | Self::Clean(..) => Box::new(NoFeatures),
+      Self::Os { args } => args.get_feature_requirements(),
+      Self::Home { args } => args.get_feature_requirements(),
+      Self::Darwin { args } => args.get_feature_requirements(),
+      Self::Search { .. } | Self::Clean { .. } => Box::new(NoFeatures),
     }
   }
 
@@ -93,11 +105,11 @@ impl NHCommand {
     requirements.check_features()?;
 
     match self {
-      Self::Os(args) => args.run(elevation),
-      Self::Search(args) => args.run(),
-      Self::Clean(proxy) => proxy.command.run(elevation),
-      Self::Home(args) => args.run(),
-      Self::Darwin(args) => args.run(elevation),
+      Self::Os { args } => args.run(elevation),
+      Self::Search { args } => args.run(),
+      Self::Clean { args: proxy } => proxy.command.run(elevation),
+      Self::Home { args } => args.run(),
+      Self::Darwin { args } => args.run(elevation),
     }
   }
 }
@@ -106,8 +118,8 @@ impl NHCommand {
 mod tests {
   use std::{env, ffi::OsString};
 
-  use clap::{Parser, error::ErrorKind};
   use nh_clean::args::CleanMode;
+  use pound::{ErrorKind, Parse};
   use serial_test::serial;
 
   use super::{Main, NHCommand};
@@ -133,36 +145,106 @@ mod tests {
 
   #[test]
   #[serial]
-  fn nh_ask_parses_boolish_environment_values() -> clap::error::Result<()> {
+  fn nh_ask_parses_boolish_environment_values() -> Result<(), pound::Error> {
     let _guard = EnvGuard::new();
+    let clean_all_ask = |parsed: Main| {
+      match parsed.command {
+        NHCommand::Clean { args: proxy } => {
+          match proxy.command {
+            CleanMode::All { args } => Some(args.ask),
+            CleanMode::User { .. } | CleanMode::Profile { .. } => None,
+          }
+        },
+        NHCommand::Os { .. }
+        | NHCommand::Home { .. }
+        | NHCommand::Darwin { .. }
+        | NHCommand::Search { .. } => None,
+      }
+    };
 
-    for (value, expected) in
-      [("1", true), ("true", true), ("0", false), ("false", false)]
-    {
+    for (value, expected) in [
+      ("1", true),
+      ("yes", true),
+      ("true", true),
+      ("0", false),
+      ("no", false),
+      ("false", false),
+    ] {
       unsafe {
         env::set_var("NH_ASK", value);
       }
-      let parsed = Main::try_parse_from(["nh", "clean", "all"])?;
-      let ask = match parsed.command {
-        NHCommand::Clean(proxy) => {
-          match proxy.command {
-            CleanMode::All(args) => Some(args.ask),
-            _ => None,
-          }
-        },
-        _ => None,
-      };
-      assert_eq!(ask, Some(expected));
+      let parsed = Main::try_parse_from(["clean", "all"])?;
+      assert_eq!(clean_all_ask(parsed), Some(expected));
     }
 
     unsafe {
       env::set_var("NH_ASK", "invalid");
     }
     assert!(matches!(
-      Main::try_parse_from(["nh", "clean", "all"]),
-      Err(error) if error.kind() == ErrorKind::ValueValidation
+      Main::try_parse_from(["clean", "all"]),
+      Err(error) if matches!(error.kind, ErrorKind::Value { .. })
     ));
+    let parsed = Main::try_parse_from(["clean", "all", "--ask"])?;
+    assert_eq!(clean_all_ask(parsed), Some(true));
 
+    Ok(())
+  }
+
+  #[test]
+  #[serial]
+  fn passthrough_requires_separator() {
+    assert!(matches!(
+      Main::try_parse_from(["os", "build", ".", "unexpected"]),
+      Err(error) if matches!(error.kind, ErrorKind::UnexpectedPositional(_))
+    ));
+  }
+
+  #[test]
+  #[serial]
+  fn passthrough_without_installable_keeps_every_word()
+  -> Result<(), pound::Error> {
+    let parsed = Main::try_parse_from([
+      "home", "build", "--", "--json", "--option", "sandbox", "false",
+    ])?;
+    assert!(matches!(
+      parsed.command,
+      NHCommand::Home {
+        args: nh_home::args::HomeArgs {
+          subcommand: nh_home::args::HomeSubcommand::Build { args },
+        },
+      } if args.extra_args == ["--json", "--option", "sandbox", "false"]
+    ));
+    Ok(())
+  }
+
+  #[test]
+  #[serial]
+  fn passthrough_preserves_installable_and_option_boundaries()
+  -> Result<(), pound::Error> {
+    let parsed = Main::try_parse_from([
+      "os", "build", ".", "--option", "sandbox", "false", "--", "--cores", "8",
+    ])?;
+    assert!(matches!(
+      parsed.command,
+      NHCommand::Os {
+        args: nh_nixos::args::OsArgs {
+          subcommand: nh_nixos::args::OsSubcommand::Build { args },
+        },
+      } if args.common.passthrough.option == ["sandbox", "false"]
+        && args.extra_args == ["--cores", "8"]
+    ));
+    Ok(())
+  }
+
+  #[test]
+  #[serial]
+  fn verbosity_is_global_and_mutually_exclusive() -> Result<(), pound::Error> {
+    let parsed = Main::try_parse_from(["clean", "all", "-vv"])?;
+    assert_eq!(parsed.verbosity.verbose, 2);
+    assert_eq!(parsed.verbosity.quiet, 0);
+    assert!(
+      matches!(Main::try_parse_from(["-v", "clean", "all", "-q"]), Err(error) if matches!(error.kind, ErrorKind::Conflict { .. }))
+    );
     Ok(())
   }
 }

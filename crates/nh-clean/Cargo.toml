@@ -11,16 +11,16 @@ publish                = true
 path = "src/clean.rs"
 
 [dependencies]
-clap.workspace       = true
-color-eyre.workspace = true
-humantime.workspace  = true
-inquire.workspace    = true
-nh-core.workspace    = true
-nix.workspace        = true
-regex.workspace      = true
-tracing.workspace    = true
-walkdir.workspace    = true
-yansi.workspace      = true
+humantime.workspace = true
+inquire.workspace   = true
+misstep.workspace   = true
+nh-core.workspace   = true
+nix.workspace       = true
+pound.workspace     = true
+regex.workspace     = true
+tracing.workspace   = true
+walkdir.workspace   = true
+yansi.workspace     = true
 
 [dev-dependencies]
 tempfile.workspace = true

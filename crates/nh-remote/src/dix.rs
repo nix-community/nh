@@ -1,9 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use color_eyre::{
-  Result,
-  eyre::{bail, eyre},
-};
+use misstep::{OptionExt, Report, Result, bail};
 
 use super::{RemoteHost, get_nix_sshopts_env, run_remote_command};
 
@@ -35,14 +32,14 @@ impl ResolvedRemoteStorePath {
 
     let path = path
       .to_str()
-      .ok_or_else(|| eyre!("remote path contains invalid UTF-8"))?;
+      .context("remote path contains invalid UTF-8")?;
     let output =
       run_remote_command(host, &["readlink", "-f", "--", path], true)?
-        .ok_or_else(|| eyre!("readlink did not return a resolved path"))?;
+        .context("readlink did not return a resolved path")?;
     let mut paths = output.lines();
     let resolved_path = paths
       .next()
-      .ok_or_else(|| eyre!("readlink did not return a resolved path"))?;
+      .context("readlink did not return a resolved path")?;
 
     if paths.next().is_some() {
       bail!("readlink returned multiple paths for one requested path");
@@ -68,6 +65,7 @@ impl ResolvedRemoteStorePath {
       .store_url(self.host.nix_store_uri())
       .env("NIX_SSHOPTS", get_nix_sshopts_env());
     dix::query_store_snapshot_with_backend(&backend, self.path())
+      .map_err(|error| Report::from_boxed(error.into()))
   }
 
   fn new(host: &RemoteHost, path: PathBuf, original: &str) -> Result<Self> {

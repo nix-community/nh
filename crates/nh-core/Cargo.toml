@@ -8,13 +8,14 @@ rust-version.workspace = true
 publish                = true
 
 [dependencies]
-clap.workspace           = true
-color-eyre.workspace     = true
+flub.workspace           = true
 indicatif.workspace      = true
 inquire.workspace        = true
+misstep.workspace        = true
 nh-installable.workspace = true
 nix.workspace            = true
 nix-command.workspace    = true
+pound.workspace          = true
 regex.workspace          = true
 secrecy.workspace        = true
 semver.workspace         = true
@@ -22,7 +23,6 @@ serde.workspace          = true
 serde_json.workspace     = true
 shlex.workspace          = true
 subprocess.workspace     = true
-thiserror.workspace      = true
 tracing.workspace        = true
 which.workspace          = true
 

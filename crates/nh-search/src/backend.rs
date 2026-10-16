@@ -1,13 +1,11 @@
 use std::{
   collections::HashMap,
+  num::ParseIntError,
   time::{Duration, Instant},
 };
 
-use color_eyre::{
-  Result,
-  eyre::{Context, bail},
-};
 use elasticsearch_dsl::{Search, SearchResponse};
+use misstep::{Report, Result, ResultExt, bail};
 use reqwest::{
   StatusCode,
   blocking::{Client, Response},
@@ -70,7 +68,7 @@ where
         Ok(None) => bundled_backend_version()?,
         Err(err) => {
           debug!(
-            ?err,
+            %err,
             "backend index discovery failed, using the bundled version"
           );
           bundled_backend_version()?
@@ -127,10 +125,10 @@ where
   Ok((documents, elapsed))
 }
 
-fn bundled_backend_version() -> Result<u32> {
+fn bundled_backend_version() -> Result<u32, Report<ParseIntError>> {
   BUNDLED_BACKEND_VERSION
     .trim()
-    .parse()
+    .parse::<u32>()
     .context("parsing the bundled backend index version")
 }
 

@@ -3,17 +3,14 @@ pub mod args;
 use std::{
   collections::{BTreeMap, HashMap},
   fmt,
-  io::ErrorKind,
+  io::{self, ErrorKind},
   path::{Path, PathBuf},
   sync::LazyLock,
   time::SystemTime,
 };
 
-use color_eyre::{
-  Result,
-  eyre::{Context, ContextCompat, bail, eyre},
-};
 use inquire::Confirm;
+use misstep::{OptionExt, Result, ResultExt, bail, report};
 use nh_core::command::{Command, CommandKind, ElevationStrategy, NixCommand};
 use nix::{
   errno::Errno,
@@ -101,12 +98,12 @@ impl args::CleanMode {
     // What profiles to clean depending on the call mode
     let uid = nix::unistd::Uid::effective();
     let args = match self {
-      Self::Profile(args) => {
+      Self::Profile { args } => {
         profiles.push(args.profile.clone());
         is_profile_clean = true;
         &args.common
       },
-      Self::All(args) => {
+      Self::All { args } => {
         if !uid.is_root() {
           nh_core::util::self_elevate(elevate);
         }
@@ -167,12 +164,12 @@ impl args::CleanMode {
         }
         args
       },
-      Self::User(args) => {
+      Self::User { args } => {
         if uid.is_root() {
           bail!("nh clean user: don't run me as root!");
         }
         let user = nix::unistd::User::from_uid(uid)?
-          .ok_or_else(|| eyre!("User not found for uid {}", uid))?;
+          .with_context(|| format!("User not found for uid {uid}"))?;
         let home_dir = PathBuf::from(std::env::var("HOME")?);
 
         let paths_to_check = [
@@ -233,7 +230,7 @@ impl args::CleanMode {
         .filter(|e| e.path().is_symlink())
       {
         let src = entry.path().to_path_buf();
-        let dst = src.read_link().wrap_err("Reading symlink destination")?;
+        let dst = src.read_link().context("Reading symlink destination")?;
         let span = span!(Level::TRACE, "gcroot detection", ?dst);
         let _entered = span.enter();
         debug!(?src);
@@ -283,7 +280,7 @@ impl args::CleanMode {
               let dur = now.duration_since(
                 dst
                   .symlink_metadata()
-                  .wrap_err("Reading gcroot metadata")?
+                  .context("Reading gcroot metadata")?
                   .modified()?,
               );
               debug!(?dur);
@@ -319,10 +316,10 @@ impl args::CleanMode {
             debug!(?errno, ?dst, "gcroot target not writable, skipping");
           },
           Err(errno) => {
-            bail!(
-              eyre!("Checking access for gcroot {:?}, unknown error", dst)
-                .wrap_err(errno)
-            )
+            return Err(report!(errno).context(format_args!(
+              "Checking access for gcroot {}, unknown error",
+              dst.display()
+            )));
           },
         }
       }
@@ -517,18 +514,14 @@ fn profiles_in_dir<P: AsRef<Path> + fmt::Debug>(dir: P) -> Vec<PathBuf> {
 }
 
 fn selected_generation(profile: &Path) -> Result<Option<PathBuf>> {
-  match profile.read_link() {
-    Ok(target) => Ok(Some(target)),
-    Err(err)
-      if matches!(
-        err.kind(),
-        ErrorKind::NotFound | ErrorKind::InvalidInput
-      ) =>
-    {
-      Ok(None)
-    },
-    Err(err) => Err(err).context("Reading selected profile generation"),
-  }
+  profile
+    .read_link()
+    .map(Some)
+    .recover_if::<io::Error, _>(|error| {
+      matches!(error.kind(), ErrorKind::NotFound | ErrorKind::InvalidInput)
+        .then_some(None)
+    })
+    .context("Reading selected profile generation")
 }
 
 fn remove_tagged_generations(
@@ -593,7 +586,7 @@ fn profile_generations(profile: &Path) -> Result<GenerationsTagged> {
           Generation {
             number: number
               .as_str()
-              .parse()
+              .parse::<u32>()
               .context("Failed to parse generation number")?,
             last_modified,
             path,

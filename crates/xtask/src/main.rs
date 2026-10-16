@@ -3,34 +3,33 @@ use std::{
   path::{Path, PathBuf},
 };
 
-use clap::{Parser, Subcommand};
+use pound::Parse;
 
 mod comp;
 mod man;
 
 use comp::CompletionShell;
 
-#[derive(Parser)]
+#[derive(Parse)]
 struct Cli {
-  #[command(subcommand)]
+  #[pound(subcommand)]
   command: Command,
 }
 
-#[derive(Subcommand)]
+#[derive(Parse)]
 enum Command {
   /// Generate manpage
   Man {
     /// Output directory for manpage
-    #[arg(long, default_value = "man")]
+    #[pound(long, default = "man")]
     out_dir: String,
   },
   /// Generate shell completions
   Completions {
     /// Output directory for completions
-    #[arg(long, default_value = "comp")]
+    #[pound(long, default = "comp")]
     out_dir: String,
     /// Shell to generate completions for (generates all if not specified)
-    #[arg(value_enum)]
     shell:   Option<CompletionShell>,
   },
   /// Generate both manpages and completions

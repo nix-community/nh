@@ -1,4 +1,3 @@
-use clap_verbosity_flag::InfoLevel;
 use tracing::{Event, Level, Subscriber};
 use tracing_subscriber::{
   EnvFilter,
@@ -9,7 +8,7 @@ use tracing_subscriber::{
 };
 use yansi::{Color, Paint};
 
-use crate::Result;
+use crate::{Result, interface::Verbosity};
 
 struct InfoFormatter;
 
@@ -60,29 +59,25 @@ where
 ///
 /// # Errors
 ///
-/// Returns an error if installing the error hook fails or if tracing filter
-/// directives cannot be parsed.
-pub fn setup_logging(
-  verbosity: clap_verbosity_flag::Verbosity<InfoLevel>,
-) -> Result<()> {
-  color_eyre::config::HookBuilder::default()
-    .display_location_section(true)
-    .panic_section(
-      "Please report the bug at https://github.com/nix-community/nh/issues",
-    )
-    .display_env_section(false)
-    .install()?;
+/// Returns an error if tracing filter directives cannot be parsed.
+pub fn setup_logging(verbosity: Verbosity) -> Result<()> {
+  misstep::install_panic_hook();
+  let panic_hook = std::panic::take_hook();
+  std::panic::set_hook(Box::new(move |info| {
+    panic_hook(info);
+    eprintln!(
+      "Please report the bug at https://github.com/nix-community/nh/issues"
+    );
+  }));
 
   let fallback_level =
-    verbosity.log_level().map_or(LevelFilter::WARN, |level| {
-      match level {
-        clap_verbosity_flag::log::Level::Error => LevelFilter::ERROR,
-        clap_verbosity_flag::log::Level::Warn => LevelFilter::WARN,
-        clap_verbosity_flag::log::Level::Info => LevelFilter::INFO,
-        clap_verbosity_flag::log::Level::Debug => LevelFilter::DEBUG,
-        clap_verbosity_flag::log::Level::Trace => LevelFilter::TRACE,
-      }
-    });
+    match 3 + i64::from(verbosity.verbose) - i64::from(verbosity.quiet) {
+      ..=1 => LevelFilter::ERROR,
+      2 => LevelFilter::WARN,
+      3 => LevelFilter::INFO,
+      4 => LevelFilter::DEBUG,
+      5.. => LevelFilter::TRACE,
+    };
 
   let layer = fmt::layer()
     .with_writer(std::io::stderr)
