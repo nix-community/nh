@@ -63,6 +63,12 @@ spellings like `on`, `y` or `TRUE` are rejected.
 
 ### Fixed
 
+- Ctrl+C now cancels remote builds. `--build-host` builds previously ran
+  `nix build` on the build host through `ssh`, where an interrupt neither
+  stopped nh (it waited for the build output to end) nor the remote build. nh
+  now runs `nix build --store <build-host> --eval-store auto` locally, which
+  copies the derivation, streams the build logs, and lets the remote daemon
+  cancel the build when the connection drops, like a local build.
 - `nh search packages` and `nh search options` now query the newest
   search.nixos.org index available for the channel instead of the version
   bundled with nh. Outdated indices stay online, so nh previously kept showing
@@ -134,6 +140,12 @@ spellings like `on`, `y` or `TRUE` are rejected.
   instead of looking for `config` at the top level
   ([#778](https://github.com/nix-community/nh/issues/778)).
 - `nh os build-image` now respects the `--dry` flag.
+
+### Removed
+
+- `NH_REMOTE_CLEANUP` has been removed. Interrupted remote builds are now
+  cancelled by the remote Nix daemon, so the `pkill`-based cleanup is no longer
+  needed.
 
 ## 4.4.2
 

@@ -3,12 +3,7 @@ use std::{
   ffi::OsString,
   io::Read,
   path::{Path, PathBuf},
-  sync::{
-    Arc,
-    OnceLock,
-    atomic::{AtomicBool, Ordering},
-  },
-  time::Duration,
+  sync::OnceLock,
 };
 
 use misstep::{OptionExt, Report, Result, ResultExt, bail, ensure, report};
@@ -37,20 +32,6 @@ use copy::{
 };
 pub use copy::{copy_to_remote, copy_to_remote_with_args};
 pub use dix::ResolvedRemoteStorePath;
-
-/// Global flag indicating whether a SIGINT (Ctrl+C) was received.
-static INTERRUPTED: OnceLock<Arc<AtomicBool>> = OnceLock::new();
-
-/// Get or initialize the interrupt flag.
-///
-/// Returns a reference to the shared interrupt flag, initializing it on first
-/// call.
-fn get_interrupt_flag() -> &'static Arc<AtomicBool> {
-  INTERRUPTED.get_or_init(|| Arc::new(AtomicBool::new(false)))
-}
-
-/// Cache for signal handler registration status.
-static HANDLER_REGISTERED: OnceLock<()> = OnceLock::new();
 
 /// Builds a remote command string with proper elevation handling.
 ///
@@ -222,34 +203,6 @@ fn nixos_activation_command(
   }
 
   parts.join(" ")
-}
-
-/// Register a SIGINT handler that sets the global interrupt flag.
-///
-/// This function is idempotent - multiple calls are safe and will not
-/// create multiple handlers. Uses `signal_hook::flag::register` which
-/// is async-signal-safe.
-///
-/// # Errors
-///
-/// Returns an error if the signal handler cannot be registered.
-fn register_interrupt_handler() -> Result<()> {
-  use signal_hook::{consts::SIGINT, flag};
-
-  if HANDLER_REGISTERED.get().is_some() {
-    return Ok(());
-  }
-
-  // Not registered yet, register it
-  flag::register(SIGINT, Arc::clone(get_interrupt_flag()))
-    .context("Failed to register SIGINT handler")?;
-
-  // Mark as registered
-  // The race condition here is benign. Worst case, we register twice, but both
-  // handlers will set the same flag which is fine
-  let _ = HANDLER_REGISTERED.set(());
-
-  Ok(())
 }
 
 /// Guard that cleans up SSH `ControlMaster` sockets on drop.
@@ -813,118 +766,6 @@ fn get_nix_sshopts_env() -> String {
   }
 }
 
-/// Check if remote cleanup is enabled via environment variable.
-///
-/// Returns `true` if `NH_REMOTE_CLEANUP` is set to a truthy value:
-/// "1", "true", "yes" (case-insensitive).
-///
-/// Returns `false` if unset, empty, or set to any other value.
-fn should_cleanup_remote() -> bool {
-  env::var("NH_REMOTE_CLEANUP").is_ok_and(|val| {
-    let val = val.trim().to_lowercase();
-    val == "1" || val == "true" || val == "yes"
-  })
-}
-
-/// Attempt to clean up a remote process using pkill.
-///
-/// This is a best-effort (and opt-in) operation called when the user interrupts
-/// a remote build. It tries to terminate the remote nix process via SSH and
-/// pkill, but is inherently fragile due to the nature of remote building
-/// semantics.
-///
-/// # Arguments
-///
-/// * `host` - The remote host where the process is running
-/// * `remote_cmd` - The original command that was run remotely, used for pkill
-///   matching
-fn attempt_remote_cleanup(host: &RemoteHost, remote_cmd: &str) {
-  if !should_cleanup_remote() {
-    return;
-  }
-
-  let ssh_opts = get_ssh_opts();
-  let quoted_cmd = shell_quote(remote_cmd); // for safe passing through pkill's --full argument
-
-  // Build the pkill command:
-  // pkill -INT --full '<quoted_cmd>' will match the exact command line
-  let pkill_cmd = format!("pkill -INT --full {quoted_cmd}");
-
-  // Build SSH command with stderr capture for diagnostics
-  let mut ssh_cmd = Exec::cmd("ssh").stderr(Redirection::Pipe);
-  for opt in &ssh_opts {
-    ssh_cmd = ssh_cmd.arg(opt);
-  }
-  ssh_cmd = ssh_cmd.arg(host.ssh_host()).arg(&pkill_cmd);
-
-  debug!("Attempting remote cleanup on '{host}': pkill -INT --full <command>");
-
-  // Use popen with timeout to avoid hanging on unresponsive hosts
-  let mut job = match ssh_cmd.start() {
-    Ok(p) => p,
-    Err(e) => {
-      info!("Failed to execute remote cleanup on '{host}': {e}");
-      return;
-    },
-  };
-
-  // Wait up to 5 seconds for cleanup to complete
-  let timeout = Duration::from_secs(5);
-  match job.wait_timeout(timeout) {
-    Ok(Some(_)) => {
-      // Process exited, check status below
-    },
-    Ok(None) => {
-      // Timeout - kill the process and continue
-      let _ = job.kill();
-      let _ = job.wait();
-      info!("Remote cleanup on '{host}' timed out after 5 seconds");
-      return;
-    },
-    Err(e) => {
-      info!("Error waiting for remote cleanup on '{host}': {e}");
-      return;
-    },
-  }
-
-  // Check exit status
-  let exit_status = job.wait().ok();
-  if let Some(exit_status) = exit_status {
-    if exit_status.success() {
-      info!("Cleaned up remote process on '{}'", host);
-    } else {
-      // Capture stderr for error diagnosis
-      let stderr = job.stderr.take().map_or_else(String::new, |mut e| {
-        let mut s = String::new();
-        let _ = e.read_to_string(&mut s);
-        s
-      });
-      let stderr_lower = stderr.to_lowercase();
-
-      if stderr.contains("No matching processes")
-        || stderr_lower.contains("0 processes")
-      {
-        debug!(
-          "No matching process found on '{host}' during cleanup (may have \
-           already exited)"
-        );
-      } else if stderr_lower.contains("not found")
-        || stderr_lower.contains("command not found")
-      {
-        info!("pkill not available on '{}', skipping remote cleanup", host);
-      } else if stderr_lower.contains("permission denied")
-        || stderr_lower.contains("operation not permitted")
-      {
-        info!(
-          "Permission denied for pkill on '{host}', skipping remote cleanup",
-        );
-      } else {
-        info!("Remote cleanup on '{host}' returned non-zero exit status");
-      }
-    }
-  }
-}
-
 /// Get the flake experimental feature flags required for `nix` commands.
 ///
 /// Returns the flags needed for `--extra-experimental-features "nix-command
@@ -945,20 +786,6 @@ fn get_flake_flags() -> Vec<&'static str> {
       vec!["--extra-experimental-features", "nix-command flakes"]
     },
   }
-}
-
-/// Convert `OsString` arguments to UTF-8 Strings.
-///
-/// Returns an error if any argument is not valid UTF-8.
-fn convert_extra_args(extra_args: &[OsString]) -> Result<Vec<String>> {
-  extra_args
-    .iter()
-    .map(|s| {
-      s.to_str().map(String::from).with_context(|| {
-        format!("Extra argument is not valid UTF-8: {}", s.display())
-      })
-    })
-    .collect::<Result<Vec<_>>>()
 }
 
 fn nix_argv_to_strings(command: &NixCommand) -> Result<Vec<String>> {
@@ -1568,11 +1395,10 @@ fn clear_out_link(link: &Path) -> Result<()> {
 
 /// Perform a remote build of a flake installable.
 ///
-/// This implements the `build_remote_flake` workflow from nixos-rebuild-ng:
 /// 1. Evaluate drvPath locally via `nix eval --raw`
-/// 2. Copy the derivation to the build host via `nix copy`
-/// 3. Build on remote host via `nix build <drv>^* --print-out-paths`
-/// 4. Copy the result back (to localhost or `target_host`)
+/// 2. Build on the remote store via `nix build --store <host> <drv>^*`, which
+///    copies the derivation there first
+/// 3. Copy the result back (to localhost or `target_host`)
 ///
 /// Returns the output path in the Nix store.
 ///
@@ -1605,19 +1431,11 @@ pub fn build_remote_with_args(
   info!("Evaluating derivation path");
   let drv_path = eval_drv_path(installable, evaluation_args)?;
 
-  // Step 2: Copy derivation to build host
-  copy_to_remote_with_args(
-    build_host,
-    &drv_path,
-    use_substitutes,
-    evaluation_args,
-  )?;
-
-  // Step 3: Build on remote
+  // Step 2: Build on remote, which also copies the derivation there
   info!("Building on remote host '{}'", build_host);
   let out_path = build_on_remote(build_host, &drv_path, config)?;
 
-  // Step 4: Copy result to destination
+  // Step 3: Copy result to destination
   //
   // Optimizes copy paths based on hostname comparison:
   // - When build_host != target_host: copy build -> target, then build -> local
@@ -1704,51 +1522,98 @@ pub fn build_remote_with_args(
   Ok(PathBuf::from(out_path))
 }
 
-/// Build a derivation on a remote host.
+/// Build a derivation using the remote host as Nix's store.
+///
+/// Nix copies the derivation closure to the build host, streams the build
+/// logs back over the daemon protocol, and the remote daemon cancels the build
+/// once the connection drops, so Ctrl+C behaves like it does for local builds.
+///
 /// Returns the output path.
 fn build_on_remote(
   host: &RemoteHost,
   drv_path: &Path,
   config: &RemoteBuildConfig,
 ) -> Result<String> {
-  // Build command: nix build <drv>^* --print-out-paths [extra_args...]
-  let drv_with_outputs = format!("{}^*", drv_path.display());
-
-  if config.use_nom {
-    // Check that nom is available before attempting to use it
+  let log_flags: &[&str] = if config.use_nom {
     which::which("nom")
       .context("nom (nix-output-monitor) is required but not found in PATH")?;
-
-    // With nom: pipe through nix-output-monitor
-    build_on_remote_with_nom(host, &drv_with_outputs, config)
+    &["--log-format", "internal-json", "--verbose"]
   } else {
-    // Without nom: simple remote execution
-    build_on_remote_simple(host, &drv_with_outputs, config)
+    &[]
+  };
+
+  let mut build = build_nix_command(
+    &host.nix_store_uri(),
+    &format!("{}^*", drv_path.display()),
+    log_flags,
+    &config.execution_args,
+  )?
+  .to_exec()
+  .stdout(Redirection::Pipe);
+  if config.use_nom {
+    build = build.stderr(Redirection::Pipe);
   }
+  let mut job = build.start().context("Failed to start remote build")?;
+
+  // Logs go to stderr and output paths to stdout, so nom can consume the
+  // former while we read the latter.
+  let nom = job
+    .stderr
+    .take()
+    .map(|logs| Exec::cmd("nom").arg("--json").stdin(logs).start())
+    .transpose()
+    .context("Failed to start nom")?;
+
+  let mut out_paths = String::new();
+  job
+    .stdout
+    .take()
+    .context("Failed to capture remote build output")?
+    .read_to_string(&mut out_paths)?;
+
+  let status = job.wait()?;
+  if let Some(nom) = nom {
+    nom.wait()?;
+  }
+  if !status.success() {
+    bail!("Remote build failed with exit status: {status:?}");
+  }
+
+  // --print-out-paths may return multiple lines; take first
+  let out_path = out_paths
+    .lines()
+    .next()
+    .context("Remote build returned empty output")?
+    .trim()
+    .to_string();
+
+  debug!("Remote build output: {}", out_path);
+  Ok(out_path)
 }
 
-/// Build the argument list for remote nix build commands.
-/// Returns owned strings to avoid lifetime issues with `extra_args`.
+/// Build the local `nix build` command that builds on `store`.
 fn build_nix_command(
+  store: &str,
   drv_with_outputs: &str,
   extra_flags: &[&str],
   extra_args: &[OsString],
-) -> Result<Vec<String>> {
-  let extra_args_strings = convert_extra_args(extra_args)?;
-  if extra_args_strings
-    .iter()
-    .any(|arg| matches!(arg.as_str(), "--json" | "--pretty" | "--no-pretty"))
-  {
+) -> Result<NixCommand> {
+  if extra_args.iter().any(|arg| {
+    matches!(arg.to_str(), Some("--json" | "--pretty" | "--no-pretty"))
+  }) {
     bail!("remote builds do not support output-format arguments after `--`");
   }
 
-  nix_argv_to_strings(
-    &NixCommand::new(CommandKind::Build)
+  Ok(
+    NixCommand::new(CommandKind::Build)
       .print_build_logs(false)
       .global_args(get_flake_flags())
+      .args(["--store", store, "--eval-store", "auto"])
+      .args(["--no-link", "--print-out-paths"])
       .arg(drv_with_outputs)
-      .args(extra_args_strings)
-      .args(extra_flags),
+      .args(extra_args)
+      .args(extra_flags)
+      .env("NIX_SSHOPTS", get_nix_sshopts_env()),
   )
 }
 
@@ -1763,232 +1628,6 @@ fn profile_nix_command(
       .arg(system_profile)
       .args(build_args),
   )
-}
-
-/// Build on remote without nom - just capture output.
-fn build_on_remote_simple(
-  host: &RemoteHost,
-  drv_with_outputs: &str,
-  config: &RemoteBuildConfig,
-) -> Result<String> {
-  // Register interrupt handler at start
-  register_interrupt_handler()?;
-
-  let ssh_opts = get_ssh_opts();
-
-  let args = build_nix_command(
-    drv_with_outputs,
-    &["--print-out-paths"],
-    &config.execution_args,
-  )?;
-  let arg_refs: Vec<&str> =
-    args.iter().map(std::string::String::as_str).collect();
-
-  // Build SSH command with stdout capture
-  // Quote all arguments for safe shell passing
-  let quoted_args: Vec<String> =
-    arg_refs.iter().map(|s| shell_quote(s)).collect();
-  let remote_cmd = quoted_args.join(" ");
-
-  let mut ssh_cmd = Exec::cmd("ssh");
-  for opt in &ssh_opts {
-    ssh_cmd = ssh_cmd.arg(opt);
-  }
-  ssh_cmd = ssh_cmd
-    .arg(host.ssh_host())
-    .arg(&remote_cmd)
-    .stdout(Redirection::Pipe)
-    .stderr(Redirection::Pipe);
-
-  let mut job = ssh_cmd.start()?;
-
-  // Drain both pipes while the process runs; otherwise a full pipe blocks the
-  // remote build before wait_timeout can observe its exit.
-  let stdout = job.stdout.take().context("Failed to capture stdout")?;
-  let stderr = job.stderr.take().context("Failed to capture stderr")?;
-  let stdout_reader =
-    std::thread::spawn(move || std::io::read_to_string(stdout));
-  let stderr_reader = std::thread::spawn(move || {
-    let mut stderr = stderr;
-    let mut output = Vec::new();
-    stderr.read_to_end(&mut output).map(|_| output)
-  });
-
-  // Wait for completion with interrupt checking
-  let exit_status = loop {
-    match job.wait_timeout(std::time::Duration::from_millis(100))? {
-      Some(status) => break status,
-      None => {
-        // Check interrupt flag while waiting
-        if get_interrupt_flag().load(Ordering::Relaxed) {
-          debug!("Interrupt detected, killing SSH process");
-
-          let _ = job.kill();
-          let _ = job.wait(); // reap zombie
-
-          // Attempt remote cleanup if enabled
-          attempt_remote_cleanup(host, &remote_cmd);
-
-          bail!("Operation interrupted by user");
-        }
-      },
-    }
-  };
-
-  let output = stdout_reader
-    .join()
-    .map_err(|_| report!("Remote stdout reader failed"))??;
-  let stderr = stderr_reader
-    .join()
-    .map_err(|_| report!("Remote stderr reader failed"))??;
-  if !exit_status.success() {
-    bail!(
-      "Remote command failed: {}",
-      String::from_utf8_lossy(&stderr)
-    );
-  }
-
-  // --print-out-paths may return multiple lines; take first
-  let out_path = output
-    .lines()
-    .next()
-    .context("Remote build returned empty output")?
-    .trim()
-    .to_string();
-
-  debug!("Remote build output: {}", out_path);
-  Ok(out_path)
-}
-
-/// Build on remote with nom - pipe through nix-output-monitor.
-fn build_on_remote_with_nom(
-  host: &RemoteHost,
-  drv_with_outputs: &str,
-  config: &RemoteBuildConfig,
-) -> Result<String> {
-  // Register interrupt handler at start
-  register_interrupt_handler()?;
-
-  let ssh_opts = get_ssh_opts();
-
-  // Build the remote command with JSON output for nom
-  let remote_args = build_nix_command(
-    drv_with_outputs,
-    &["--log-format", "internal-json", "--verbose"],
-    &config.execution_args,
-  )?;
-  let arg_refs: Vec<&str> = remote_args
-    .iter()
-    .map(std::string::String::as_str)
-    .collect();
-
-  // Build SSH command
-  // Quote all arguments for safe shell passing
-  let quoted_remote: Vec<String> =
-    arg_refs.iter().map(|s| shell_quote(s)).collect();
-  let remote_cmd = quoted_remote.join(" ");
-
-  let mut ssh_cmd = Exec::cmd("ssh");
-  for opt in &ssh_opts {
-    ssh_cmd = ssh_cmd.arg(opt);
-  }
-  ssh_cmd = ssh_cmd
-    .arg(host.ssh_host())
-    .arg(&remote_cmd)
-    .stdout(Redirection::Pipe)
-    .stderr(Redirection::Merge);
-
-  // Pipe through nom
-  let nom_cmd = Exec::cmd("nom").arg("--json");
-  let pipeline = (ssh_cmd | nom_cmd).stdout(Redirection::None);
-
-  debug!(?pipeline, "Running remote build with nom");
-
-  // Use popen() to get access to individual processes so we can check
-  // ssh's exit status, not nom's. The pipeline's join() only returns
-  // the exit status of the last command (nom), which always succeeds
-  // even when the remote nix command fails.
-  let job = pipeline.start().context("Remote build with nom failed")?;
-
-  // Use wait_timeout in a polling loop to check interrupt flag every 100ms
-  let poll_interval = Duration::from_millis(100);
-
-  for proc in &job.processes {
-    #[allow(
-      clippy::needless_continue,
-      reason = "Better for explicitness and consistency"
-    )]
-    loop {
-      // Check interrupt flag before waiting
-      if get_interrupt_flag().load(Ordering::Relaxed) {
-        debug!("Interrupt detected during build with nom");
-        // Kill remaining local processes. This will cause SSH to terminate
-        // the remote command automatically
-        for p in &job.processes {
-          let _ = p.kill();
-          let _ = p.wait(); // reap zombie
-        }
-
-        // Attempt remote cleanup if enabled
-        attempt_remote_cleanup(host, &remote_cmd);
-
-        bail!("Operation interrupted by user");
-      }
-
-      // Poll process with timeout
-      match proc.wait_timeout(poll_interval)? {
-        Some(_) => {
-          // Process has exited, exit status is automatically cached in the
-          // Process handle. Move to next process.
-          break;
-        },
-
-        None => {
-          // Timeout elapsed, process still running - loop continues
-          // and will check interrupt flag again
-          continue;
-        },
-      }
-    }
-  }
-
-  // Check the exit status of the FIRST process (ssh -> nix build)
-  // This is the one that matters. If the remote build fails, we should fail
-  // too
-  if let Some(ssh_proc) = job.processes.first() {
-    let exit_status = ssh_proc.wait()?;
-    if !exit_status.success() {
-      bail!("Remote build failed with exit status: {exit_status:?}");
-    }
-  }
-
-  // nom consumed the output, so we need to query the output path separately
-  // Run nix build again with --print-out-paths (it will be a no-op since
-  // already built)
-  let query_args =
-    build_nix_command(drv_with_outputs, &["--print-out-paths"], &[])?;
-  let query_refs: Vec<&str> =
-    query_args.iter().map(std::string::String::as_str).collect();
-
-  let result = run_remote_command(host, &query_refs, true);
-
-  // Check if interrupted during query
-  if get_interrupt_flag().load(Ordering::Relaxed) {
-    debug!("Interrupt detected during output path query");
-    bail!("Operation interrupted by user");
-  }
-
-  let result = result?.context("Failed to get output path after build")?;
-
-  let out_path = result
-    .lines()
-    .next()
-    .context("Output path query returned empty")?
-    .trim()
-    .to_string();
-
-  debug!("Remote build output: {}", out_path);
-  Ok(out_path)
 }
 
 #[cfg(test)]
@@ -2063,10 +1702,14 @@ mod tests {
   #[test]
   fn remote_build_and_profile_commands_preserve_no_net() {
     let extra_args = [OsString::from("--no-net")];
-    let build = build_nix_command(
-      "/nix/store/example.drv^*",
-      &["--print-out-paths"],
-      &extra_args,
+    let build = nix_argv_to_strings(
+      &build_nix_command(
+        "ssh-ng://build.example",
+        "/nix/store/example.drv^*",
+        &[],
+        &extra_args,
+      )
+      .unwrap(),
     )
     .unwrap();
     let profile =
@@ -2082,9 +1725,12 @@ mod tests {
   #[test]
   fn remote_build_commands_reject_output_format_args() {
     assert!(
-      build_nix_command("/nix/store/example.drv^*", &["--print-out-paths"], &[
-        OsString::from("--json"),
-      ])
+      build_nix_command(
+        "ssh-ng://build.example",
+        "/nix/store/example.drv^*",
+        &[],
+        &[OsString::from("--json")],
+      )
       .is_err()
     );
   }
@@ -2748,67 +2394,5 @@ mod tests {
     let guard = init_ssh_control();
     drop(guard);
     // If this completes without panic, the Drop impl is at least safe
-  }
-
-  proptest! {
-    #[test]
-    #[serial]
-    fn test_should_cleanup_remote_enabled_by_valid_values(
-        value in prop_oneof![
-            Just("1"),
-            Just("true"),
-            Just("yes"),
-            Just("TRUE"),
-            Just("YES"),
-            Just("True"),
-        ]
-    ) {
-      unsafe {
-        std::env::set_var("NH_REMOTE_CLEANUP", value);
-      }
-      prop_assert!(should_cleanup_remote());
-      unsafe {
-        std::env::remove_var("NH_REMOTE_CLEANUP");
-      }
-    }
-  }
-
-  #[test]
-  #[serial]
-  fn test_should_cleanup_remote_empty_disabled() {
-    // Empty value should NOT enable cleanup
-    unsafe {
-      std::env::set_var("NH_REMOTE_CLEANUP", "");
-    }
-    assert!(!should_cleanup_remote());
-    unsafe {
-      std::env::remove_var("NH_REMOTE_CLEANUP");
-    }
-  }
-
-  #[test]
-  #[serial]
-  fn test_should_cleanup_remote_arbitrary_value_disabled() {
-    // Arbitrary values should NOT enable cleanup
-    unsafe {
-      std::env::set_var("NH_REMOTE_CLEANUP", "maybe");
-    }
-    assert!(!should_cleanup_remote());
-    unsafe {
-      std::env::remove_var("NH_REMOTE_CLEANUP");
-    }
-  }
-
-  #[test]
-  fn test_attempt_remote_cleanup_does_nothing_when_disabled() {
-    // When should_cleanup_remote returns false, no SSH command should be
-    // executed. We can't easily verify no SSH was spawned, but we can verify
-    // the function doesn't panic or error when cleanup is disabled
-    let host = RemoteHost::parse("user@host.example").unwrap();
-    let remote_cmd = "nix build /nix/store/abc.drv^* --print-out-paths";
-
-    // This should complete without error even when cleanup is disabled
-    attempt_remote_cleanup(&host, remote_cmd);
-    // If we reach here, the function handled the disabled case gracefully
   }
 }

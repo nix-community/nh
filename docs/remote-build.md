@@ -7,8 +7,8 @@ similar tools, using the `--build-host` and `--target-host` options.
 
 Remote deployment has two independent concepts:
 
-- **`--build-host`**: Where the configuration is **built** (via `nix copy` +
-  `nix build`)
+- **`--build-host`**: Where the configuration is **built** (via
+  `nix build --store`)
 - **`--target-host`**: Where the result is **deployed** and activated
 
 You can use either, both, or neither. Derivation evaluation always happens
@@ -152,24 +152,6 @@ nh os switch --build-host buildserver
 
 ## Environment Variables
 
-### NH_REMOTE_CLEANUP
-
-When set, nh will attempt to terminate remote Nix processes when you press
-Ctrl+C during a remote build. This uses `pkill` on the remote host to clean up
-the build process.
-
-```bash
-export NH_REMOTE_CLEANUP=1
-nh os switch --build-host user@buildserver
-```
-
-Valid values: `1`, `true`, `yes` (case-insensitive).
-
-This feature is **opt-in** because it is inherently fragile - remote process
-cleanup depends on SSH still being functional and `pkill` being available. You
-may still see zombie processes on the remote host if the connection drops before
-cleanup can complete.
-
 ### NH_NO_VALIDATE
 
 When set, skips pre-activation system validation checks. Useful when the target
@@ -187,10 +169,11 @@ When you use `--build-host`, `nh` follows this process:
 
 1. **Evaluate** the derivation path locally using
    `nix eval --raw <flake>.drvPath`
-2. **Copy derivation** to the build host using `nix copy --to`
-3. **Build remotely** by running `nix build <drv>^* --print-out-paths` on the
-   build host
-4. **Copy result** back based on the deployment scenario (see below)
+2. **Build remotely** by running
+   `nix build --store <build-host> --eval-store auto <drv>^* --print-out-paths`
+   locally. Nix copies the derivation to the build host, builds it there, and
+   streams the logs back. Pressing Ctrl+C cancels the remote build.
+3. **Copy result** back based on the deployment scenario (see below)
 
 ### Copy Optimization
 
