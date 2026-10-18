@@ -25,12 +25,22 @@ pub struct CommonRebuildArgs {
   #[pound(long, short)]
   pub out_link: Option<PathBuf>,
 
-  /// Whether to display a package diff
-  #[pound(long, short, default = DiffType::Auto)]
-  pub diff: DiffType,
+  #[pound(flatten)]
+  pub diff: DiffArgs,
 
   #[pound(flatten)]
   pub passthrough: NixBuildPassthroughArgs,
+}
+
+#[derive(Debug, Parse)]
+pub struct DiffArgs {
+  /// Whether to display a package diff
+  #[pound(long = "diff", short = 'd', default = DiffType::Auto)]
+  pub mode: DiffType,
+
+  /// Also show packages in the diff whose version did not change
+  #[pound(long = "diff-full")]
+  pub full: bool,
 }
 
 #[derive(ValueEnum, Clone, Default, Debug)]

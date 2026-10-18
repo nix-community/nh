@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use nh_core::{
-  args::{DiffType, NixBuildPassthroughArgs},
+  args::{DiffArgs, NixBuildPassthroughArgs},
   checks::{
     FeatureRequirements,
     FlakeFeatures,
@@ -283,9 +283,8 @@ pub struct OsRollbackArgs {
   #[pound(short = 'R', long, env = "NH_BYPASS_ROOT_CHECK")]
   pub bypass_root_check: bool,
 
-  /// Whether to display a package diff
-  #[pound(long, short, default = DiffType::Auto)]
-  pub diff: DiffType,
+  #[pound(flatten)]
+  pub diff: DiffArgs,
 
   /// Run switch-to-configuration directly instead of in a transient systemd
   /// unit
@@ -314,9 +313,8 @@ pub struct CommonRebuildArgs {
   #[pound(long, short)]
   pub out_link: Option<PathBuf>,
 
-  /// Whether to display a package diff
-  #[pound(long, short, default = DiffType::Auto)]
-  pub diff: DiffType,
+  #[pound(flatten)]
+  pub diff: DiffArgs,
 
   #[pound(flatten)]
   pub passthrough: NixBuildPassthroughArgs,

@@ -861,7 +861,7 @@ impl OsRollbackArgs {
     }
 
     // Compare changes between current and target generation
-    if matches!(self.diff, DiffType::Never) {
+    if matches!(self.diff.mode, DiffType::Never) {
       debug!(
         "Not running dix as the target hostname is different from the system \
          hostname."
@@ -871,7 +871,11 @@ impl OsRollbackArgs {
         "Comparing with target profile: {}",
         generation_link.display()
       );
-      let _ = print_dix_diff(&PathBuf::from(CURRENT_PROFILE), &generation_link);
+      let _ = print_dix_diff(
+        &PathBuf::from(CURRENT_PROFILE),
+        &generation_link,
+        &self.diff,
+      );
     }
 
     if self.dry {

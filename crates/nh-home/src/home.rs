@@ -181,12 +181,13 @@ impl HomeRebuildArgs {
 
     // just do nothing for None case (fresh installs)
     if let Some(generation) = prev_generation {
-      match self.common.diff {
+      match self.common.diff.mode {
         nh_core::args::DiffType::Never => {
           debug!("Not running dix as the --diff flag is set to never.");
         },
         _ => {
-          let _ = print_dix_diff(&generation, &target_profile);
+          let _ =
+            print_dix_diff(&generation, &target_profile, &self.common.diff);
         },
       }
     }

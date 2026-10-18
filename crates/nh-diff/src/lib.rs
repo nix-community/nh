@@ -1,7 +1,13 @@
-use std::path::{Path, PathBuf};
+use std::{
+  io,
+  path::{Path, PathBuf},
+};
 
 use misstep::Result;
-use nh_core::{args::DiffType, progress};
+use nh_core::{
+  args::{DiffArgs, DiffType},
+  progress,
+};
 use nh_remote::{RemoteHost, query_remote_snapshot, resolve_remote_store_path};
 use tracing::{debug, info, warn};
 use yansi::Paint;
@@ -9,7 +15,7 @@ use yansi::Paint;
 const NIXOS_CURRENT_PROFILE: &str = "/run/current-system";
 
 /// Prints the difference between two generations in terms of paths and closure
-/// sizes.
+/// sizes. `diff.mode` is up to the caller.
 ///
 /// # Returns
 ///
@@ -21,12 +27,14 @@ const NIXOS_CURRENT_PROFILE: &str = "/run/current-system";
 pub fn print_dix_diff(
   old_generation: &Path,
   new_generation: &Path,
+  diff: &DiffArgs,
 ) -> Result<()> {
   let report = dix::query_diff_report(old_generation, new_generation)?;
   print_report(
     &display_path(old_generation),
     &display_path(new_generation),
     &report,
+    diff,
   )
 }
 
@@ -48,24 +56,29 @@ pub fn print_dix_diff(
 /// Returns an error if the diff fails and was requested with
 /// [`DiffType::Always`].
 pub fn handle_nixos_diff(
-  diff: &DiffType,
+  diff: &DiffArgs,
   target_host: Option<&RemoteHost>,
   target_profile: &Path,
 ) -> Result<()> {
   let current_profile = Path::new(NIXOS_CURRENT_PROFILE);
 
-  if matches!(diff, DiffType::Never) {
+  if matches!(diff.mode, DiffType::Never) {
     debug!("Not running dix as the --diff flag is set to never.");
     return Ok(());
   }
 
   let result = target_host.map_or_else(
-    || print_dix_diff(current_profile, target_profile),
+    || print_dix_diff(current_profile, target_profile, diff),
     |target_host| {
-      print_remote_nixos_diff(target_host, current_profile, target_profile)
+      print_remote_nixos_diff(
+        target_host,
+        current_profile,
+        target_profile,
+        diff,
+      )
     },
   );
-  tolerate_diff_failure(diff, result)
+  tolerate_diff_failure(&diff.mode, result)
 }
 
 /// The diff is informational, so a failing diff only aborts the rebuild if it
@@ -108,6 +121,7 @@ fn print_remote_nixos_diff(
   target_host: &RemoteHost,
   current_profile: &Path,
   target_profile: &Path,
+  diff: &DiffArgs,
 ) -> Result<()> {
   let snapshot = |path: &Path| {
     dix::query_store_snapshot(path)
@@ -122,14 +136,15 @@ fn print_remote_nixos_diff(
   let report = dix::diff_store_snapshots(&snapshot(&old)?, &snapshot(&new)?);
   drop(spinner);
 
-  print_report(&old, &new, &report)
+  print_report(&old, &new, &report, diff)
 }
 
 fn display_path(path: &Path) -> PathBuf {
   std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
-/// Prints `report` with `<<<`/`>>>` headers naming the compared paths.
+/// Prints `report` with `<<<`/`>>>` headers naming the compared paths, and a
+/// note on how to show the packages it hides.
 ///
 /// # Returns
 ///
@@ -142,14 +157,19 @@ fn print_report(
   old_label: &Path,
   new_label: &Path,
   report: &dix::DiffReport,
+  diff: &DiffArgs,
 ) -> Result<()> {
+  let options = dix::RenderOptions {
+    full: diff.full,
+    ..dix::RenderOptions::default()
+  };
   let mut out = String::new();
-  let hidden =
-    dix::write_diff_report(&mut out, report, dix::RenderOptions::default())?;
+  let hidden = dix::write_diff_report(&mut out, report, options)?;
 
   println!("{} {}", "<<<".bold(), old_label.display());
   println!("{} {}", ">>>".bold(), new_label.display());
   print!("{out}");
+  dix::write_hidden_note(&mut io::stdout().lock(), hidden, "--diff-full")?;
 
   if report.diffs().len() == hidden && report.size_old() == report.size_new() {
     info!("No version or size changes.");
