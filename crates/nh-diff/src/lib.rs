@@ -1,13 +1,21 @@
-use std::{fmt::Write as _, path::Path, thread};
+use std::{
+  fmt::Write as _,
+  io::{self, Write as _},
+  path::Path,
+  thread,
+};
 
 use misstep::Result;
-use nh_core::{args::DiffType, progress};
+use nh_core::{
+  args::{Diff, DiffType},
+  progress,
+};
 use nh_remote::{RemoteHost, query_remote_snapshot, resolve_remote_store_path};
 use tracing::{debug, info, warn};
 use yansi::Paint;
 
 /// Prints the difference between two generations in terms of paths and closure
-/// sizes, as requested by `mode`.
+/// sizes, as requested by `diff`.
 ///
 /// Both generations must be in the store of `host`, or the local store if
 /// there is none. Remote diffs require dix on `host` unless both closures are
@@ -23,20 +31,24 @@ use yansi::Paint;
 /// Returns an error if the diff fails and was requested with
 /// [`DiffType::Always`].
 pub fn print_diff(
-  mode: &DiffType,
+  diff: &Diff,
   host: Option<&RemoteHost>,
   old: &Path,
   new: &Path,
 ) -> Result<()> {
-  if matches!(mode, DiffType::Never) {
+  if matches!(diff.mode, DiffType::Never) {
     debug!("Not running dix as the --diff flag is set to never.");
     return Ok(());
   }
 
   debug!("Comparing {} with {}", old.display(), new.display());
+  let options = dix::RenderOptions {
+    full: diff.full,
+    ..dix::RenderOptions::default()
+  };
   // The diff is informational, so a failing diff only aborts the rebuild if it
   // was explicitly requested.
-  match (mode, print_closure_diff(host, old, new)) {
+  match (&diff.mode, print_closure_diff(host, old, new, options)) {
     (DiffType::Auto, Err(err)) => {
       warn!("Skipping diff: {err:#}");
       Ok(())
@@ -60,6 +72,7 @@ fn print_closure_diff(
   host: Option<&RemoteHost>,
   old: &Path,
   new: &Path,
+  options: dix::RenderOptions,
 ) -> Result<()> {
   let spinner = host.map(|host| {
     progress::spinner(format!(
@@ -78,7 +91,7 @@ fn print_closure_diff(
   let report = dix::diff_store_snapshots(&old.snapshot, &new.snapshot);
   drop(spinner);
 
-  print_report(&old.path, &new.path, &report)
+  print_report(&old.path, &new.path, &report, options)
 }
 
 /// Snapshots `path` in the store of `host`, or the local store if there is
@@ -115,7 +128,8 @@ fn snapshot(
     })
 }
 
-/// Prints `report` with `<<<`/`>>>` headers naming the compared paths.
+/// Prints `report` with `<<<`/`>>>` headers naming the compared paths, and a
+/// note on how to show the packages it hides.
 ///
 /// # Returns
 ///
@@ -128,13 +142,16 @@ fn print_report(
   old_label: &Path,
   new_label: &Path,
   report: &dix::DiffReport,
+  options: dix::RenderOptions,
 ) -> Result<()> {
   let mut out = String::new();
   writeln!(out, "{} {}", "<<<".bold(), old_label.display())?;
   writeln!(out, "{} {}", ">>>".bold(), new_label.display())?;
-  let hidden =
-    dix::write_diff_report(&mut out, report, dix::RenderOptions::default())?;
-  print!("{out}");
+  let hidden = dix::write_diff_report(&mut out, report, options)?;
+
+  let mut stdout = io::stdout().lock();
+  stdout.write_all(out.as_bytes())?;
+  dix::write_hidden_note(&mut stdout, hidden, "--diff full")?;
 
   // Hidden packages only changed in amount or by a negligible size.
   let shows_changes =

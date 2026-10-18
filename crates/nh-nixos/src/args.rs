@@ -1,5 +1,5 @@
 use nh_core::{
-  args::{CommonRebuildArgs, DiffType},
+  args::{CommonRebuildArgs, Diff},
   checks::{
     FeatureRequirements,
     FlakeFeatures,
@@ -287,8 +287,8 @@ pub struct OsRollbackArgs {
   pub bypass_root_check: bool,
 
   /// Whether to display a package diff
-  #[pound(long, short, default = DiffType::Auto)]
-  pub diff: DiffType,
+  #[pound(long, short, default = "auto")]
+  pub diff: Diff,
 
   /// Run switch-to-configuration directly instead of in a transient systemd
   /// unit

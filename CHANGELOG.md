@@ -48,6 +48,9 @@ functionality, under the "Removed" section.
 - `nh os build-image`'s `--image-variant` flag is now optional. If the flag is
   not provided, the command will fallback to using
   `config.system.build.isoImage`.
+- `--diff` takes `full` to also show packages whose version did not change, as
+  in `--diff full` or `--diff always,full`. Like dix's `--full`, the diff now
+  notes how many packages it hides.
 
 ### Changed
 

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use nh_installable::InstallableArgs;
-use pound::{Parse, ValueEnum};
+use pound::{Choice, FromArg, Parse, ValueEnum, ValueError};
 use tracing::warn;
 
 #[derive(Debug, Parse)]
@@ -30,22 +30,72 @@ pub struct CommonRebuildArgs {
   pub out_link: Option<PathBuf>,
 
   /// Whether to display a package diff
-  #[pound(long, short, default = DiffType::Auto)]
-  pub diff: DiffType,
+  #[pound(long, short, default = "auto")]
+  pub diff: Diff,
 
   #[pound(flatten)]
   pub passthrough: NixBuildPassthroughArgs,
 }
 
-#[derive(ValueEnum, Clone, Default, Debug)]
+/// When to display a package diff, and what to show in it.
+#[derive(Debug, Clone, Copy)]
+pub struct Diff {
+  pub mode: DiffType,
+  pub full: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiffType {
+  Auto,
+  Always,
+  Never,
+}
+
+#[derive(ValueEnum)]
+enum DiffWord {
   /// Display package diff, and only warn if it fails
-  #[default]
   Auto,
   /// Display package diff, and abort if it fails
   Always,
   /// Never display package diff
   Never,
+  /// Also show packages whose version did not change, e.g. always,full
+  Full,
+}
+
+impl FromArg for Diff {
+  const POSSIBLE: Option<&'static [Choice]> = DiffWord::POSSIBLE;
+
+  fn from_arg(raw: &str) -> Result<Self, ValueError> {
+    let mut mode = None;
+    let mut full = false;
+
+    for word in raw.split(',') {
+      let parsed = match DiffWord::from_arg(word)? {
+        DiffWord::Auto => DiffType::Auto,
+        DiffWord::Always => DiffType::Always,
+        DiffWord::Never => DiffType::Never,
+        DiffWord::Full => {
+          full = true;
+          continue;
+        },
+      };
+
+      if mode.replace(parsed).is_some() {
+        return Err(ValueError::new(
+          raw,
+          "expected at most one of auto, always or never",
+        ));
+      }
+    }
+
+    let mode = mode.unwrap_or(DiffType::Auto);
+    if full && mode == DiffType::Never {
+      return Err(ValueError::new(raw, "full has no effect with never"));
+    }
+
+    Ok(Self { mode, full })
+  }
 }
 
 #[derive(Debug, Default, Parse)]
