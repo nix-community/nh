@@ -167,13 +167,12 @@ nh os switch --build-host user@buildserver --target-host user@production
 
 When you use `--build-host`, `nh` follows this process:
 
-1. **Evaluate** the derivation path locally using
-   `nix eval --raw <flake>.drvPath`
-2. **Build remotely** by running
-   `nix build --store <build-host> --eval-store auto <drv>^* --print-out-paths`
-   locally. Nix copies the derivation to the build host, builds it there, and
-   streams the logs back. Pressing Ctrl+C cancels the remote build.
-3. **Copy result** back based on the deployment scenario (see below)
+1. **Build remotely** by running
+   `nix build --store <build-host> --eval-store auto <installable> --print-out-paths`
+   locally. Nix evaluates the configuration locally, copies the derivation to
+   the build host, builds it there, and streams the logs back. Pressing Ctrl+C
+   cancels the remote build.
+2. **Copy result** back based on the deployment scenario (see below)
 
 ### Copy Optimization
 

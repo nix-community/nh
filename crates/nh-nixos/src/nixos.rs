@@ -1,5 +1,4 @@
 use std::{
-  convert::Into,
   fs,
   path::{Path, PathBuf},
 };
@@ -25,7 +24,7 @@ use nh_installable::{
   Installable,
   InstallableArgs,
 };
-use nh_remote::{self, RemoteBuildConfig, RemoteHost};
+use nh_remote::{self, RemoteHost};
 use tracing::{debug, info, warn};
 
 use crate::{
@@ -663,57 +662,20 @@ impl OsRebuildArgs {
     out_path: &Path,
     message: &str,
   ) -> Result<Option<PathBuf>> {
-    // If a build host is specified, use proper remote build semantics:
-    //
-    // 1. Evaluate derivation locally
-    // 2. Copy derivation to build host (user-initiated SSH)
-    // 3. Build on remote host
-    // 4. Copy result back (to localhost or target_host)
-    if let Some(build_host) = self.build_host.clone() {
-      info!("{message}");
-      let config = RemoteBuildConfig {
-        build_host,
-        target_host: self.target_host.clone(),
-        use_nom: use_nom(self.common.no_nom),
-        use_substitutes: self.common.passthrough.use_substitutes
-          && !self.common.passthrough.network_restricted(),
-        execution_args: self
-          .extra_args
-          .iter()
-          .map(Into::into)
-          .chain(
-            self
-              .common
-              .passthrough
-              .generate_remote_build_args()
-              .into_iter()
-              .map(Into::into),
-          )
-          .collect(),
-      };
+    let build = command::Build::new(toplevel)
+      .extra_args(&self.extra_args)
+      .passthrough(&self.common.passthrough)
+      .message(message)
+      .nom(use_nom(self.common.no_nom));
 
-      let actual_store_path = nh_remote::build_remote_with_args(
-        &toplevel,
-        &config,
-        Some(out_path),
-        &self.common.passthrough.generate_evaluation_args(),
-      )?;
-
-      Ok(Some(actual_store_path))
-    } else {
-      // Local build - use the existing path
-      command::Build::new(toplevel)
-        .extra_arg("--out-link")
-        .extra_arg(out_path)
-        .extra_args(&self.extra_args)
-        .passthrough(&self.common.passthrough)
-        .message(message)
-        .nom(use_nom(self.common.no_nom))
-        .run()
-        .context("Failed to build configuration")?;
-
-      Ok(None) // Local builds don't have separate store path
-    }
+    nh_remote::build(
+      build,
+      self.build_host.as_ref(),
+      self.target_host.as_ref(),
+      out_path,
+      &self.common.passthrough,
+    )
+    .context("Failed to build configuration")
   }
 
   fn resolve_specialisation_and_profile(
@@ -804,10 +766,9 @@ impl OsRebuildArgs {
     }
 
     command::Build::new(installable)
-      .extra_arg("--dry-run")
       .extra_args(&self.extra_args)
       .passthrough(&self.common.passthrough)
-      .run()
+      .dry_run()
       .context("Failed to calculate build plan")
   }
 

@@ -99,7 +99,7 @@ fn build_nix_copy_command<P: Into<OsString>>(
 /// Copy a Nix closure from a remote host to localhost.
 pub fn copy_closure_from_with_args(
   host: &RemoteHost,
-  path: &str,
+  path: &Path,
   nix_args: &[String],
 ) -> Result<()> {
   info!("Copying result from build host '{host}'");
@@ -299,7 +299,7 @@ pub fn copy_to_remote_with_args(
 pub fn copy_closure_between_remotes_with_args(
   from_host: &RemoteHost,
   to_host: &RemoteHost,
-  path: &str,
+  path: &Path,
   use_substitutes: bool,
   nix_args: &[String],
 ) -> Result<()> {

@@ -352,7 +352,7 @@ impl NixBuildPassthroughArgs {
   }
 
   #[must_use]
-  pub fn generate_remote_build_args(&self) -> Vec<String> {
+  pub fn generate_build_args(&self) -> Vec<String> {
     let mut args = Vec::new();
     self.append_execution_args(&mut args);
     args
@@ -461,13 +461,13 @@ mod tests {
   }
 
   #[test]
-  fn remote_build_args_exclude_json() {
+  fn build_args_exclude_json() {
     let args = NixBuildPassthroughArgs {
       json: true,
       no_net: true,
       ..Default::default()
     };
 
-    assert_eq!(args.generate_remote_build_args(), ["--no-net"]);
+    assert_eq!(args.generate_build_args(), ["--no-net"]);
   }
 }

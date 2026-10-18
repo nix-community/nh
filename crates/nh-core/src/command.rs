@@ -956,6 +956,7 @@ pub struct Build {
   message:     Option<String>,
   installable: Installable,
   extra_args:  Vec<OsString>,
+  envs:        Vec<(OsString, OsString)>,
   nom:         bool,
 }
 
@@ -966,6 +967,7 @@ impl Build {
       message: None,
       installable,
       extra_args: vec![],
+      envs: vec![],
       nom: false,
     }
   }
@@ -979,6 +981,18 @@ impl Build {
   #[must_use]
   pub fn extra_arg<S: AsRef<OsStr>>(mut self, arg: S) -> Self {
     self.extra_args.push(arg.as_ref().to_os_string());
+    self
+  }
+
+  #[must_use]
+  pub fn env<K: AsRef<OsStr>, V: AsRef<OsStr>>(
+    mut self,
+    key: K,
+    value: V,
+  ) -> Self {
+    self
+      .envs
+      .push((key.as_ref().to_os_string(), value.as_ref().to_os_string()));
     self
   }
 
@@ -1002,72 +1016,114 @@ impl Build {
 
   #[must_use]
   pub fn passthrough(self, passthrough: &NixBuildPassthroughArgs) -> Self {
-    self.extra_args(passthrough.generate_passthrough_args())
+    self.extra_args(passthrough.generate_build_args())
   }
 
-  /// Run the build command.
+  /// Print what the build would do without building anything.
   ///
   /// # Errors
   ///
-  /// Returns an error if the build command fails to execute.
-  pub fn run(&self) -> Result<()> {
+  /// Returns an error if Nix fails to determine the build plan.
+  pub fn dry_run(&self) -> Result<()> {
     if let Some(m) = &self.message {
       info!("{m}");
     }
 
-    let installable_args = self.installable.to_args()?;
-
-    let base_command = NixCommand::new(CommandKind::Build)
+    let mut cmd = NixCommand::new(CommandKind::Build)
       .print_build_logs(false)
-      .args(&installable_args)
+      .args(&self.installable.to_args()?)
+      .arg("--dry-run")
       .args(&self.extra_args)
       .to_exec();
+    for (key, value) in &self.envs {
+      cmd = cmd.env(key, value);
+    }
+    debug!(?cmd);
 
-    if self.nom {
-      let pipeline = {
-        base_command
-          .args(["--log-format", "internal-json", "--verbose"])
-          .stderr(Redirection::Merge)
-          .stdout(Redirection::Pipe)
-          | Exec::cmd("nom").args(["--json"])
-      }
-      .stdout(Redirection::None);
-      debug!(?pipeline);
+    let exit_status = cmd.join()?;
+    if !exit_status.success() {
+      bail!(ExitError(exit_status));
+    }
+    Ok(())
+  }
 
-      // Use `popen()` to get access to individual processes so we can check
-      // Nix's exit status, not nom's. The pipeline's `join()` only returns
-      // the exit status of the last command (nom), which always succeeds
-      // even when Nix fails.
-      let job = pipeline.start()?;
-
-      // Wait for all processes to finish
-      for proc in &job.processes {
-        proc.wait()?;
-      }
-
-      // Check the exit status of the FIRST process (nix build)
-      // This is the one that matters. If Nix fails, we should fail as well
-      if let Some(nix_proc) = job.processes.first() {
-        let exit_status = nix_proc.wait()?;
-        if !exit_status.success() {
-          bail!(ExitError(exit_status));
-        }
-      }
-    } else {
-      let cmd = base_command
-        .stderr(Redirection::Merge)
-        .stdout(Redirection::None);
-
-      debug!(?cmd);
-      let exit = cmd.join();
-
-      let exit_status = exit?;
-      if !exit_status.success() {
-        bail!(ExitError(exit_status));
-      }
+  /// Run the build command.
+  ///
+  /// Returns the first output path.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the build command fails to execute.
+  pub fn run(&self) -> Result<PathBuf> {
+    if let Some(m) = &self.message {
+      info!("{m}");
     }
 
-    Ok(())
+    // Output paths are read from stdout, which output-format flags would
+    // replace.
+    if self.extra_args.iter().any(|arg| {
+      matches!(arg.to_str(), Some("--json" | "--pretty" | "--no-pretty"))
+    }) {
+      bail!("builds do not support output-format arguments after `--`");
+    }
+
+    let installable_args = self.installable.to_args()?;
+
+    let mut cmd = NixCommand::new(CommandKind::Build)
+      .print_build_logs(false)
+      .args(&installable_args)
+      .arg("--print-out-paths")
+      .args(&self.extra_args)
+      .to_exec()
+      .stdout(Redirection::Pipe);
+    for (key, value) in &self.envs {
+      cmd = cmd.env(key, value);
+    }
+    if self.nom {
+      which("nom").context(
+        "nom (nix-output-monitor) is required but not found in PATH",
+      )?;
+      cmd = cmd
+        .args(["--log-format", "internal-json", "--verbose"])
+        .stderr(Redirection::Pipe);
+    }
+    debug!(?cmd);
+
+    let mut job = cmd.start()?;
+
+    // Logs go to stderr and output paths to stdout, so nom can consume the
+    // former while we read the latter.
+    let nom = if self.nom {
+      let logs = job.stderr.take().context("Failed to capture build logs")?;
+      let nom = Exec::cmd("nom").arg("--json").stdin(logs).start();
+      Some(nom.context("Failed to start nom")?)
+    } else {
+      None
+    };
+
+    let mut out_paths = String::new();
+    job
+      .stdout
+      .take()
+      .context("Failed to capture build output")?
+      .read_to_string(&mut out_paths)?;
+
+    let exit_status = job.wait()?;
+    if let Some(nom) = nom {
+      nom.wait()?;
+    }
+    if !exit_status.success() {
+      bail!(ExitError(exit_status));
+    }
+
+    // --print-out-paths may return multiple lines; take first
+    let out_path = out_paths
+      .lines()
+      .next()
+      .context("Build returned no output path")?
+      .trim();
+    debug!("Build output: {out_path}");
+    Ok(PathBuf::from(out_path))
   }
 }
 
