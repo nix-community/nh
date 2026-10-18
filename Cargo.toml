@@ -50,7 +50,6 @@ serde = { features = [ "derive" ], version = "1.0.228" }
 serde_json = "1.0.145"
 serial_test = "3.2.0"
 shlex = "2.0.1"
-signal-hook = "0.4.1"
 subprocess = "1.0.3"
 supports-hyperlinks = "3.1.0"
 system-configuration = "0.8.0"

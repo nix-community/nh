@@ -503,12 +503,6 @@ the common variables that you may encounter or choose to employ are as follows:
   - Control whether `nom` (nix-output-monitor) should be enabled for the build
     processes. Equivalent of `--no-nom`.
 
-- `NH_REMOTE_CLEANUP`
-  - Whether to initiate an attempt to clean up remote processes on interrupt via
-    pkill. This is implemented to match nixos-rebuild's behaviour, but due to
-    its fragile nature it has been made opt-in. Unless NH has been leaving
-    zombie processes on interrupt, there is generally no need to set this.
-
 ### Notes
 
 - Any environment variables prefixed with `NH_` are explicitly propagated by NH

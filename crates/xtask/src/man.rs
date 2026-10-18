@@ -81,11 +81,6 @@ const ENVIRONMENT: &[Entry] = &[
      false, no, or off to force it off. --no-nom takes precedence.",
   ),
   (
-    "NH_REMOTE_CLEANUP",
-    "Whether to clean up remote processes on interrupt via pkill. Opt-in due \
-     to fragile behavior.",
-  ),
-  (
     "NH_SSHOPTS",
     "SSH options for remote operations. Takes precedence over NIX_SSHOPTS. \
      Accepts the same format as NIX_SSHOPTS.",
