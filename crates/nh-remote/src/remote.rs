@@ -16,7 +16,7 @@ use nh_core::{
     get_cached_password,
     get_sudo_opts,
   },
-  util::NixVariant,
+  util::{NixVariant, parse_nix_variant},
 };
 use secrecy::{ExposeSecret, SecretString};
 use subprocess::{Exec, Redirection};
@@ -1305,6 +1305,81 @@ fn clear_out_link(link: &Path) -> Result<()> {
     .erase()
 }
 
+/// The `ssh-ng` store URI to build on `host` with the build settings from
+/// `passthrough`.
+///
+/// `ssh-ng` stores don't forward client settings like `--cores` or
+/// `--max-jobs`. When there are any, they are passed to a remote
+/// `nix-daemon --stdio` that handles the connection itself instead of relaying
+/// it. `remote-store=auto` makes it build in-process when the SSH user can
+/// write the store, as root or on a single-user install, and through the
+/// daemon, which receives its settings, otherwise. `--force-untrusted` makes it
+/// handle the connection on Lix. Nix relays even then (fixed by
+/// NixOS/nix#16637), so it also needs `--process-ops`, which Lix lacks, and the
+/// build host's `nix-daemon` is asked which it is.
+///
+/// # Errors
+///
+/// Returns an error if the build host's Nix implementation can't be detected.
+fn build_store_uri(
+  host: &RemoteHost,
+  passthrough: &NixBuildPassthroughArgs,
+) -> Result<String> {
+  let settings = passthrough.generate_daemon_args();
+  if settings.is_empty() {
+    return Ok(host.nix_store_uri());
+  }
+
+  let version = run_remote_command(host, &["nix-daemon", "--version"], true)
+    .with_context(|| {
+      format!(
+        "Failed to detect the Nix implementation on '{host}' to forward build \
+         settings to it"
+      )
+    })?
+    .unwrap_or_default();
+  let mut proxy = vec![
+    "nix-daemon",
+    "--extra-experimental-features",
+    "daemon-trust-override",
+    "--force-untrusted",
+  ];
+  if parse_nix_variant(&version) != NixVariant::Lix {
+    proxy.extend([
+      "--extra-experimental-features",
+      "mounted-ssh-store",
+      "--process-ops",
+    ]);
+  }
+  debug!("Forwarding build settings to '{host}' ({version})");
+
+  let program = proxy
+    .into_iter()
+    .map(shell_quote)
+    .chain(settings.iter().map(|arg| shell_quote(arg)))
+    .collect::<Vec<_>>()
+    .join(" ");
+
+  Ok(format!(
+    "ssh-ng://{}?remote-store=auto&remote-program={}",
+    host.host,
+    percent_encode(&program)
+  ))
+}
+
+/// Percent-encode `s` for use in a URI query value.
+fn percent_encode(s: &str) -> String {
+  s.bytes()
+    .map(|byte| {
+      if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
+        char::from(byte).to_string()
+      } else {
+        format!("%{byte:02X}")
+      }
+    })
+    .collect()
+}
+
 /// Build `build` and make sure the result is in the store of the host that
 /// will activate it: `target_host`, or localhost if there is none.
 ///
@@ -1349,7 +1424,7 @@ pub fn build(
   // the build logs back, and the remote daemon cancels the build once the
   // connection drops, so Ctrl+C behaves like it does for local builds.
   let out_path = build
-    .extra_args(["--store", &build_host.nix_store_uri()])
+    .extra_args(["--store", &build_store_uri(build_host, passthrough)?])
     .extra_args(["--eval-store", "auto", "--no-link"])
     .env("NIX_SSHOPTS", get_nix_sshopts_env())
     .run()?;
