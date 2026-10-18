@@ -67,6 +67,10 @@ spellings like `on`, `y` or `TRUE` are rejected.
 - `--json` is no longer forwarded to `nix build`. nh reads the built output path
   from `nix build --print-out-paths`, which `--json` would replace. It is still
   forwarded to the other Nix commands nh runs.
+- `--build-host` with a different `--target-host` no longer copies the result to
+  localhost when the build host can copy it to the target directly. The result
+  is copied straight to the host that activates it, before the diff and `--ask`,
+  and a local out-link is only created when it reaches the local store.
 
 ### Fixed
 
@@ -76,6 +80,9 @@ spellings like `on`, `y` or `TRUE` are rejected.
   now runs `nix build --store <build-host> --eval-store auto` locally, which
   copies the derivation, streams the build logs, and lets the remote daemon
   cancel the build when the connection drops, like a local build.
+- `nh os` only infers the running system's specialisation when activating
+  locally, rather than applying the local machine's specialisation to a
+  `--target-host`.
 - `nh search packages` and `nh search options` now query the newest
   search.nixos.org index available for the channel instead of the version
   bundled with nh. Outdated indices stay online, so nh previously kept showing

@@ -256,18 +256,17 @@ impl OsRebuildActivateArgs {
       local_elevate
     };
 
-    let actual_store_path =
+    let store_path =
       self.rebuild.execute_build(toplevel, &out_path, message)?;
 
-    let target_profile =
-      self.rebuild.resolve_specialisation_and_profile(&out_path)?;
+    let target_profile = self
+      .rebuild
+      .resolve_specialisation_and_profile(&store_path)?;
 
     handle_nixos_diff(
       &self.rebuild.common.diff,
       self.rebuild.target_host.as_ref(),
       &target_profile,
-      actual_store_path.as_deref(),
-      &out_path,
     )?;
 
     if self.rebuild.common.dry || matches!(variant, Build | BuildVm) {
@@ -285,9 +284,8 @@ impl OsRebuildActivateArgs {
 
     self.activate_rebuilt_config(
       variant,
-      &out_path,
+      &store_path,
       &target_profile,
-      actual_store_path.as_deref(),
       elevate,
       elevation,
     )?;
@@ -295,12 +293,13 @@ impl OsRebuildActivateArgs {
     Ok(())
   }
 
+  /// Activate `target_profile`, the built `store_path` or one of its
+  /// specialisations. Both are in the store of the host being activated.
   fn activate_rebuilt_config(
     &self,
     variant: &OsRebuildVariant,
-    out_path: &Path,
+    store_path: &Path,
     target_profile: &Path,
-    actual_store_path: Option<&Path>,
     elevate: bool,
     elevation: ElevationStrategy,
   ) -> Result<()> {
@@ -324,53 +323,7 @@ impl OsRebuildActivateArgs {
       }
     }
 
-    // Resolve the base store path before activation. Activation can bind-mount
-    // over /tmp, shadowing our tempdir so out_path stops resolving afterwards.
-    // The bootloader step below reuses this.
-    let base_store_path = actual_store_path.map_or_else(
-      || {
-        out_path
-          .canonicalize()
-          .context("Failed to resolve base output path to store path")
-      },
-      |path| Ok(path.to_path_buf()),
-    )?;
-
-    let specialisation_path = target_profile
-      .strip_prefix(out_path)
-      .context("Selected profile is outside the build output")?;
-    let selected_store_path = if specialisation_path.as_os_str().is_empty() {
-      base_store_path.clone()
-    } else {
-      base_store_path.join(specialisation_path)
-    };
-
-    // A remote build has already copied the closure to the target host.
-    if let Some(target_host) = &self.rebuild.target_host
-      && actual_store_path.is_none()
-    {
-      nh_remote::copy_to_remote_with_args(
-        target_host,
-        &base_store_path,
-        self.rebuild.common.passthrough.use_substitutes
-          && !self.rebuild.common.passthrough.network_restricted(),
-        &self.rebuild.common.passthrough.generate_evaluation_args(),
-      )
-      .context("Failed to copy configuration to target host")?;
-    }
-
-    let resolved_profile =
-      if self.rebuild.target_host.is_some() && !target_profile.exists() {
-        selected_store_path
-      } else {
-        target_profile
-          .canonicalize()
-          .context("Failed to resolve selected system profile")?
-      };
-
-    let should_skip = self.rebuild.no_validate;
-
-    if should_skip {
+    if self.rebuild.no_validate {
       warn!(
         "Skipping pre-activation validation (--no-validate or NH_NO_VALIDATE \
          set)"
@@ -380,20 +333,17 @@ impl OsRebuildActivateArgs {
          incomplete"
       );
     } else if let Some(target_host) = &self.rebuild.target_host {
-      // For remote activation, validate on the remote host using the resolved
-      // store path
       validate_system_closure_remote(
-        &resolved_profile,
+        target_profile,
         target_host,
         self.rebuild.build_host.as_ref(),
       )?;
     } else {
-      // For local activation, validate locally
-      validate_system_closure(&resolved_profile)?;
+      validate_system_closure(target_profile)?;
     }
 
     let switch_to_configuration =
-      resolved_profile.join("bin").join("switch-to-configuration");
+      target_profile.join("bin").join("switch-to-configuration");
 
     if let Test | Switch | DryActivate = variant {
       let action = if matches!(variant, DryActivate) {
@@ -434,7 +384,7 @@ impl OsRebuildActivateArgs {
 
           nh_remote::activate_remote_with_build_args(
             target_host,
-            &resolved_profile,
+            target_profile,
             &nh_remote::ActivateRemoteConfig {
               platform: nh_remote::Platform::NixOS,
               activation_type,
@@ -470,24 +420,16 @@ impl OsRebuildActivateArgs {
           return Err(e);
         }
       }
-
-      if let Some(store_path) = actual_store_path {
-        debug!(
-          "Completed {variant:?} operation with store path: {store_path:?}"
-        );
-      } else {
-        debug!(
-          "Completed {variant:?} operation with local output path: \
-           {out_path:?}"
-        );
-      }
     }
 
+    // The bootloader gets the base system closure instead of the
+    // specialisation one. This is what makes all specialisations visible in
+    // the bootloader instead of only the generation with the specialisation.
     if let Boot | Switch = variant {
       if let Some(target_host) = &self.rebuild.target_host {
         nh_remote::activate_remote_with_build_args(
           target_host,
-          &base_store_path,
+          store_path,
           &nh_remote::ActivateRemoteConfig {
             platform:           nh_remote::Platform::NixOS,
             activation_type:    nh_remote::ActivationType::Boot,
@@ -500,12 +442,10 @@ impl OsRebuildActivateArgs {
         )
         .context("Bootloader activation failed")?;
       } else {
-        // Install the base closure as the boot profile, retaining every
-        // specialisation as a boot option.
         let (binary, args, _) = NixCommand::new(CommandKind::Build)
           .print_build_logs(false)
           .args(["--no-link", "--profile", SYSTEM_PROFILE])
-          .arg(&base_store_path)
+          .arg(store_path)
           .args(self.rebuild.common.passthrough.generate_passthrough_args())
           .into_parts();
         Command::new(binary)
@@ -535,13 +475,10 @@ impl OsRebuildActivateArgs {
       }
     }
 
-    if let Some(store_path) = actual_store_path {
-      debug!("Completed {variant:?} operation with store path: {store_path:?}");
-    } else {
-      debug!(
-        "Completed {variant:?} operation with local output path: {out_path:?}"
-      );
-    }
+    debug!(
+      "Completed {variant:?} operation with {}",
+      target_profile.display()
+    );
     Ok(())
   }
 }
@@ -656,12 +593,14 @@ impl OsRebuildArgs {
     toplevel_for(target_hostname, installable, &build_attr)
   }
 
+  /// Build the configuration onto the host that will activate it, returning
+  /// its store path.
   fn execute_build(
     &self,
     toplevel: Installable,
     out_path: &Path,
     message: &str,
-  ) -> Result<Option<PathBuf>> {
+  ) -> Result<PathBuf> {
     let build = command::Build::new(toplevel)
       .extra_args(&self.extra_args)
       .passthrough(&self.common.passthrough)
@@ -678,73 +617,63 @@ impl OsRebuildArgs {
     .context("Failed to build configuration")
   }
 
+  /// Resolve the profile to activate: `store_path`, or one of its
+  /// specialisations.
   fn resolve_specialisation_and_profile(
     &self,
-    out_path: &Path,
+    store_path: &Path,
   ) -> Result<PathBuf> {
-    let current_specialisation = std::fs::read_to_string(SPEC_LOCATION)
-      .ok()
-      .map(|s| s.trim().to_owned());
+    let specialisation_path =
+      |spec: &str| store_path.join("specialisation").join(spec);
+
+    if self.no_specialisation {
+      return Ok(store_path.to_path_buf());
+    }
+
+    // A remote target's booted specialisation can't be read from here, and
+    // its closure may only exist remotely, so a named specialisation is
+    // checked by the remote closure validation instead.
+    if self.target_host.is_some() {
+      return Ok(
+        self
+          .specialisation
+          .as_deref()
+          .map_or_else(|| store_path.to_path_buf(), specialisation_path),
+      );
+    }
 
     // Did the user name a specialisation with `--specialisation`, or did we
     // infer it from the running system? A named one that we can't build is a
     // user error. An inferred one that we can't build should fall back instead.
-    let explicit_specialisation = self.specialisation.is_some();
-
-    let target_specialisation = if self.no_specialisation {
-      None
-    } else {
-      self.specialisation.clone().or(current_specialisation)
+    let booted_specialisation = std::fs::read_to_string(SPEC_LOCATION)
+      .ok()
+      .map(|s| s.trim().to_owned());
+    let Some(spec) = self.specialisation.clone().or(booted_specialisation)
+    else {
+      return Ok(store_path.to_path_buf());
     };
+    debug!("Target specialisation: {spec}");
 
-    debug!("Target specialisation: {target_specialisation:?}");
-
-    // Determine target profile, falling back to base if specialisation doesn't
-    // exist
-    let target_profile = match &target_specialisation {
-      None => out_path.to_path_buf(),
-      Some(spec) => {
-        let spec_path = out_path.join("specialisation").join(spec);
-
-        // For local builds, check if the specialisation exists in the built
-        // configuration.
-        if out_path.exists() && !spec_path.exists() {
-          if explicit_specialisation {
-            bail!(
-              "Specialisation '{}' does not exist in the built configuration",
-              spec
-            );
-          }
-
-          // Inferred from the running system, but absent from the config being
-          // built. This happens with `nh os build --hostname <other>` while
-          // booted into a specialisation. Fall back to the base config instead
-          // of failing.
-          warn!(
-            "Booted specialisation '{spec}' does not exist in the built \
-             configuration. Falling back to the base configuration. Pass \
-             --specialisation to pick one, or --no-specialisation to silence \
-             this warning."
-          );
-          out_path.to_path_buf()
-        } else {
-          spec_path
-        }
-      },
-    };
-
-    debug!("Output path: {out_path:?}");
-    debug!("Target profile path: {}", target_profile.display());
-
-    // Validate the final target profile exists if it's a local build
-    if out_path.exists() && !target_profile.exists() {
-      return Err(report!(
-        "Target profile path does not exist: {}",
-        target_profile.display()
-      ));
+    let spec_path = specialisation_path(&spec);
+    if spec_path.exists() {
+      return Ok(spec_path);
+    }
+    if self.specialisation.is_some() {
+      bail!(
+        "Specialisation '{spec}' does not exist in the built configuration"
+      );
     }
 
-    Ok(target_profile)
+    // Inferred from the running system, but absent from the config being
+    // built. This happens with `nh os build --hostname <other>` while booted
+    // into a specialisation. Fall back to the base config instead of failing.
+    warn!(
+      "Booted specialisation '{spec}' does not exist in the built \
+       configuration. Falling back to the base configuration. Pass \
+       --specialisation to pick one, or --no-specialisation to silence this \
+       warning."
+    );
+    Ok(store_path.to_path_buf())
   }
 
   fn dry_build(&self) -> Result<()> {
@@ -831,20 +760,18 @@ impl OsRebuildArgs {
       _ => "Building NixOS configuration",
     };
 
-    let actual_store_path = self.execute_build(toplevel, &out_path, message)?;
+    let store_path = self.execute_build(toplevel, &out_path, message)?;
 
     let target_profile = if matches!(variant, BuildVm) {
-      out_path.clone()
+      store_path
     } else {
-      self.resolve_specialisation_and_profile(&out_path)?
+      self.resolve_specialisation_and_profile(&store_path)?
     };
 
     handle_nixos_diff(
       &self.common.diff,
       self.target_host.as_ref(),
       &target_profile,
-      actual_store_path.as_deref(),
-      &out_path,
     )?;
 
     // Build, BuildVm and BuildIso subcommands never activate

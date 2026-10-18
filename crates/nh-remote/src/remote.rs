@@ -1305,11 +1305,20 @@ fn clear_out_link(link: &Path) -> Result<()> {
     .erase()
 }
 
-/// Run `build` locally, or on `build_host` with the result copied to its
-/// destination.
+/// Build `build` and make sure the result is in the store of the host that
+/// will activate it: `target_host`, or localhost if there is none.
 ///
-/// Local builds create `out_link` directly and return `None`, since their
-/// result is read through it. Remote builds return the built store path.
+/// | Build      | Target     | Result                                          |
+/// |------------|------------|-------------------------------------------------|
+/// | local      | none       | Built locally                                   |
+/// | local      | B          | Built locally, copied to B                      |
+/// | A          | none       | Built on A, copied to localhost                 |
+/// | A          | A          | Built on A                                      |
+/// | A          | B          | Built on A, copied to B, relayed via localhost if A can't reach B |
+///
+/// `out_link` is created whenever the result ends up in the local store.
+///
+/// Returns the built store path.
 ///
 /// # Errors
 ///
@@ -1320,103 +1329,72 @@ pub fn build(
   target_host: Option<&RemoteHost>,
   out_link: &Path,
   passthrough: &NixBuildPassthroughArgs,
-) -> Result<Option<PathBuf>> {
-  let Some(build_host) = build_host else {
-    build.extra_arg("--out-link").extra_arg(out_link).run()?;
-    return Ok(None);
-  };
-  build_remote(build, build_host, target_host, out_link, passthrough).map(Some)
-}
-
-/// Run `build` on the build host's store and copy the result to its
-/// destination.
-///
-/// Nix evaluates locally, copies the derivation to the build host, streams the
-/// build logs back, and the remote daemon cancels the build once the
-/// connection drops, so Ctrl+C behaves like it does for local builds.
-///
-/// | `target_host` | Result |
-/// |---------------|--------|
-/// | None          | Copied to localhost |
-/// | build host    | Left on the build host, no out-link |
-/// | other host    | Copied directly to it if possible, and to localhost |
-fn build_remote(
-  build: Build,
-  build_host: &RemoteHost,
-  target_host: Option<&RemoteHost>,
-  out_link: &Path,
-  passthrough: &NixBuildPassthroughArgs,
 ) -> Result<PathBuf> {
   let use_substitutes =
     passthrough.use_substitutes && !passthrough.network_restricted();
   let evaluation_args = passthrough.generate_evaluation_args();
+  let copy_to = |host: &RemoteHost, path: &Path| {
+    copy_to_remote_with_args(host, path, use_substitutes, &evaluation_args)
+  };
 
+  let Some(build_host) = build_host else {
+    let out_path = build.extra_arg("--out-link").extra_arg(out_link).run()?;
+    if let Some(target_host) = target_host {
+      copy_to(target_host, &out_path)?;
+    }
+    return Ok(out_path);
+  };
+
+  // Nix evaluates locally, copies the derivation to the build host, streams
+  // the build logs back, and the remote daemon cancels the build once the
+  // connection drops, so Ctrl+C behaves like it does for local builds.
   let out_path = build
     .extra_args(["--store", &build_host.nix_store_uri()])
     .extra_args(["--eval-store", "auto", "--no-link"])
     .env("NIX_SSHOPTS", get_nix_sshopts_env())
     .run()?;
 
-  let (need_local_copy, relay_target) = match target_host {
-    None => (true, None),
-    Some(target_host) if target_host.hostname() == build_host.hostname() => {
-      // The result is already where it will be activated. Respecting the
-      // out-link here would mean copying to localhost for nothing.
-      debug!(
-        "Skipping copy from build host to target host (same host: {})",
-        build_host.hostname()
-      );
-      (false, None)
-    },
-    Some(target_host) => {
-      // Relay through localhost if the hosts can't reach each other; the
-      // out-link needs a local copy either way.
-      match copy_closure_between_remotes_with_args(
-        build_host,
-        target_host,
-        &out_path,
-        use_substitutes,
-        &evaluation_args,
-      ) {
-        Ok(()) => (true, None),
-        Err(e) => {
-          warn!(
-            "Direct copy from {} to {} failed: {}. Will relay through \
-             localhost.",
-            build_host.hostname(),
-            target_host.hostname(),
-            e
-          );
-          (true, Some(target_host))
-        },
-      }
-    },
-  };
-
-  // Clear an old link even when the new result remains on the remote host.
+  // Clear an old link even when the new result remains on a remote host.
   // Otherwise callers can mistake a previous local result for this build.
   clear_out_link(out_link)?;
-  if need_local_copy {
-    copy_closure_from_with_args(build_host, &out_path, &evaluation_args)?;
-    debug!(
-      "Creating out-link: {} -> {}",
-      out_link.display(),
-      out_path.display()
-    );
-    std::os::unix::fs::symlink(&out_path, out_link)
-      .context("Failed to create out-link")?;
-  }
 
-  if let Some(target_host) = relay_target {
-    copy_to_remote_with_args(
+  if let Some(target_host) = target_host {
+    if target_host.hostname() == build_host.hostname() {
+      return Ok(out_path);
+    }
+    match copy_closure_between_remotes_with_args(
+      build_host,
       target_host,
       &out_path,
       use_substitutes,
       &evaluation_args,
-    )
-    .context("Failed to relay closure to target host")?;
+    ) {
+      Ok(()) => return Ok(out_path),
+      Err(e) => {
+        warn!(
+          "Direct copy from {} to {} failed: {}. Will relay through localhost.",
+          build_host.hostname(),
+          target_host.hostname(),
+          e
+        );
+      },
+    }
   }
 
+  copy_closure_from_with_args(build_host, &out_path, &evaluation_args)?;
+  debug!(
+    "Creating out-link: {} -> {}",
+    out_link.display(),
+    out_path.display()
+  );
+  std::os::unix::fs::symlink(&out_path, out_link)
+    .context("Failed to create out-link")?;
+
+  // Relay to the target host if the direct copy failed
+  if let Some(target_host) = target_host {
+    copy_to(target_host, &out_path)
+      .context("Failed to relay closure to target host")?;
+  }
   Ok(out_path)
 }
 
