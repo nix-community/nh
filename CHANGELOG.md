@@ -45,6 +45,9 @@ functionality, under the "Removed" section.
   `<nixpkgs/nixos>` when no flake or installable is configured. Explicit OS
   Nix-file directories also resolve `system.nix` before `default.nix`
   ([#745](https://github.com/nix-community/nh/pull/745)).
+- `nh os build-image`'s `--image-variant` flag is now optional. If the flag is
+  not provided, the command will fallback to using
+  `config.system.build.isoImage`.
 
 ### Changed
 
