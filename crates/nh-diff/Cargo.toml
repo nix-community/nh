@@ -8,12 +8,12 @@ license.workspace      = true
 rust-version.workspace = true
 
 [dependencies]
-color-eyre.workspace = true
-dix.workspace        = true
-nh-core.workspace    = true
-nh-remote.workspace  = true
-tracing.workspace    = true
-yansi.workspace      = true
+dix.workspace       = true
+misstep.workspace   = true
+nh-core.workspace   = true
+nh-remote.workspace = true
+tracing.workspace   = true
+yansi.workspace     = true
 
 [lints]
 workspace = true

@@ -46,6 +46,18 @@ functionality, under the "Removed" section.
   Nix-file directories also resolve `system.nix` before `default.nix`
   ([#745](https://github.com/nix-community/nh/pull/745)).
 
+### Changed
+
+Several dependencies have been replaced with smaller, lightweight, in-house
+alternatives. This is a part of an effort to make nh compile faster, and use
+less space. Help text, error reports, and generated shell completions now use
+the replacement libraries. Please open an issue if you notice anything out of
+the ordinary!
+
+Boolean environment variables such as `NH_ASK`, `NH_SHOW_ACTIVATION_LOGS` and
+`NH_NO_SYSTEMD_RUN` now accept `1`, `true`, `yes`, `0`, `false` and `no`. Other
+spellings like `on`, `y` or `TRUE` are rejected.
+
 ### Fixed
 
 - `nh search packages` and `nh search options` now query the newest

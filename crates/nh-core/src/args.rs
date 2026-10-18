@@ -1,40 +1,35 @@
 use std::path::PathBuf;
 
-use clap::{Args, ValueEnum};
 use nh_installable::InstallableArgs;
+use pound::{Parse, ValueEnum};
 use tracing::warn;
 
-#[derive(Debug, Args)]
+#[derive(Debug, Parse)]
 pub struct CommonRebuildArgs {
   /// Only print actions, without performing them
-  #[arg(long, short = 'n')]
+  #[pound(long, short = 'n')]
   pub dry: bool,
 
   /// Ask for confirmation
-  #[arg(
-    long,
-    short,
-    env = "NH_ASK",
-    value_parser = clap::builder::BoolishValueParser::new()
-  )]
+  #[pound(long, short, env = "NH_ASK")]
   pub ask: bool,
 
-  #[command(flatten)]
+  #[pound(flatten)]
   pub installable: InstallableArgs,
 
   /// Don't use nix-output-monitor for the build process
-  #[arg(long)]
+  #[pound(long)]
   pub no_nom: bool,
 
   /// Path to save the result link, defaults to using a temporary directory
-  #[arg(long, short)]
+  #[pound(long, short)]
   pub out_link: Option<PathBuf>,
 
   /// Whether to display a package diff
-  #[arg(long, short, value_enum, default_value_t = DiffType::Auto)]
+  #[pound(long, short, default = DiffType::Auto)]
   pub diff: DiffType,
 
-  #[command(flatten)]
+  #[pound(flatten)]
   pub passthrough: NixBuildPassthroughArgs,
 }
 
@@ -50,114 +45,114 @@ pub enum DiffType {
   Never,
 }
 
-#[derive(Debug, Default, Args)]
+#[derive(Debug, Default, Parse)]
 pub struct NixBuildPassthroughArgs {
   /// Number of concurrent jobs Nix should run
-  #[arg(long, short = 'j')]
+  #[pound(long, short = 'j')]
   pub max_jobs: Option<usize>,
 
   /// Number of cores Nix should utilize
-  #[arg(long)]
+  #[pound(long)]
   pub cores: Option<usize>,
 
   /// Logging format used by Nix
-  #[arg(long)]
+  #[pound(long)]
   pub log_format: Option<String>,
 
   /// Continue building despite encountering errors
-  #[arg(long, short = 'k')]
+  #[pound(long, short = 'k')]
   pub keep_going: bool,
 
   /// Keep build outputs from failed builds
-  #[arg(long, short = 'K')]
+  #[pound(long, short = 'K')]
   pub keep_failed: bool,
 
   /// Attempt to build locally if substituters fail
-  #[arg(long)]
+  #[pound(long)]
   pub fallback: bool,
 
   /// Repair corrupted store paths
-  #[arg(long)]
+  #[pound(long)]
   pub repair: bool,
 
   /// Explicitly define remote builders
-  #[arg(long)]
+  #[pound(long)]
   pub builders: Option<String>,
 
   /// Paths to include
-  #[arg(long, short = 'I')]
+  #[pound(long, short = 'I')]
   pub include: Vec<String>,
 
   /// Print build logs directly to stdout
-  #[arg(long, short = 'L')]
+  #[pound(long, short = 'L')]
   pub print_build_logs: bool,
 
   /// Display tracebacks on errors
-  #[arg(long, short = 't')]
+  #[pound(long, short = 't')]
   pub show_trace: bool,
 
   /// Accept configuration from flakes
-  #[arg(long)]
+  #[pound(long)]
   pub accept_flake_config: bool,
 
   /// Refresh flakes to the latest revision
-  #[arg(long)]
+  #[pound(long)]
   pub refresh: bool,
 
   /// Allow impure builds
-  #[arg(long)]
+  #[pound(long)]
   pub impure: bool,
 
   /// Build without internet access
-  #[arg(long)]
+  #[pound(long)]
   pub offline: bool,
 
   /// Prohibit network usage
-  #[arg(long)]
+  #[pound(long)]
   pub no_net: bool,
 
   /// Recreate the flake.lock file entirely
-  #[arg(long)]
+  #[pound(long)]
   pub recreate_lock_file: bool,
 
   /// Do not update the flake.lock file
-  #[arg(long)]
+  #[pound(long)]
   pub no_update_lock_file: bool,
 
   /// Do not write a lock file
-  #[arg(long)]
+  #[pound(long)]
   pub no_write_lock_file: bool,
 
   /// Do not use registries
-  #[arg(long = "no-use-registries")]
+  #[pound(long = "no-use-registries")]
   pub no_use_registries: bool,
 
   /// Do not use registries (deprecated, use --no-use-registries)
-  #[arg(long, alias = "no-registries")]
+  #[pound(long, alias = "no-registries")]
   pub no_registries: bool,
 
   /// Commit the lock file after updates
-  #[arg(long)]
+  #[pound(long)]
   pub commit_lock_file: bool,
 
   /// Suppress build output
-  #[arg(long, short = 'Q')]
+  #[pound(long, short = 'Q')]
   pub no_build_output: bool,
 
   /// Use substitutes when copying
-  #[arg(long)]
+  #[pound(long)]
   pub use_substitutes: bool,
 
   /// Output results in JSON format
-  #[arg(long)]
+  #[pound(long)]
   pub json: bool,
 
   /// Set a Nix configuration option (may be given multiple times)
-  #[arg(long, number_of_values = 2, value_names = ["NAME", "VALUE"])]
+  #[pound(long, num_args = 2, value_name = "NAME VALUE")]
   pub option: Vec<String>,
 
   /// Override a specific flake input (may be given multiple times)
-  #[arg(long, number_of_values = 2, value_names = ["INPUT", "FLAKE_URL"])]
+  #[pound(long, num_args = 2, value_name = "INPUT FLAKE_URL")]
   pub override_input: Vec<String>,
 }
 

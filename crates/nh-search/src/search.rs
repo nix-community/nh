@@ -1,4 +1,4 @@
-use color_eyre::Result;
+use misstep::Result;
 use tracing::trace;
 
 use crate::{args, backend::BackendConfig, issues, offline, online, prs};

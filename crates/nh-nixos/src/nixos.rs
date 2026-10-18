@@ -4,7 +4,7 @@ use std::{
   path::{Path, PathBuf},
 };
 
-use color_eyre::eyre::{Context, Result, bail, eyre};
+use misstep::{OptionExt, Result, ResultExt, bail, report};
 use nh_core::{
   args::DiffType,
   command::{self, Command, CommandKind, ElevationStrategy, NixCommand},
@@ -93,16 +93,16 @@ impl args::OsArgs {
   pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
     use OsRebuildVariant::{Boot, Build, DryActivate, Switch, Test};
     match self.subcommand {
-      OsSubcommand::Boot(args) => {
+      OsSubcommand::Boot { args } => {
         args.rebuild_and_activate(&Boot, None, elevation)
       },
-      OsSubcommand::Test(args) => {
+      OsSubcommand::Test { args } => {
         args.rebuild_and_activate(&Test, None, elevation)
       },
-      OsSubcommand::Switch(args) => {
+      OsSubcommand::Switch { args } => {
         args.rebuild_and_activate(&Switch, None, elevation)
       },
-      OsSubcommand::DryActivate(args) => {
+      OsSubcommand::DryActivate { args } => {
         let activate = OsRebuildActivateArgs {
           rebuild:                        args.rebuild,
           install_bootloader:             false,
@@ -112,7 +112,7 @@ impl args::OsArgs {
         };
         activate.rebuild_and_activate(&DryActivate, None, elevation)
       },
-      OsSubcommand::Build(args) => {
+      OsSubcommand::Build { args } => {
         if args.common.ask {
           warn!("`--ask` has no effect for `nh os build`");
         }
@@ -123,11 +123,11 @@ impl args::OsArgs {
           args.build_only(&Build, None, &elevation)
         }
       },
-      OsSubcommand::BuildVm(args) => args.build_vm(&elevation),
-      OsSubcommand::Repl(args) => args.run(),
-      OsSubcommand::Info(args) => args.info(),
-      OsSubcommand::Rollback(args) => args.rollback(elevation),
-      OsSubcommand::BuildImage(args) => args.build_image(&elevation),
+      OsSubcommand::BuildVm { args } => args.build_vm(&elevation),
+      OsSubcommand::Repl { args } => args.run(),
+      OsSubcommand::Info { args } => args.info(),
+      OsSubcommand::Rollback { args } => args.rollback(elevation),
+      OsSubcommand::BuildImage { args } => args.build_image(&elevation),
     }
   }
 }
@@ -419,7 +419,7 @@ impl OsRebuildActivateArgs {
           .with_required_env()
           .show_output(self.show_activation_logs)
           .run()
-          .wrap_err(format!("Activation ({action}) failed"))
+          .context(format!("Activation ({action}) failed"))
         },
         |target_host| {
           let activation_type = match variant {
@@ -446,7 +446,7 @@ impl OsRebuildActivateArgs {
             },
             &self.rebuild.common.passthrough.generate_passthrough_args(),
           )
-          .wrap_err(format!("Activation ({}) failed", activation_type.as_str()))
+          .context(format!("Activation ({}) failed", activation_type.as_str()))
         },
       );
 
@@ -499,7 +499,7 @@ impl OsRebuildActivateArgs {
           },
           &self.rebuild.common.passthrough.generate_passthrough_args(),
         )
-        .wrap_err("Bootloader activation failed")?;
+        .context("Bootloader activation failed")?;
       } else {
         // Install the base closure as the boot profile, retaining every
         // specialisation as a boot option.
@@ -514,7 +514,7 @@ impl OsRebuildActivateArgs {
           .elevate(elevate.then_some(elevation.clone()))
           .with_required_env()
           .run()
-          .wrap_err("Failed to set system profile")?;
+          .context("Failed to set system profile")?;
 
         let mut cmd = activation_command(
           &switch_to_configuration,
@@ -532,7 +532,7 @@ impl OsRebuildActivateArgs {
         cmd
           .with_required_env()
           .run()
-          .wrap_err("Bootloader activation failed")?;
+          .context("Bootloader activation failed")?;
       }
     }
 
@@ -710,7 +710,7 @@ impl OsRebuildArgs {
         .message(message)
         .nom(use_nom(self.common.no_nom))
         .run()
-        .wrap_err("Failed to build configuration")?;
+        .context("Failed to build configuration")?;
 
       Ok(None) // Local builds don't have separate store path
     }
@@ -776,7 +776,7 @@ impl OsRebuildArgs {
 
     // Validate the final target profile exists if it's a local build
     if out_path.exists() && !target_profile.exists() {
-      return Err(eyre!(
+      return Err(report!(
         "Target profile path does not exist: {}",
         target_profile.display()
       ));
@@ -808,7 +808,7 @@ impl OsRebuildArgs {
       .extra_args(&self.extra_args)
       .passthrough(&self.common.passthrough)
       .run()
-      .wrap_err("Failed to calculate build plan")
+      .context("Failed to calculate build plan")
   }
 
   // final_attr is the attribute of config.system.build.X to evaluate.
@@ -836,7 +836,7 @@ impl OsRebuildArgs {
         .resolve_or_default(CommandContext::Os)?;
       let attr = final_attrs
         .and_then(|attrs| attrs.first())
-        .ok_or_else(|| eyre!("Missing VM build attribute"))?;
+        .context("Missing VM build attribute")?;
 
       toplevel_for(&target_hostname, installable, &[
         "config",
@@ -915,7 +915,7 @@ impl OsRollbackArgs {
       get_generation_by_number(gen_number, &generations)?
     } else {
       let current_generation = selected_generation
-        .ok_or_else(|| eyre!("Selected system profile is not a generation"))?;
+        .context("Selected system profile is not a generation")?;
       &find_previous_generation(current_generation.number, &generations)?
     };
 
@@ -1019,7 +1019,7 @@ impl OsRollbackArgs {
             .message("Setting system profile")
             .with_required_env()
             .run()
-            .wrap_err("Failed to set system profile during rollback")?;
+            .context("Failed to set system profile during rollback")?;
 
     info!("Activating...");
 
@@ -1055,11 +1055,13 @@ impl OsRollbackArgs {
                         .message("Rolling back system profile")
                         .with_required_env()
                         .run()
-                        .wrap_err("NixOS: Failed to restore previous system profile after failed activation")?;
+                        .context("NixOS: Failed to restore previous system profile after failed activation")?;
         }
 
-        return Err(eyre!("Activation (switch) failed: {}", e))
-          .context("Failed to activate configuration");
+        return Err(
+          e.context("Activation (switch) failed")
+            .context("Failed to activate configuration"),
+        );
       },
     }
 
@@ -1192,9 +1194,7 @@ fn find_vm_script(out_path: &Path) -> Result<PathBuf> {
   }
 
   let vm_script = fs::read_dir(&bin_dir)
-    .wrap_err_with(|| {
-      format!("Failed to read directory {}", bin_dir.display())
-    })?
+    .with_context(|| format!("Failed to read directory {}", bin_dir.display()))?
     .filter_map(|entry_result| {
       match entry_result {
         Ok(entry) => Some(entry),
@@ -1215,8 +1215,8 @@ fn find_vm_script(out_path: &Path) -> Result<PathBuf> {
         None
       }
     })
-    .ok_or_else(|| {
-      eyre!("Could not find VM runner script in {}", bin_dir.display())
+    .with_context(|| {
+      format!("Could not find VM runner script in {}", bin_dir.display())
     })?;
 
   Ok(vm_script)
@@ -1281,7 +1281,7 @@ fn run_vm(out_path: &Path) -> Result<()> {
     .show_output(true)
     .with_required_env()
     .run()
-    .wrap_err_with(|| {
+    .with_context(|| {
       format!("Failed to run VM script at {}", vm_script.display())
     })?;
 
@@ -1312,7 +1312,7 @@ fn validate_system_closure(system_path: &Path) -> Result<()> {
 
   if !missing.is_empty() {
     let missing_list = missing.join("\n");
-    return Err(eyre!(
+    return Err(report!(
       "System closure validation failed. Missing essential files:\n{}\n\nThis \
        typically happens when:\n1. 'system.switch.enable' is set to false in \
        your configuration\n2. The build was incomplete or corrupted\n3. \
@@ -1356,8 +1356,9 @@ fn validate_system_closure_remote(
 
 /// Returns an error indicating that the 'switch-to-configuration' binary is
 /// missing, along with common reasons and solutions.
-fn missing_switch_to_configuration_error() -> color_eyre::eyre::Report {
-  eyre!(
+#[track_caller]
+fn missing_switch_to_configuration_error() -> misstep::Report {
+  report!(
     "The 'switch-to-configuration' binary is missing from the built \
      configuration.\n\nThis typically happens when 'system.switch.enable' is \
      set to false in your\nNixOS configuration. To fix this, please \
@@ -1436,7 +1437,7 @@ fn get_generation_by_number(
   generations
     .iter()
     .find(|g| g.number == number)
-    .ok_or_else(|| eyre!("Generation {} not found", number))
+    .with_context(|| format!("Generation {number} not found"))
 }
 
 fn list_generations() -> Result<Vec<generations::GenerationInfo>> {
@@ -1538,7 +1539,7 @@ impl OsGenerationsArgs {
     };
 
     if !profile.is_symlink() {
-      return Err(eyre!(
+      return Err(report!(
         "No profile `{:?}` found",
         profile.file_name().unwrap_or_default()
       ));
@@ -1548,7 +1549,7 @@ impl OsGenerationsArgs {
     let profile_name = profile
       .file_name()
       .and_then(|name| name.to_str())
-      .ok_or_else(|| eyre!("Profile name contains invalid UTF-8"))?;
+      .context("Profile name contains invalid UTF-8")?;
 
     let generations: Vec<_> = fs::read_dir(profile_dir)?
       .filter_map(|entry| {

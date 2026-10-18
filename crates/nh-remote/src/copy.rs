@@ -4,10 +4,7 @@ use std::{
   path::Path,
 };
 
-use color_eyre::{
-  Result,
-  eyre::{Context, eyre},
-};
+use misstep::{OptionExt, Result, ResultExt, report};
 use nh_core::{
   command::{CommandKind, NixCommand, exec_with_streaming},
   progress::{self, Spinner},
@@ -112,14 +109,17 @@ pub fn copy_closure_from_with_args(
   debug!(?cmd, "nix copy --from");
 
   let (exit_status, _stdout, stderr) = exec_with_streaming(cmd, true)
-    .wrap_err("Failed to copy closure from remote host")?;
+    .context("Failed to copy closure from remote host")?;
 
   if !exit_status.success() {
-    color_eyre::eyre::bail!(format_copy_failure(
-      &format!("nix copy --from '{host}' failed"),
-      exit_status,
-      &stderr,
-    ));
+    misstep::bail!(
+      "{}",
+      format_copy_failure(
+        &format!("nix copy --from '{host}' failed"),
+        exit_status,
+        &stderr,
+      )
+    );
   }
 
   Ok(())
@@ -142,7 +142,7 @@ where
       line.clear();
       let bytes_read = reader
         .read_until(b'\n', &mut line)
-        .wrap_err_with(|| format!("Failed to read {stream_name}"))?;
+        .with_context(|| format!("Failed to read {stream_name}"))?;
 
       if bytes_read == 0 {
         break;
@@ -181,16 +181,10 @@ fn exec_with_spinner_streaming(
     .stdout(Redirection::Pipe)
     .stderr(Redirection::Pipe)
     .start()
-    .wrap_err("Failed to start command")?;
+    .context("Failed to start command")?;
 
-  let stdout_pipe = job
-    .stdout
-    .take()
-    .ok_or_else(|| eyre!("Failed to capture stdout"))?;
-  let stderr_pipe = job
-    .stderr
-    .take()
-    .ok_or_else(|| eyre!("Failed to capture stderr"))?;
+  let stdout_pipe = job.stdout.take().context("Failed to capture stdout")?;
+  let stderr_pipe = job.stderr.take().context("Failed to capture stderr")?;
 
   let stdout_thread =
     spawn_spinner_stream_thread(stdout_pipe, spinner.clone(), "stdout");
@@ -199,14 +193,14 @@ fn exec_with_spinner_streaming(
 
   let exit_status = job
     .wait()
-    .wrap_err("Failed to wait for command completion")?;
+    .context("Failed to wait for command completion")?;
 
   let stdout = stdout_thread
     .join()
-    .map_err(|_| eyre!("Stdout thread panicked"))??;
+    .map_err(|_| report!("Stdout thread panicked"))??;
   let stderr = stderr_thread
     .join()
-    .map_err(|_| eyre!("Stderr thread panicked"))??;
+    .map_err(|_| report!("Stderr thread panicked"))??;
 
   Ok((exit_status, stdout, stderr))
 }
@@ -282,15 +276,18 @@ pub fn copy_to_remote_with_args(
   // or `error!` style.
   spinner.finish_and_clear();
   let (exit_status, _stdout, stderr) =
-    copy_result.wrap_err("Failed to copy closure to remote host")?;
+    copy_result.context("Failed to copy closure to remote host")?;
 
   if !exit_status.success() {
     error!("Failed to copy closure to remote host '{host}'");
-    color_eyre::eyre::bail!(format_copy_failure(
-      &format!("nix copy --to '{host}' failed"),
-      exit_status,
-      &stderr,
-    ));
+    misstep::bail!(
+      "{}",
+      format_copy_failure(
+        &format!("nix copy --to '{host}' failed"),
+        exit_status,
+        &stderr,
+      )
+    );
   }
   info!("Copied closure to remote host '{host}'");
 
@@ -320,14 +317,17 @@ pub fn copy_closure_between_remotes_with_args(
   debug!(?cmd, "nix copy between remotes");
 
   let (exit_status, _stdout, stderr) = exec_with_streaming(cmd, true)
-    .wrap_err("Failed to copy closure between remote hosts")?;
+    .context("Failed to copy closure between remote hosts")?;
 
   if !exit_status.success() {
-    color_eyre::eyre::bail!(format_copy_failure(
-      &format!("nix copy from '{from_host}' to '{to_host}' failed"),
-      exit_status,
-      &stderr,
-    ));
+    misstep::bail!(
+      "{}",
+      format_copy_failure(
+        &format!("nix copy from '{from_host}' to '{to_host}' failed"),
+        exit_status,
+        &stderr,
+      )
+    );
   }
 
   Ok(())

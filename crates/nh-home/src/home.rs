@@ -3,10 +3,7 @@ pub mod args;
 use std::{convert::Into, env, ffi::OsString, path::PathBuf};
 
 use args::{HomeRebuildArgs, HomeReplArgs, HomeSubcommand};
-use color_eyre::{
-  Result,
-  eyre::{Context, bail, eyre},
-};
+use misstep::{Result, ResultExt, bail, report};
 use nh_core::{
   command::{self, Command, CommandKind, NixCommand},
   update::update_with_args,
@@ -23,7 +20,7 @@ use nh_remote::{self, RemoteBuildConfig};
 use tracing::{debug, info, warn};
 
 fn capture_nix_stdout(command: &NixCommand) -> Result<String> {
-  let output = command.output().wrap_err("Failed to run nix command")?;
+  let output = command.output().context("Failed to run nix command")?;
   if !output.status.success() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stderr = stderr.trim();
@@ -37,7 +34,8 @@ fn capture_nix_stdout(command: &NixCommand) -> Result<String> {
   }
 
   String::from_utf8(output.stdout)
-    .wrap_err("nix command emitted non-UTF-8 stdout")
+    .context("nix command emitted non-UTF-8 stdout")
+    .erase()
 }
 
 impl args::HomeArgs {
@@ -62,14 +60,14 @@ impl args::HomeArgs {
   pub fn run(self) -> Result<()> {
     use HomeRebuildVariant::{Build, Switch};
     match self.subcommand {
-      HomeSubcommand::Switch(args) => args.rebuild(&Switch),
-      HomeSubcommand::Build(args) => {
+      HomeSubcommand::Switch { args } => args.rebuild(&Switch),
+      HomeSubcommand::Build { args } => {
         if args.common.ask || args.common.dry {
           warn!("`--ask` and `--dry` have no effect for `nh home build`");
         }
         args.rebuild(&Build)
       },
-      HomeSubcommand::Repl(args) => args.run(),
+      HomeSubcommand::Repl { args } => args.run(),
     }
   }
 }
@@ -150,7 +148,7 @@ impl HomeRebuildArgs {
         Some(&out_path),
         &self.common.passthrough.generate_evaluation_args(),
       )
-      .wrap_err("Failed to build Home-Manager configuration")?;
+      .context("Failed to build Home-Manager configuration")?;
     } else {
       command::Build::new(toplevel)
         .extra_arg("--out-link")
@@ -160,13 +158,13 @@ impl HomeRebuildArgs {
         .message("Building Home-Manager configuration")
         .nom(use_nom(self.common.no_nom))
         .run()
-        .wrap_err("Failed to build Home-Manager configuration")?;
+        .context("Failed to build Home-Manager configuration")?;
     }
 
     let username =
-      env::var("USER").map_err(|_| eyre!("Couldn't get username"))?;
+      env::var("USER").map_err(|_| report!("Couldn't get username"))?;
     let home_dir =
-      env::var("HOME").map_err(|_| eyre!("Couldn't get home directory"))?;
+      env::var("HOME").map_err(|_| report!("Couldn't get home directory"))?;
     let state_home = env::var("XDG_STATE_HOME")
       .unwrap_or_else(|_| format!("{home_dir}/.local/state"));
     let data_home = env::var("XDG_DATA_HOME")
@@ -251,7 +249,7 @@ impl HomeRebuildArgs {
       .message("Activating configuration")
       .show_output(self.show_activation_logs)
       .run()
-      .wrap_err("Activation failed")?;
+      .context("Activation failed")?;
 
     debug!("Completed operation with output path: {target_profile:?}");
 
@@ -347,7 +345,7 @@ fn discover_home_configuration(
         .arg(format!(r#" x: x ? "{candidate}" "#))
         .args(probe.to_args()?),
     )
-    .wrap_err(format!(
+    .context(format!(
       "Failed running nix eval to check for configuration '{candidate}'"
     ))?;
     Ok(output.trim() == "true")
@@ -362,7 +360,7 @@ fn discover_home_configuration(
   }
 
   let username =
-    std::env::var("USER").map_err(|_| eyre!("Couldn't get username"))?;
+    std::env::var("USER").map_err(|_| report!("Couldn't get username"))?;
   let hostname = get_hostname(None)?;
   let candidates = [format!("{username}@{hostname}"), username];
 

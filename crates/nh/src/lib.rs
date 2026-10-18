@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use color_eyre::Result;
+use misstep::Result;
 use nh_core::command::{ElevationStrategy, ElevationStrategyArg};
 
 pub mod interface;
@@ -16,7 +16,8 @@ pub const NH_REV: Option<&str> = option_env!("NH_REV");
 /// Returns an error if logging setup, Nix environment validation, environment
 /// checks, or the selected command fails.
 pub fn main() -> Result<()> {
-  let mut args = <crate::interface::Main as clap::Parser>::parse();
+  caress::handle(<crate::interface::Main as pound::Parse>::SPEC);
+  let mut args = <crate::interface::Main as pound::Parse>::parse();
 
   // Backward compatibility: support NH_ELEVATION_PROGRAM env var if
   // NH_ELEVATION_STRATEGY is not set.

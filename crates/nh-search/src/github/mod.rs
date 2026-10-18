@@ -6,7 +6,7 @@ mod reachability;
 mod transport;
 mod types;
 
-use color_eyre::Result;
+use misstep::Result;
 use secrecy::SecretString;
 
 use self::transport::GraphqlClient;

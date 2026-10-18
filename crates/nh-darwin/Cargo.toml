@@ -11,14 +11,14 @@ publish                = true
 path = "src/darwin.rs"
 
 [dependencies]
-clap.workspace           = true
-color-eyre.workspace     = true
 inquire.workspace        = true
+misstep.workspace        = true
 nh-core.workspace        = true
 nh-diff.workspace        = true
 nh-installable.workspace = true
 nh-remote.workspace      = true
 nix.workspace            = true
+pound.workspace          = true
 tempfile.workspace       = true
 tracing.workspace        = true
 

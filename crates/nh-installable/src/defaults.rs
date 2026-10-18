@@ -5,7 +5,7 @@ use std::{
   path::{Path, PathBuf},
 };
 
-use color_eyre::eyre::{Context, Result, bail, eyre};
+use misstep::{OptionExt, Result, ResultExt, bail, report};
 use nix_command::NixCommand;
 use tracing::{debug, warn};
 
@@ -43,8 +43,8 @@ pub fn resolve_file(context: CommandContext, path: PathBuf) -> PathBuf {
 }
 
 fn home_installable() -> Result<Installable> {
-  let home =
-    env::var("HOME").map_err(|_| eyre!("HOME environment variable not set"))?;
+  let home = env::var("HOME")
+    .map_err(|_| report!("HOME environment variable not set"))?;
   flake_installable(
     &PathBuf::from(home).join(".config/home-manager"),
     "home",
@@ -57,8 +57,8 @@ fn flake_installable(
   command: &str,
   environment: &str,
 ) -> Result<Installable> {
-  find_flake(directory, command, environment)?.ok_or_else(|| {
-    eyre!(
+  find_flake(directory, command, environment)?.with_context(|| {
+    format!(
       "No installable specified and no flake found at {}/flake.nix.\nPlease \
        either:\n- Pass a flake path as an argument (e.g., 'nh {command} \
        switch .')\n- Set the NH_FLAKE environment variable\n- Set the \
@@ -82,8 +82,8 @@ fn find_flake(
       Ok(Some(Installable::Flake {
         reference: resolved
           .to_str()
-          .ok_or_else(|| {
-            eyre!(
+          .with_context(|| {
+            format!(
               "Resolved path {} contains invalid UTF-8",
               resolved.display()
             )
@@ -159,7 +159,7 @@ fn find_nixos_system() -> Result<Option<PathBuf>> {
   let output = NixCommand::nix_instantiate()
     .args(["--find-file", "nixos-system"])
     .output()
-    .wrap_err("failed to query the <nixos-system> Nix path entry")?;
+    .context("failed to query the <nixos-system> Nix path entry")?;
 
   if !output.status.success() {
     debug!(stderr = %String::from_utf8_lossy(&output.stderr), "<nixos-system> is unavailable");
@@ -167,7 +167,7 @@ fn find_nixos_system() -> Result<Option<PathBuf>> {
   }
 
   let path = String::from_utf8(output.stdout)
-    .wrap_err("nix-instantiate returned a non-UTF-8 <nixos-system> path")?;
+    .context("nix-instantiate returned a non-UTF-8 <nixos-system> path")?;
   let path = path.trim();
   if path.is_empty() {
     bail!("nix-instantiate returned an empty <nixos-system> path");
@@ -312,7 +312,7 @@ mod tests {
     fs::write(etc.path().join("system.nix"), "{}").unwrap();
 
     let installable = os_installable_at(etc.path(), || {
-      Err(eyre!(
+      Err(report!(
         "non-flake lookup must not run when /etc/nixos is a flake"
       ))
     })
