@@ -390,7 +390,7 @@ impl OsRebuildActivateArgs {
       let guard = nh_remote::init_ssh_control();
 
       // Pre-establish ControlMaster connections so that delegated SSH
-      // invocations (e.g. `nix copy --to ssh://...`) reuse the already-
+      // invocations (e.g. `nix copy --to ssh-ng://...`) reuse the already-
       // authenticated socket rather than opening a fresh connection where
       // SSH option ordering may differ.
       if let Some(build_host) = &self.rebuild.build_host {

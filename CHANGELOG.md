@@ -184,6 +184,8 @@ or `TRUE` are rejected.
 - `NH_REMOTE_CLEANUP` has been removed. Interrupted remote builds are now
   cancelled by the remote Nix daemon, so the `pkill`-based cleanup is no longer
   needed.
+- The legacy `ssh://` store scheme for `--build-host` and `--target-host`. nh
+  always uses `ssh-ng://`; an `ssh://` prefix is treated like `ssh-ng://`.
 
 ## 4.4.2
 

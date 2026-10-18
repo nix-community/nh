@@ -443,40 +443,18 @@ fn get_ssh_control_dir() -> &'static PathBuf {
   })
 }
 
-/// A parsed remote host specification.
-///
-/// Handles various formats:
-///
-/// - `hostname`
-/// - `user@hostname`
-/// - `ssh://[user@]hostname` (scheme preserved for Nix store commands)
-/// - `ssh-ng://[user@]hostname` (scheme preserved for Nix store commands)
-#[derive(Eq, PartialEq, Debug, Clone, Copy)]
-enum NixStoreScheme {
-  Ssh,
-  SshNg,
-}
-
-impl NixStoreScheme {
-  const fn as_str(self) -> &'static str {
-    match self {
-      Self::Ssh => "ssh",
-      Self::SshNg => "ssh-ng",
-    }
-  }
-}
-
+/// A parsed remote host specification: `[user@]hostname`, optionally prefixed
+/// with `ssh-ng://`.
 // NOTE: This _deliberately_ does not implement `Eq` or `PartialEq` because we
 // need to be clear about what we want to compare; This might differ on a
 // case-to-case basis. By not implementing `Eq`, we avoid accidental misuse of
 // equality comparisons that might conflate different concepts, such as
-// cases where we only want to compare the host and do not care about the
-// scheme.
+// cases where we only want to compare the hostname and do not care about the
+// user.
 #[derive(Debug, Clone)]
 pub struct RemoteHost {
   /// The host string (may include user@)
-  host:         String,
-  store_scheme: NixStoreScheme,
+  host: String,
 }
 
 impl RemoteHost {
@@ -517,27 +495,20 @@ impl RemoteHost {
   /// Accepts:
   /// - `hostname`
   /// - `user@hostname`
-  /// - `ssh://[user@]hostname`
   /// - `ssh-ng://[user@]hostname`
   ///
-  /// URI schemes are stripped for raw SSH calls and preserved when constructing
-  /// Nix store URIs. Bare hosts default to `ssh-ng://`.
+  /// The legacy `ssh://` scheme is accepted and treated like
+  /// `ssh-ng://`, which nh always uses for Nix store commands.
   ///
   /// # Errors
   ///
   /// Returns an error if the host specification is invalid (empty hostname,
   /// empty username, contains invalid characters like `:` or `/`).
   pub fn parse(input: &str) -> Result<Self> {
-    let (host, store_scheme) = input.strip_prefix("ssh-ng://").map_or_else(
-      || {
-        input
-          .strip_prefix("ssh://")
-          .map_or((input, NixStoreScheme::SshNg), |host| {
-            (host, NixStoreScheme::Ssh)
-          })
-      },
-      |host| (host, NixStoreScheme::SshNg),
-    );
+    let host = input
+      .strip_prefix("ssh-ng://")
+      .or_else(|| input.strip_prefix("ssh://"))
+      .unwrap_or(input);
 
     if host.is_empty() {
       bail!("Empty hostname in host specification");
@@ -596,7 +567,6 @@ impl RemoteHost {
 
     Ok(Self {
       host: host.to_string(),
-      store_scheme,
     })
   }
 
@@ -640,7 +610,7 @@ impl RemoteHost {
   /// Get the SSH store URI used by Nix store commands.
   #[must_use]
   pub fn nix_store_uri(&self) -> String {
-    format!("{}://{}", self.store_scheme.as_str(), self.host)
+    format!("ssh-ng://{}", self.host)
   }
 }
 
@@ -1361,8 +1331,8 @@ fn build_store_uri(
     .join(" ");
 
   Ok(format!(
-    "ssh-ng://{}?remote-store=auto&remote-program={}",
-    host.host,
+    "{}?remote-store=auto&remote-program={}",
+    host.nix_store_uri(),
     percent_encode(&program)
   ))
 }
@@ -1548,8 +1518,7 @@ mod tests {
     #[test]
     fn hostname_always_returns_suffix_after_last_at(s in "\\PC*") {
         let host = RemoteHost {
-          host:         s.clone(),
-          store_scheme: NixStoreScheme::SshNg,
+          host: s.clone(),
         };
         let expected = s.rsplit('@').next().unwrap();
         prop_assert_eq!(host.hostname(), expected);
@@ -1558,8 +1527,7 @@ mod tests {
     #[test]
     fn hostname_is_substring_of_host(s in "\\PC*") {
         let host = RemoteHost {
-          host:         s.clone(),
-          store_scheme: NixStoreScheme::SshNg,
+          host: s.clone(),
         };
         prop_assert!(s.contains(host.hostname()));
     }
@@ -1567,8 +1535,7 @@ mod tests {
     #[test]
     fn hostname_no_at_means_whole_string(s in "[^@]*") {
         let host = RemoteHost {
-          host:         s.clone(),
-          store_scheme: NixStoreScheme::SshNg,
+          host: s.clone(),
         };
         prop_assert_eq!(host.hostname(), s);
     }
@@ -1578,7 +1545,6 @@ mod tests {
         let full = format!("{user}@{hostname}");
         let host = RemoteHost {
           host: full,
-          store_scheme: NixStoreScheme::SshNg,
         };
         prop_assert_eq!(host.hostname(), hostname);
     }
@@ -1614,10 +1580,10 @@ mod tests {
   }
 
   #[test]
-  fn test_parse_ssh_uri_preserves_store_scheme() {
+  fn test_parse_ssh_uri_uses_ssh_ng() {
     let host = RemoteHost::parse("ssh://buildserver").expect("should parse");
     assert_eq!(host.to_string(), "buildserver");
-    assert_eq!(host.nix_store_uri(), "ssh://buildserver");
+    assert_eq!(host.nix_store_uri(), "ssh-ng://buildserver");
   }
 
   #[test]
@@ -1627,11 +1593,11 @@ mod tests {
   }
 
   #[test]
-  fn test_parse_ssh_uri_with_user_preserves_store_scheme() {
+  fn test_parse_ssh_uri_with_user_uses_ssh_ng() {
     let host =
       RemoteHost::parse("ssh://root@buildserver").expect("should parse");
     assert_eq!(host.to_string(), "root@buildserver");
-    assert_eq!(host.nix_store_uri(), "ssh://root@buildserver");
+    assert_eq!(host.nix_store_uri(), "ssh-ng://root@buildserver");
   }
 
   #[test]
@@ -1698,19 +1664,19 @@ mod tests {
   }
 
   #[test]
-  fn test_parse_ipv6_ssh_uri_preserves_store_scheme() {
+  fn test_parse_ipv6_ssh_uri_uses_ssh_ng() {
     let host = RemoteHost::parse("ssh://[2001:db8::1]")
       .expect("should parse IPv6 SSH URI");
     assert_eq!(host.to_string(), "[2001:db8::1]");
-    assert_eq!(host.nix_store_uri(), "ssh://[2001:db8::1]");
+    assert_eq!(host.nix_store_uri(), "ssh-ng://[2001:db8::1]");
   }
 
   #[test]
-  fn test_parse_ipv6_ssh_uri_with_user_preserves_store_scheme() {
+  fn test_parse_ipv6_ssh_uri_with_user_uses_ssh_ng() {
     let host = RemoteHost::parse("ssh://root@[2001:db8::1]")
       .expect("should parse IPv6 SSH URI with user");
     assert_eq!(host.to_string(), "root@[2001:db8::1]");
-    assert_eq!(host.nix_store_uri(), "ssh://root@[2001:db8::1]");
+    assert_eq!(host.nix_store_uri(), "ssh-ng://root@[2001:db8::1]");
   }
 
   #[test]
