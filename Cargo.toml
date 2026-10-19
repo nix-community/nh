@@ -33,7 +33,7 @@ humantime         = "2.3.0"
 indicatif         = "0.18.4"
 inquire           = { default-features = false, features = [ "crossterm" ], version = "0.9.1" }
 jiff              = { default-features = false, features = [ "std", "tzdb-zoneinfo" ], version = "0.2.35" }
-pound             = "0.5.2"
+pound             = "0.5.3"
 spam-db           = "0.2.4"
 
 nix = { default-features = false, features = [ "fs", "user", "hostname" ], version = "0.31.1" }

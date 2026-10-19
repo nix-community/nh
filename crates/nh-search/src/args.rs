@@ -7,165 +7,41 @@ const DEFAULT_CHANNEL: &str = "nixos-unstable";
 
 /// Searches packages or NixOS/home-manager options via search.nixos.org,
 /// or a local SPAM database
-#[derive(Debug)]
+#[derive(Parse, Debug)]
 pub struct SearchArgs {
+  #[pound(flatten)]
   pub limit: LimitArg,
 
+  #[pound(flatten)]
   pub channel: ChannelArg,
 
+  #[pound(flatten)]
   pub platforms: PlatformsArg,
 
+  #[pound(flatten)]
   pub backend: BackendArgs,
 
   /// Output results as JSON
+  #[pound(long, short = 'j', env = "NH_SEARCH_JSON", global)]
   pub json: bool,
 
-  /// Default search mode used when no subcommand is given.
-  /// Accepts `packages` or `options` (scope defaults to `all`).
+  /// Default search mode used when no subcommand is given. Accepts
+  /// `packages` or `options` (scope defaults to `all`).
+  #[pound(
+    long,
+    env = "NH_DEFAULT_SEARCH",
+    value_name = "MODE",
+    default = SearchDefault::Packages
+  )]
   pub default_search: SearchDefault,
 
+  #[pound(subcommand)]
   pub mode: Option<SearchMode>,
 
   /// Query shorthand: equivalent to `nh search packages <query>` or
   /// `nh search options <query>` depending on `--default-search`
+  #[pound(value_name = "QUERY")]
   pub query: Vec<String>,
-}
-
-impl Parse for SearchArgs {
-  const SPEC: &'static pound::CommandSpec =
-    &pound::CommandSpec::new("SearchArgs")
-      .about(
-        "Searches packages or NixOS/home-manager options via \
-         search.nixos.org, or a local SPAM database",
-      )
-      .args(&[
-        pound::ArgSpec::new(pound::Kind::Flag)
-          .long("json")
-          .short('j')
-          .env("NH_SEARCH_JSON")
-          .global()
-          .help("Output results as JSON")
-          .value_name("JSON"),
-        pound::ArgSpec::new(pound::Kind::Opt)
-          .long("default-search")
-          .possible_opt(<SearchDefault as pound::FromArg>::POSSIBLE)
-          .hint(<SearchDefault as pound::FromArg>::HINT)
-          .env("NH_DEFAULT_SEARCH")
-          .value_name("MODE")
-          .default("packages")
-          .help(
-            "Default search mode used when no subcommand is given. Accepts \
-             `packages` or `options` (scope defaults to `all`).",
-          ),
-        pound::ArgSpec::new(pound::Kind::Positional)
-          .hidden()
-          .possible_opt(<String as pound::FromArg>::POSSIBLE)
-          .hint(<String as pound::FromArg>::HINT)
-          .help(
-            "Query shorthand: equivalent to `nh search packages <query>` or \
-             `nh search options <query>` depending on `--default-search`",
-          )
-          .value_name("QUERY"),
-        pound::ArgSpec::new(pound::Kind::Positional)
-          .multi()
-          .possible_opt(<String as pound::FromArg>::POSSIBLE)
-          .hint(<String as pound::FromArg>::HINT)
-          .help(
-            "Query shorthand: equivalent to `nh search packages <query>` or \
-             `nh search options <query>` depending on `--default-search`",
-          )
-          .value_name("QUERY"),
-      ])
-      .flattened(&[
-        <LimitArg as Parse>::SPEC,
-        <ChannelArg as Parse>::SPEC,
-        <PlatformsArg as Parse>::SPEC,
-        <BackendArgs as Parse>::SPEC,
-      ])
-      .argument_order(&[
-        pound::ArgumentOrder::Flattened(0),
-        pound::ArgumentOrder::Flattened(1),
-        pound::ArgumentOrder::Flattened(2),
-        pound::ArgumentOrder::Flattened(3),
-        pound::ArgumentOrder::Direct(0),
-        pound::ArgumentOrder::Direct(1),
-        pound::ArgumentOrder::Direct(2),
-        pound::ArgumentOrder::Direct(3),
-      ])
-      .subs(SearchMode::SPEC.subs)
-      .sub_optional();
-
-  fn from_matches(
-    spec: &'static pound::CommandSpec,
-    matches: &pound::Matches<'_>,
-  ) -> Result<Self, pound::Error> {
-    Ok(Self {
-      limit:          <LimitArg as Parse>::from_matches(
-        spec.flattened[0],
-        matches.flattened(0),
-      )?,
-      channel:        <ChannelArg as Parse>::from_matches(
-        spec.flattened[1],
-        matches.flattened(1),
-      )?,
-      platforms:      <PlatformsArg as Parse>::from_matches(
-        spec.flattened[2],
-        matches.flattened(2),
-      )?,
-      backend:        <BackendArgs as Parse>::from_matches(
-        spec.flattened[3],
-        matches.flattened(3),
-      )?,
-      json:           matches.switch(spec, 0)?,
-      default_search: matches.required(spec, 1)?,
-      mode:           if matches.sub().is_some() {
-        Some(SearchMode::from_matches(spec, matches)?)
-      } else {
-        None
-      },
-      query:          matches
-        .optional::<String>(spec, 2)?
-        .into_iter()
-        .chain(matches.many::<String>(spec, 3)?)
-        .collect(),
-    })
-  }
-
-  fn update_from_matches(
-    &mut self,
-    spec: &'static pound::CommandSpec,
-    matches: &pound::Matches<'_>,
-  ) -> Result<(), pound::Error> {
-    self
-      .limit
-      .update_from_matches(spec.flattened[0], matches.flattened(0))?;
-    self
-      .channel
-      .update_from_matches(spec.flattened[1], matches.flattened(1))?;
-    self
-      .platforms
-      .update_from_matches(spec.flattened[2], matches.flattened(2))?;
-    self
-      .backend
-      .update_from_matches(spec.flattened[3], matches.flattened(3))?;
-    if matches.given(0) {
-      self.json = matches.switch(spec, 0)?;
-    }
-    if matches.given(1) {
-      self.default_search = matches.required(spec, 1)?;
-    }
-    if matches.sub().is_some() {
-      self.mode = Some(SearchMode::from_matches(spec, matches)?);
-    }
-    if matches.given(2) {
-      self.query = matches
-        .optional::<String>(spec, 2)?
-        .into_iter()
-        .chain(matches.many::<String>(spec, 3)?)
-        .collect();
-    }
-    Ok(())
-  }
 }
 
 #[derive(Parse, Debug)]
