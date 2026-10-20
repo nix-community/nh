@@ -29,6 +29,10 @@ functionality, under the "Removed" section.
   target generation before changing the selected system profile.
 - Generation discovery now accepts only exact `<profile>-<number>-link` entries;
   similarly named profiles no longer leak into `nh os info` or rollback.
+- `nh darwin rollback` activates the previous retained system generation without
+  rebuilding. Use `--to <generation>` to select a specific generation, `--dry`
+  to preview the operation, or `--ask` to confirm it
+  ([#784](https://github.com/nix-community/nh/issues/784)).
 
 - `nh os switch`/`nh os boot` now accept `--continue-on-activation-failure`
   (`NH_CONTINUE_ON_ACTIVATION_FAILURE`). During a switch, activation runs before
