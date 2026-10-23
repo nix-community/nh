@@ -88,6 +88,9 @@ or `TRUE` are rejected.
 
 - A wrong sudo password for `--target-host` is asked for again, up to three
   times, before activation starts. It used to fail activation.
+- `--target-host` sets the system profile with `nix-env --set`, as nixos-rebuild
+  does. The previous `nix build --profile` could keep running on the target
+  after Ctrl+C and hold its store locks.
 - Ctrl+C now cancels remote builds. `--build-host` builds previously ran
   `nix build` on the build host through `ssh`, where an interrupt neither
   stopped nh (it waited for the build output to end) nor the remote build. nh

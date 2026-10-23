@@ -383,7 +383,7 @@ impl OsRebuildActivateArgs {
             Boot | Build | BuildVm | BuildIso => unreachable!(),
           };
 
-          nh_remote::activate_remote_with_build_args(
+          nh_remote::activate_remote(
             target_host,
             target_profile,
             &nh_remote::ActivateRemoteConfig {
@@ -393,7 +393,6 @@ impl OsRebuildActivateArgs {
               systemd_run: !self.no_systemd_run,
               elevation: elevate.then_some(elevation.clone()),
             },
-            &self.rebuild.common.passthrough.generate_passthrough_args(),
           )
           .context(format!("Activation ({}) failed", activation_type.as_str()))
         },
@@ -427,7 +426,7 @@ impl OsRebuildActivateArgs {
     // the bootloader instead of only the generation with the specialisation.
     if let Boot | Switch = variant {
       if let Some(target_host) = &self.rebuild.target_host {
-        nh_remote::activate_remote_with_build_args(
+        nh_remote::activate_remote(
           target_host,
           store_path,
           &nh_remote::ActivateRemoteConfig {
@@ -437,7 +436,6 @@ impl OsRebuildActivateArgs {
             systemd_run:        !self.no_systemd_run,
             elevation:          elevate.then_some(elevation),
           },
-          &self.rebuild.common.passthrough.generate_passthrough_args(),
         )
         .context("Bootloader activation failed")?;
       } else {

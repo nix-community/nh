@@ -10,9 +10,7 @@ use nh_core::{
   args::NixBuildPassthroughArgs,
   command::{
     Build,
-    CommandKind,
     ElevationStrategy,
-    NixCommand,
     cache_password,
     get_cached_password,
     get_sudo_opts,
@@ -784,18 +782,6 @@ fn get_flake_flags() -> Vec<&'static str> {
   }
 }
 
-fn nix_argv_to_strings(command: &NixCommand) -> Result<Vec<String>> {
-  command
-    .argv()
-    .into_iter()
-    .map(|arg| {
-      arg
-        .into_string()
-        .map_err(|arg| report!("Nix argument is not valid UTF-8: {:?}", arg))
-    })
-    .collect()
-}
-
 /// Run a command on a remote host via SSH.
 fn run_remote_command(
   host: &RemoteHost,
@@ -1047,24 +1033,8 @@ pub fn activate_remote(
   system_profile: &Path,
   config: &ActivateRemoteConfig,
 ) -> Result<()> {
-  activate_remote_with_build_args(host, system_profile, config, &[])
-}
-
-/// Activate a remote configuration with profile-setting Nix arguments.
-///
-/// # Errors
-///
-/// Returns an error if SSH connection or activation fails.
-pub fn activate_remote_with_build_args(
-  host: &RemoteHost,
-  system_profile: &Path,
-  config: &ActivateRemoteConfig,
-  build_args: &[String],
-) -> Result<()> {
   match config.platform {
-    Platform::NixOS => {
-      activate_nixos_remote(host, system_profile, config, build_args)
-    },
+    Platform::NixOS => activate_nixos_remote(host, system_profile, config),
     // TODO:
     // Platform::Darwin => activate_darwin_remote(host, system_profile, config),
     // Platform::HomeManager => activate_home_remote(host, system_profile,
@@ -1090,7 +1060,6 @@ fn activate_nixos_remote(
   host: &RemoteHost,
   system_profile: &Path,
   config: &ActivateRemoteConfig,
-  build_args: &[String],
 ) -> Result<()> {
   let elevation = config.elevation.as_ref();
   let password = remote_sudo_password(host, elevation)?;
@@ -1124,12 +1093,16 @@ fn activate_nixos_remote(
     },
 
     ActivationType::Boot => {
-      let profile_cmd = profile_nix_command(system_profile, build_args)?
-        .iter()
-        .map(|arg| shell_quote(arg))
-        .collect::<Vec<_>>()
-        .join(" ");
-      step("Setting system profile", &profile_cmd)?;
+      let system_profile_str = system_profile
+        .to_str()
+        .context("system profile path contains invalid UTF-8")?;
+      step(
+        "Setting system profile",
+        &format!(
+          "nix-env --profile {NIXOS_SYSTEM_PROFILE} --set {}",
+          shell_quote(system_profile_str)
+        ),
+      )?;
       step(
         "Adding configuration to bootloader",
         &nixos_activation_command(
@@ -1500,19 +1473,6 @@ pub fn build(
   Ok(out_path)
 }
 
-fn profile_nix_command(
-  system_profile: &Path,
-  build_args: &[String],
-) -> Result<Vec<String>> {
-  nix_argv_to_strings(
-    &NixCommand::new(CommandKind::Build)
-      .print_build_logs(false)
-      .args(["--no-link", "--profile", NIXOS_SYSTEM_PROFILE])
-      .arg(system_profile)
-      .args(build_args),
-  )
-}
-
 #[cfg(test)]
 mod tests {
   #![allow(
@@ -1582,17 +1542,6 @@ mod tests {
     std::os::unix::fs::symlink("previous", &link).unwrap();
     clear_out_link(&link).unwrap();
     assert!(std::fs::symlink_metadata(&link).is_err());
-  }
-
-  #[test]
-  fn remote_profile_command_preserves_no_net() {
-    let profile =
-      profile_nix_command(Path::new("/nix/store/example-system"), &[
-        "--no-net".into(),
-      ])
-      .unwrap();
-
-    assert!(profile.iter().any(|arg| arg == "--no-net"));
   }
 
   proptest! {
