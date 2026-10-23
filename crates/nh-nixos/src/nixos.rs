@@ -102,10 +102,11 @@ impl args::OsArgs {
         args.rebuild_and_activate(&Switch, None, elevation)
       },
       OsSubcommand::DryActivate { args } => {
+        #[expect(deprecated, reason = "the struct still carries the flag")]
         let activate = OsRebuildActivateArgs {
           rebuild:                        args.rebuild,
           install_bootloader:             false,
-          show_activation_logs:           true,
+          show_activation_logs:           false,
           continue_on_activation_failure: false,
           no_systemd_run:                 args.no_systemd_run,
         };
@@ -366,7 +367,7 @@ impl OsRebuildActivateArgs {
           .elevate(elevate.then_some(elevation.clone()))
           .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
           .with_required_env()
-          .show_output(self.show_activation_logs)
+          .show_output(true)
           .run()
           .context(format!("Activation ({action}) failed"))
         },
@@ -389,7 +390,6 @@ impl OsRebuildActivateArgs {
               platform: nh_remote::Platform::NixOS,
               activation_type,
               install_bootloader: false,
-              show_logs: self.show_activation_logs,
               systemd_run: !self.no_systemd_run,
               elevation: elevate.then_some(elevation.clone()),
             },
@@ -434,7 +434,6 @@ impl OsRebuildActivateArgs {
             platform:           nh_remote::Platform::NixOS,
             activation_type:    nh_remote::ActivationType::Boot,
             install_bootloader: self.install_bootloader,
-            show_logs:          false,
             systemd_run:        !self.no_systemd_run,
             elevation:          elevate.then_some(elevation),
           },

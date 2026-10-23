@@ -1,5 +1,6 @@
 use std::{
   env,
+  io::Write,
   path::{Path, PathBuf},
   sync::OnceLock,
 };
@@ -20,7 +21,7 @@ use nh_core::{
 };
 use secrecy::{ExposeSecret, SecretString};
 use subprocess::{Exec, Redirection};
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 
 mod copy;
 mod dix;
@@ -292,6 +293,14 @@ pub fn init_ssh_control() -> SshControlGuard {
   SshControlGuard { control_dir }
 }
 
+/// `ssh` to `host` with nh's options and without a terminal.
+fn ssh(host: &RemoteHost) -> Exec {
+  Exec::cmd("ssh")
+    .args(get_ssh_opts())
+    .arg("-T")
+    .arg(host.ssh_host())
+}
+
 /// Pre-establish a `ControlMaster` SSH connection to `host`.
 ///
 /// This runs `ssh -T <opts> <host> true` using nh's own SSH argument
@@ -310,16 +319,10 @@ pub fn init_ssh_control() -> SshControlGuard {
 ///
 /// Returns an error if the SSH connection cannot be established.
 pub fn open_ssh_control_master(host: &RemoteHost) -> Result<()> {
-  let ssh_opts = get_ssh_opts();
   debug!("Establishing SSH ControlMaster to '{host}'");
 
-  let mut cmd = Exec::cmd("ssh");
-  for opt in &ssh_opts {
-    cmd = cmd.arg(opt);
-  }
-  cmd = cmd.arg("-T").arg(host.ssh_host()).arg("true");
-
-  let capture = cmd
+  let capture = ssh(host)
+    .arg("true")
     .capture()
     .with_context(|| format!("Failed to connect to remote host '{host}'"))?;
 
@@ -348,14 +351,8 @@ pub fn open_ssh_control_master(host: &RemoteHost) -> Result<()> {
 /// Returns an error if the SSH connection fails, `id -u` exits non-zero, or
 /// its stdout cannot be parsed as a `u32`.
 pub fn probe_remote_uid(host: &RemoteHost) -> Result<u32> {
-  let ssh_opts = get_ssh_opts();
-  let mut cmd = Exec::cmd("ssh");
-  for opt in &ssh_opts {
-    cmd = cmd.arg(opt);
-  }
-  cmd = cmd.arg("-T").arg(host.ssh_host()).arg("id -u");
-
-  let capture = cmd
+  let capture = ssh(host)
+    .arg("id -u")
     .capture()
     .with_context(|| format!("Failed to probe remote uid on '{host}'"))?;
 
@@ -1020,9 +1017,6 @@ pub struct ActivateRemoteConfig {
   /// Whether to install the bootloader during activation
   pub install_bootloader: bool,
 
-  /// Whether to show output logs during activation
-  pub show_logs: bool,
-
   /// Whether to run activation in a transient systemd unit when available
   pub systemd_run: bool,
 
@@ -1098,39 +1092,10 @@ fn activate_nixos_remote(
   config: &ActivateRemoteConfig,
   build_args: &[String],
 ) -> Result<()> {
-  let ssh_opts = get_ssh_opts();
-
-  // Prompt for password if elevation is needed
-  // Skip for None (no elevation) and Passwordless (remote has NOPASSWD
-  // configured)
-  let sudo_password = if let Some(ref strategy) = config.elevation {
-    if matches!(
-      strategy,
-      ElevationStrategy::None | ElevationStrategy::Passwordless
-    ) {
-      // None: no elevation program used
-      // Passwordless: elevation program used but no password needed
-      None
-    } else {
-      let host_str = host.ssh_host();
-      if let Some(cached_password) = get_cached_password(&host_str)? {
-        Some(cached_password)
-      } else {
-        let password =
-          inquire::Password::new(&format!("[sudo] password for {host_str}:"))
-            .without_confirmation()
-            .prompt()
-            .context("Failed to read sudo password")?;
-        if password.is_empty() {
-          bail!("Password cannot be empty");
-        }
-        let secret_password = SecretString::new(password.into());
-        cache_password(&host_str, secret_password.clone())?;
-        Some(secret_password)
-      }
-    }
-  } else {
-    None
+  let elevation = config.elevation.as_ref();
+  let password = remote_sudo_password(host, elevation)?;
+  let step = |name: &str, cmd: &str| {
+    run_remote_step(host, elevation, password.as_ref(), name, cmd)
   };
 
   let switch_to_config = system_profile.join("bin/switch-to-configuration");
@@ -1143,139 +1108,135 @@ fn activate_nixos_remote(
     ActivationType::Test
     | ActivationType::Switch
     | ActivationType::DryActivate => {
-      let action = config.activation_type.as_str();
-
-      let mut ssh_cmd = Exec::cmd("ssh");
-      for opt in &ssh_opts {
-        ssh_cmd = ssh_cmd.arg(opt);
-      }
-      // Add -T flag to disable pseudo-terminal allocation (needed for stdin)
-      ssh_cmd = ssh_cmd.arg("-T");
-      ssh_cmd = ssh_cmd.arg(host.ssh_host());
-
-      // Build the remote command using helper function
-      let base_cmd = nixos_activation_command(
-        switch_path_str,
-        action,
-        false,
-        config.systemd_run,
-      );
-      let remote_cmd =
-        build_remote_command(config.elevation.as_ref(), &base_cmd)?;
-
-      ssh_cmd = ssh_cmd.arg(remote_cmd);
-
-      // Pass password via stdin if elevation is needed
-      if let Some(ref password) = sudo_password {
-        ssh_cmd =
-          ssh_cmd.stdin(format!("{}\n", password.expose_secret()).into_bytes());
-      }
-
-      debug!(?ssh_cmd, "Activating NixOS configuration");
-
-      let capture = ssh_cmd
-        .capture()
-        .context("Failed to activate NixOS configuration")?;
-
-      if config.show_logs {
-        print!("{}", capture.stdout_str());
-        if capture.exit_status.success() {
-          eprint!("{}", capture.stderr_str());
-        }
-      }
-
-      if !capture.exit_status.success() {
-        bail!(
-          "Activation ({}) failed on '{}':\n{}",
-          action,
-          host,
-          capture.stderr_str()
-        );
-      }
+      step(
+        if matches!(config.activation_type, ActivationType::DryActivate) {
+          "Previewing activation"
+        } else {
+          "Activating configuration"
+        },
+        &nixos_activation_command(
+          switch_path_str,
+          config.activation_type.as_str(),
+          false,
+          config.systemd_run,
+        ),
+      )?;
     },
 
     ActivationType::Boot => {
-      let mut profile_ssh_cmd = Exec::cmd("ssh");
-      for opt in &ssh_opts {
-        profile_ssh_cmd = profile_ssh_cmd.arg(opt);
-      }
-      // Add -T flag to disable pseudo-terminal allocation (needed for stdin)
-      profile_ssh_cmd = profile_ssh_cmd.arg("-T");
-      profile_ssh_cmd = profile_ssh_cmd.arg(host.ssh_host());
-
-      // Build the remote command using helper function
-      let base_cmd = profile_nix_command(system_profile, build_args)?
+      let profile_cmd = profile_nix_command(system_profile, build_args)?
         .iter()
         .map(|arg| shell_quote(arg))
         .collect::<Vec<_>>()
         .join(" ");
-      let profile_remote_cmd =
-        build_remote_command(config.elevation.as_ref(), &base_cmd)?;
-
-      profile_ssh_cmd = profile_ssh_cmd.arg(profile_remote_cmd);
-
-      // Pass password via stdin if elevation is needed
-      if let Some(ref password) = sudo_password {
-        profile_ssh_cmd = profile_ssh_cmd
-          .stdin(format!("{}\n", password.expose_secret()).into_bytes());
-      }
-
-      debug!(?profile_ssh_cmd, "Setting NixOS profile");
-
-      let profile_capture = profile_ssh_cmd
-        .capture()
-        .context("Failed to set NixOS profile")?;
-
-      if !profile_capture.exit_status.success() {
-        bail!(
-          "Failed to set system profile on '{}':\n{}",
-          host,
-          profile_capture.stderr_str()
-        );
-      }
-
-      let mut boot_ssh_cmd = Exec::cmd("ssh");
-      for opt in &ssh_opts {
-        boot_ssh_cmd = boot_ssh_cmd.arg(opt);
-      }
-      // Add -T flag to disable pseudo-terminal allocation (needed for stdin)
-      boot_ssh_cmd = boot_ssh_cmd.arg("-T");
-      boot_ssh_cmd = boot_ssh_cmd.arg(host.ssh_host());
-
-      // Build the remote command using helper function
-      let base_cmd = nixos_activation_command(
-        switch_path_str,
-        "boot",
-        config.install_bootloader,
-        config.systemd_run,
-      );
-      let boot_remote_cmd =
-        build_remote_command(config.elevation.as_ref(), &base_cmd)?;
-
-      boot_ssh_cmd = boot_ssh_cmd.arg(boot_remote_cmd);
-
-      // Pass password via stdin if elevation is needed
-      if let Some(ref password) = sudo_password {
-        boot_ssh_cmd = boot_ssh_cmd
-          .stdin(format!("{}\n", password.expose_secret()).into_bytes());
-      }
-
-      debug!(?boot_ssh_cmd, "Bootloader activation");
-
-      let boot_capture = boot_ssh_cmd
-        .capture()
-        .context("Bootloader activation failed")?;
-
-      if !boot_capture.exit_status.success() {
-        bail!(
-          "Bootloader activation failed on '{}':\n{}",
-          host,
-          boot_capture.stderr_str()
-        );
-      }
+      step("Setting system profile", &profile_cmd)?;
+      step(
+        "Adding configuration to bootloader",
+        &nixos_activation_command(
+          switch_path_str,
+          "boot",
+          config.install_bootloader,
+          config.systemd_run,
+        ),
+      )?;
     },
   }
 
+  Ok(())
+}
+
+/// The elevation password for `host`, if `elevation` needs one there.
+///
+/// It is asked for once per host and cached.
+///
+/// # Errors
+///
+/// Returns an error if the password cannot be read.
+fn remote_sudo_password(
+  host: &RemoteHost,
+  elevation: Option<&ElevationStrategy>,
+) -> Result<Option<SecretString>> {
+  // None runs no elevation program, Passwordless runs one that needs no
+  // password.
+  if elevation.is_none_or(|strategy| {
+    matches!(
+      strategy,
+      ElevationStrategy::None | ElevationStrategy::Passwordless
+    )
+  }) {
+    return Ok(None);
+  }
+
+  let host_str = host.ssh_host();
+  if let Some(password) = get_cached_password(&host_str)? {
+    return Ok(Some(password));
+  }
+
+  let password =
+    inquire::Password::new(&format!("[sudo] password for {host_str}:"))
+      .without_confirmation()
+      .prompt()
+      .context("Failed to read sudo password")?;
+  ensure!(!password.is_empty(), "Password cannot be empty");
+  let password = SecretString::new(password.into());
+  cache_password(&host_str, password.clone())?;
+  Ok(Some(password))
+}
+
+/// Runs the remote activation step called `name`:
+/// `base_cmd` on `host` over SSH, elevated with `elevation`.
+///
+/// stdin carries the elevation `password` if there is one from
+/// [`remote_sudo_password`]. Its output goes straight to nh's stdout and
+/// stderr.
+///
+/// # Errors
+///
+/// Returns an error if the step cannot run or exits unsuccessfully.
+///
+/// # Examples
+///
+/// ```ignore
+/// // Logs "Adding configuration to bootloader on 'host'", and fails with
+/// // "Adding configuration to bootloader on 'host' failed".
+/// run_remote_step(
+///   host,
+///   Some(&ElevationStrategy::Auto),
+///   password.as_ref(),
+///   "Adding configuration to bootloader",
+///   "/nix/var/nix/profiles/system/bin/switch-to-configuration boot",
+/// )?;
+/// ```
+fn run_remote_step(
+  host: &RemoteHost,
+  elevation: Option<&ElevationStrategy>,
+  password: Option<&SecretString>,
+  name: &str,
+  base_cmd: &str,
+) -> Result<()> {
+  info!("{name} on '{host}'");
+  let failure = || format!("{name} on '{host}' failed");
+
+  let cmd = ssh(host)
+    .arg(build_remote_command(elevation, base_cmd)?)
+    .stdin(Redirection::Pipe);
+  debug!(?cmd, "Running remote activation step");
+
+  let mut job = cmd.start().with_context(failure)?;
+  let mut stdin = job.stdin.take().with_context(failure)?;
+  if let Some(password) = password
+    && let Err(error) = writeln!(stdin, "{}", password.expose_secret())
+  {
+    // ssh has already exited, and its exit status below tells us why.
+    ensure!(
+      error.kind() == std::io::ErrorKind::BrokenPipe,
+      "Failed to send the elevation password: {error}"
+    );
+  }
+
+  drop(stdin);
+  let status = job.wait().with_context(failure)?;
+  ensure!(status.success(), "{}", failure());
   Ok(())
 }
 

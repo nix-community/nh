@@ -65,11 +65,6 @@ const ENVIRONMENT: &[Entry] = &[
      unset, defaults to enabled.",
   ),
   (
-    "NH_SHOW_ACTIVATION_LOGS",
-    "Controls whether activation output is displayed. By default, activation \
-     output is hidden. Setting to \"1\" shows full logs.",
-  ),
-  (
     "NH_LOG",
     "Sets the tracing/log filter for NH. Uses tracing_subscriber format \
      (e.g., nh=trace).",
