@@ -75,10 +75,16 @@ const ENVIRONMENT: &[Entry] = &[
      (e.g., nh=trace).",
   ),
   (
-    "NH_NOM",
-    "Controls whether nix-output-monitor (nom) is used. Unset enables it only \
-     on a terminal. Set to 1, true, yes, or on to force it on; set to 0, \
-     false, no, or off to force it off. --no-nom takes precedence.",
+    "NH_ROM",
+    "Controls whether rom shows build progress. Unset enables it only on a \
+     terminal. Set to 1, true, yes, or on to force it on; set to 0, false, \
+     no, or off to force it off. --no-rom takes precedence. NH_NOM is a \
+     deprecated alias that will be removed in 5.0.",
+  ),
+  (
+    "NH_ROM_LOG",
+    "Path to a file that records the Nix log stream of builds shown by rom, \
+     so it can be replayed through rom.",
   ),
   (
     "NH_SSHOPTS",

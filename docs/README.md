@@ -300,7 +300,7 @@ Platform specific subcommands are those that implement CLI utilities for
 The `nh os` subcommand reimplements the Python script, `nixos-rebuild-ng`, [^1]
 from ground up _with the addition of_:
 
-- Build-tree displays via **nix-output-monitor** (nom).
+- Build-tree displays via **rom**.
 - Pretty diffs of changes via **dix**
 - Confirmation
 - `nh os dry-activate` builds a configuration and previews activation without
@@ -392,12 +392,16 @@ the common variables that you may encounter or choose to employ are as follows:
     confirmation before applying supported operations. Falsy values such as `0`,
     `false`, `no`, or `off` disable it. Equivalent to `--ask`.
 
-- `NH_NOM`
-  - Forces whether `nix-output-monitor` (nom) is used. Without it, nom runs only
-    when stdout is a terminal, and stays off when stdout is a pipe or file, such
-    as in CI or under an agent. Set to `1`, `true`, `yes`, or `on` to force nom
-    on, or `0`, `false`, `no`, or `off` to force it off. `--no-nom` still takes
-    precedence.
+- `NH_ROM`
+  - Forces whether rom shows build progress. Without it, rom runs only when
+    stdout is a terminal, and stays off when stdout is a pipe or file, such as
+    in CI or under an agent. Set to `1`, `true`, `yes`, or `on` to force rom on,
+    or `0`, `false`, `no`, or `off` to force it off. `--no-rom` still takes
+    precedence. `NH_NOM` is a deprecated alias that will be removed in 5.0.
+
+- `NH_ROM_LOG`
+  - Path to a file that records the Nix log stream of builds shown by rom, so it
+    can be replayed through rom.
 
 - `NH_NO_CHECKS`
   - When set (any non-empty value), skips startup checks such as Nix version and
@@ -504,10 +508,6 @@ the common variables that you may encounter or choose to employ are as follows:
     to passing `--db` multiple times. Example:
     `NH_OFFLINE_DB=/var/cache/spam/nixpkgs.db:/var/cache/spam/hm.db`.
 
-- `NH_NOM`
-  - Control whether `nom` (nix-output-monitor) should be enabled for the build
-    processes. Equivalent of `--no-nom`.
-
 ### Notes
 
 - Any environment variables prefixed with `NH_` are explicitly propagated by NH
@@ -566,7 +566,7 @@ contributions are always welcome.
 [ViperML]: https://github.com/viperML
 [nvd]: https://sr.ht/~khumba/nvd/
 [dix]: https://github.com/faukah/dix
-[nix-output-monitor]: https://github.com/maralorn/nix-output-monitor
+[rom]: https://github.com/manic-systems/rom
 [crates]: /Cargo.toml
 
 NH has had a long history, and it has grown a lot over the years. I, NotAShelf,
@@ -580,10 +580,7 @@ friend [faukah]. Compared to the previous diffing utility, [nvd], dix is more
 than twice as fast and has been a blessing to NH's diffing experience. Thank
 you!
 
-[nix-output-monitor], is also a very good utility worth a mention, which NH uses
-under the hood for the pretty tree of builds. A big shoutout to
-nix-output-monitor for providing many NH users such as myself with pretty build
-visuals.
+[rom] provides NH's build tree and streaming build-log presentation.
 
 I also would like to extend my thanks to the many Rust [crates] that power NH
 under the hood and give it its signature UX. Without the beautiful Rust

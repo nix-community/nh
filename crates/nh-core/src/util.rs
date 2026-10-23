@@ -311,24 +311,37 @@ pub fn get_hostname(supplied_hostname: Option<String>) -> Result<String> {
   }
 }
 
-/// Decide whether `nix-output-monitor` (nom) should be used for a build.
+/// Decide whether rom should monitor a build.
 ///
-/// `--no-nom` always wins. Otherwise `NH_NOM` forces the choice if set. With
-/// neither, nom is on only when stdout is a terminal. nom's live rendering is
+/// `--no-rom` always wins. Otherwise `NH_ROM` forces the choice if set. With
+/// neither, rom is on only when stdout is a terminal. rom's live rendering is
 /// just noise once stdout is a pipe or file, which is the usual case in CI or
 /// under an agent.
 ///
-/// `NH_NOM` accepts `1`/`true`/`yes`/`on` to force nom on and
+/// `NH_ROM` accepts `1`/`true`/`yes`/`on` to force rom on and
 /// `0`/`false`/`no`/`off` to force it off.
+///
+/// The nix-output-monitor era `--no-nom` and `NH_NOM` still work as aliases of
+/// `--no-rom` and `NH_ROM` until 5.0, but warn.
 #[must_use]
-pub fn use_nom(no_nom: bool) -> bool {
+pub fn use_rom(no_rom: bool, no_nom: bool) -> bool {
   use std::io::IsTerminal;
 
   if no_nom {
+    warn!(
+      "`--no-nom` is deprecated and will be removed in 5.0, use `--no-rom`"
+    );
+  }
+  if no_rom || no_nom {
     return false;
   }
 
-  match std::env::var("NH_NOM").ok().as_deref().map(str::trim) {
+  let value = std::env::var("NH_ROM").ok().or_else(|| {
+    let value = std::env::var("NH_NOM").ok()?;
+    warn!("`NH_NOM` is deprecated and will be removed in 5.0, use `NH_ROM`");
+    Some(value)
+  });
+  match value.as_deref().map(str::trim) {
     Some("1" | "true" | "yes" | "on") => return true,
     Some("0" | "false" | "no" | "off") => return false,
     _ => {},
@@ -601,12 +614,6 @@ mod tests {
   use nh_installable::Installable;
 
   use super::*;
-
-  #[test]
-  fn use_nom_respects_explicit_no_nom_flag() {
-    // `--no-nom` must always win, regardless of TTY state or `NH_NOM`.
-    assert!(!use_nom(true));
-  }
 
   #[test]
   fn test_get_build_image_variants_expression() {

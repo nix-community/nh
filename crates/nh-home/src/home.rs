@@ -7,7 +7,7 @@ use misstep::{Result, ResultExt, bail, report};
 use nh_core::{
   command::{self, Command, CommandKind, NixCommand},
   update::update_with_args,
-  util::{get_hostname, use_nom},
+  util::{get_hostname, use_rom},
 };
 use nh_diff::print_dix_diff;
 use nh_installable::{
@@ -117,7 +117,7 @@ impl HomeRebuildArgs {
       .extra_args(&self.extra_args)
       .passthrough(&self.common.passthrough)
       .message("Building Home-Manager configuration")
-      .nom(use_nom(self.common.no_nom));
+      .rom(use_rom(self.common.no_rom, self.common.no_nom));
 
     // Initialize SSH control - guard will cleanup connections on drop
     let _ssh_guard =

@@ -957,7 +957,7 @@ pub struct Build {
   installable: Installable,
   extra_args:  Vec<OsString>,
   envs:        Vec<(OsString, OsString)>,
-  nom:         bool,
+  rom:         bool,
 }
 
 impl Build {
@@ -968,7 +968,7 @@ impl Build {
       installable,
       extra_args: vec![],
       envs: vec![],
-      nom: false,
+      rom: false,
     }
   }
 
@@ -997,8 +997,8 @@ impl Build {
   }
 
   #[must_use]
-  pub const fn nom(mut self, yes: bool) -> Self {
-    self.nom = yes;
+  pub const fn rom(mut self, yes: bool) -> Self {
+    self.rom = yes;
     self
   }
 
@@ -1074,49 +1074,19 @@ impl Build {
       .args(&installable_args)
       .arg("--print-out-paths")
       .args(&self.extra_args)
-      .to_exec()
-      .stdout(Redirection::Pipe);
+      .to_exec();
     for (key, value) in &self.envs {
       cmd = cmd.env(key, value);
     }
-    if self.nom {
-      which("nom").context(
-        "nom (nix-output-monitor) is required but not found in PATH",
-      )?;
-      cmd = cmd
-        .args(["--log-format", "internal-json", "--verbose"])
-        .stderr(Redirection::Pipe);
-    }
-    debug!(?cmd);
 
-    let mut job = cmd.start()?;
-
-    // Logs go to stderr and output paths to stdout, so nom can consume the
-    // former while we read the latter.
-    let nom = if self.nom {
-      let logs = job.stderr.take().context("Failed to capture build logs")?;
-      let nom = Exec::cmd("nom").arg("--json").stdin(logs).start();
-      Some(nom.context("Failed to start nom")?)
-    } else {
-      None
-    };
-
-    let mut out_paths = String::new();
-    job
-      .stdout
-      .take()
-      .context("Failed to capture build output")?
-      .read_to_string(&mut out_paths)?;
-
-    let exit_status = job.wait()?;
-    if let Some(nom) = nom {
-      nom.wait()?;
-    }
+    let (exit_status, out_paths) = crate::monitor::run(cmd, self.rom)?;
     if !exit_status.success() {
       bail!(ExitError(exit_status));
     }
 
     // --print-out-paths may return multiple lines; take first
+    let out_paths = std::str::from_utf8(&out_paths)
+      .context("Build output path is not UTF-8")?;
     let out_path = out_paths
       .lines()
       .next()
@@ -1661,7 +1631,7 @@ mod tests {
       installable.to_args().unwrap()
     );
     assert!(build.extra_args.is_empty());
-    assert!(!build.nom);
+    assert!(!build.rom);
   }
 
   #[test]
@@ -1675,7 +1645,7 @@ mod tests {
       .message("Building package")
       .extra_arg("--verbose")
       .extra_args(["--option", "setting", "value"])
-      .nom(true);
+      .rom(true);
 
     assert_eq!(build.message, Some("Building package".to_string()));
     assert_eq!(build.extra_args, vec![
@@ -1684,7 +1654,7 @@ mod tests {
       OsString::from("setting"),
       OsString::from("value")
     ]);
-    assert!(build.nom);
+    assert!(build.rom);
   }
 
   #[test]

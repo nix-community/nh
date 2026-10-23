@@ -17,8 +17,12 @@ pub struct CommonRebuildArgs {
   #[pound(flatten)]
   pub installable: InstallableArgs,
 
-  /// Don't use nix-output-monitor for the build process
+  /// Don't use rom for the build process
   #[pound(long)]
+  pub no_rom: bool,
+
+  /// Deprecated alias for `--no-rom`
+  #[pound(long, hidden)]
   pub no_nom: bool,
 
   /// Path to save the result link, defaults to using a temporary directory
@@ -372,7 +376,7 @@ impl NixBuildPassthroughArgs {
         .any(|word| word.contains(char::is_whitespace))
       {
         warn!(
-          "Not forwarding `{}` to the build host: it contains whitespace",
+          "Not forwarding `{}` to the build host, as it contains whitespace",
           setting.join(" ")
         );
       } else {

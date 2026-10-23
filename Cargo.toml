@@ -24,6 +24,7 @@ nh-search      = { path = "crates/nh-search", version = "4.5.0-beta1" }
 
 nix-command     = { path = "crates/nix-command", version = "0.2.4" }
 nix-installable = { path = "crates/nix-installable", version = "0.1.0" }
+rom             = { default-features = false, version = "0.3.1" }
 
 caress            = "0.2.1"
 dix               = "2.2.0"
