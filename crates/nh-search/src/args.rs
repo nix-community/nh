@@ -117,6 +117,10 @@ pub struct OfflineArgs {
   #[pound(flatten)]
   pub limit: LimitArg,
 
+  /// Database scope to search: pkg, opt, lib, or all (default)
+  #[pound(long, default = OfflineScope::All, value_name = "SCOPE")]
+  pub scope: OfflineScope,
+
   /// Path to a SPAM database file. Specify multiple times to search across
   /// several databases
   #[pound(
@@ -129,7 +133,7 @@ pub struct OfflineArgs {
   )]
   pub databases: Vec<PathBuf>,
 
-  /// Name of the package or option to search
+  /// Name of a package file, option, or library function to search
   #[pound(min_values = 1)]
   pub query: Vec<String>,
 }
@@ -224,6 +228,30 @@ pub enum OptionScope {
   All,
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
+pub enum OfflineScope {
+  /// Search all scopes present in each database
+  All,
+  /// Search package file paths
+  Pkg,
+  /// Search NixOS options
+  Opt,
+  /// Search documented Nix library functions
+  Lib,
+}
+
+impl OfflineScope {
+  #[must_use]
+  pub(crate) fn includes(self, scope: spam_db::Scope) -> bool {
+    match self {
+      Self::All => true,
+      Self::Pkg => scope == spam_db::Scope::Pkg,
+      Self::Opt => scope == spam_db::Scope::Opt,
+      Self::Lib => scope == spam_db::Scope::Lib,
+    }
+  }
+}
+
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
 pub enum SearchDefault {
   /// Search packages (default)
@@ -251,6 +279,7 @@ pub enum ResolvedSearchMode<'a> {
   Offline {
     limit:     u64,
     databases: &'a [PathBuf],
+    scope:     OfflineScope,
     query:     &'a [String],
   },
   Prs(&'a PrsArgs),
@@ -288,6 +317,7 @@ impl SearchArgs {
         Ok(ResolvedSearchMode::Offline {
           limit:     args.limit.value,
           databases: &args.databases,
+          scope:     args.scope,
           query:     &args.query,
         })
       },
@@ -336,7 +366,7 @@ impl SearchArgs {
 mod tests {
   use pound::{ErrorKind, Parse};
 
-  use super::{SearchArgs, SearchDefault, SearchMode};
+  use super::{OfflineScope, SearchArgs, SearchDefault, SearchMode};
 
   #[derive(Debug, Parse)]
   struct TestCli {
@@ -540,6 +570,61 @@ mod tests {
 
     assert!(matches!(err.kind, ErrorKind::Unknown { .. }));
     Ok(())
+  }
+
+  #[test]
+  fn offline_scope_flag_selects_scope() -> Result<(), Box<dyn std::error::Error>>
+  {
+    for (value, expected) in [
+      ("pkg", OfflineScope::Pkg),
+      ("opt", OfflineScope::Opt),
+      ("lib", OfflineScope::Lib),
+      ("all", OfflineScope::All),
+    ] {
+      let args = parse_search(&[
+        "search", "offline", "--db", "data.db", "needle", "--scope", value,
+      ])?;
+      assert!(matches!(
+        args.mode,
+        Some(SearchMode::Offline { args: offline }) if offline.scope == expected
+      ));
+    }
+
+    let args =
+      parse_search(&["search", "offline", "--db", "data.db", "needle"])?;
+    assert!(matches!(
+      args.mode,
+      Some(SearchMode::Offline { args: offline }) if offline.scope == OfflineScope::All
+    ));
+    Ok(())
+  }
+
+  #[test]
+  fn offline_scope_rejects_unknown_values()
+  -> Result<(), Box<dyn std::error::Error>> {
+    let err = parse_search_error(&[
+      "search", "offline", "--db", "data.db", "--scope", "missing", "needle",
+    ])?;
+    assert!(matches!(err.kind, ErrorKind::Value { .. }));
+    Ok(())
+  }
+
+  #[test]
+  fn offline_scope_selection_excludes_other_sections() {
+    use spam_db::Scope;
+
+    assert!(OfflineScope::All.includes(Scope::Pkg));
+    assert!(OfflineScope::All.includes(Scope::Opt));
+    assert!(OfflineScope::All.includes(Scope::Lib));
+    assert!(OfflineScope::Pkg.includes(Scope::Pkg));
+    assert!(!OfflineScope::Pkg.includes(Scope::Opt));
+    assert!(!OfflineScope::Pkg.includes(Scope::Lib));
+    assert!(OfflineScope::Opt.includes(Scope::Opt));
+    assert!(!OfflineScope::Opt.includes(Scope::Pkg));
+    assert!(!OfflineScope::Opt.includes(Scope::Lib));
+    assert!(OfflineScope::Lib.includes(Scope::Lib));
+    assert!(!OfflineScope::Lib.includes(Scope::Pkg));
+    assert!(!OfflineScope::Lib.includes(Scope::Opt));
   }
 
   #[test]

@@ -247,6 +247,11 @@ The command exposes several explicit subcommands and a convenient shorthand:
 
 <!--markdownlint-enable MD013 -->
 
+> [!TIP]
+> Offline search queries every `pkg`, `opt`, and `lib` scope present by default.
+> Pass `--scope pkg`, `--scope opt`, or `--scope lib` to search only that scope
+> across all `--db` files. Files without the selected scope yield no results.
+
 `--json` is shared by all search modes. `--limit`, `--channel`, and
 `--platforms` are available on the modes that use them and on the shorthand
 form. `nh search prs` and `nh search issues` use `GH_TOKEN` for GitHub
