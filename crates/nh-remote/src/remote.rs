@@ -1145,50 +1145,116 @@ fn activate_nixos_remote(
   Ok(())
 }
 
+/// How often a rejected elevation password is asked for again, as `sudo`
+/// does.
+const PASSWORD_ATTEMPTS: usize = 3;
+
 /// The elevation password for `host`, if `elevation` needs one there.
 ///
-/// It is asked for once per host and cached.
+/// It is asked for and checked once per host, with a single elevated `true`
+/// over SSH whose stdin closes after the password, so a wrong one is rejected
+/// at once and asked for again. Only accepted passwords are cached, so
+/// activation steps can rely on theirs.
+///
+/// Only `sudo` can read a password from stdin, so [`build_remote_command`]
+/// rejects other elevation programs that would need one before anything is
+/// asked.
 ///
 /// # Errors
 ///
-/// Returns an error if the password cannot be read.
+/// Returns an error if the password cannot be read, or is rejected
+/// [`PASSWORD_ATTEMPTS`] times.
 fn remote_sudo_password(
   host: &RemoteHost,
   elevation: Option<&ElevationStrategy>,
 ) -> Result<Option<SecretString>> {
   // None runs no elevation program, Passwordless runs one that needs no
   // password.
-  if elevation.is_none_or(|strategy| {
-    matches!(
+  let Some(elevation) = elevation.filter(|strategy| {
+    !matches!(
       strategy,
       ElevationStrategy::None | ElevationStrategy::Passwordless
     )
-  }) {
+  }) else {
     return Ok(None);
-  }
+  };
 
   let host_str = host.ssh_host();
   if let Some(password) = get_cached_password(&host_str)? {
     return Ok(Some(password));
   }
 
-  let password =
-    inquire::Password::new(&format!("[sudo] password for {host_str}:"))
+  let check_cmd = build_remote_command(Some(elevation), "true")?;
+  let prompt = format!("[sudo] password for {}:", remote_login(host));
+  let mut attempt = 1;
+  loop {
+    let password = inquire::Password::new(&prompt)
       .without_confirmation()
       .prompt()
       .context("Failed to read sudo password")?;
-  ensure!(!password.is_empty(), "Password cannot be empty");
-  let password = SecretString::new(password.into());
-  cache_password(&host_str, password.clone())?;
-  Ok(Some(password))
+    ensure!(!password.is_empty(), "Password cannot be empty");
+    let password = SecretString::new(password.into());
+
+    let check = ssh(host)
+      .arg(&check_cmd)
+      .stdin(format!("{}\n", password.expose_secret()).into_bytes())
+      .capture()
+      .with_context(|| {
+        format!("Failed to check the sudo password on '{host}'")
+      })?;
+    if check.exit_status.success() {
+      cache_password(&host_str, password.clone())?;
+      return Ok(Some(password));
+    }
+
+    let reason = check.stderr_str();
+    let reason = reason.trim();
+    // ssh itself exits with 255, and asking again would not help then.
+    ensure!(
+      check.exit_status.code() != Some(255),
+      "Failed to connect to '{host}':\n{reason}"
+    );
+    ensure!(
+      attempt < PASSWORD_ATTEMPTS,
+      "sudo on '{host}' rejected the password {PASSWORD_ATTEMPTS} \
+       times:\n{reason}"
+    );
+    // sudo's own messages would only add that it got no second password.
+    info!("Sorry, sudo on '{host}' rejected the password, try again.");
+    attempt += 1;
+  }
+}
+
+/// `user@host` that SSH logs into for `host`, after applying the SSH config.
+///
+/// Falls back to `host` as given if `ssh -G` cannot resolve it.
+fn remote_login(host: &RemoteHost) -> String {
+  Exec::cmd("ssh")
+    .args(get_ssh_opts())
+    .arg("-G")
+    .arg(host.ssh_host())
+    .stderr(Redirection::Null)
+    .capture()
+    .ok()
+    .filter(|config| config.exit_status.success())
+    .and_then(|config| {
+      config
+        .stdout_str()
+        .lines()
+        .find_map(|line| line.strip_prefix("user ").map(str::to_owned))
+    })
+    .map_or_else(
+      || host.ssh_host(),
+      |user| format!("{user}@{}", host.hostname()),
+    )
 }
 
 /// Runs the remote activation step called `name`:
 /// `base_cmd` on `host` over SSH, elevated with `elevation`.
 ///
-/// stdin carries the elevation `password` if there is one from
-/// [`remote_sudo_password`]. Its output goes straight to nh's stdout and
-/// stderr.
+/// stdin carries the elevation `password` if there is one, which
+/// [`remote_sudo_password`] has already checked. Its output goes straight to
+/// nh's stdout and stderr.
 ///
 /// # Errors
 ///
