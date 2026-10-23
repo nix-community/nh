@@ -167,41 +167,36 @@ nh os switch --build-host user@buildserver --target-host user@production
 
 When you use `--build-host`, `nh` follows this process:
 
-1. **Evaluate** the derivation path locally using
-   `nix eval --raw <flake>.drvPath`
-2. **Build remotely** by running
-   `nix build --store <build-host> --eval-store auto <drv>^* --print-out-paths`
-   locally. Nix copies the derivation to the build host, builds it there, and
-   streams the logs back. Pressing Ctrl+C cancels the remote build.
-3. **Copy result** back based on the deployment scenario (see below)
+1. **Build remotely** by running
+   `nix build --store <build-host> --eval-store auto <installable> --print-out-paths`
+   locally. Nix evaluates the configuration locally, copies the derivation to
+   the build host, builds it there, and streams the logs back. Pressing Ctrl+C
+   cancels the remote build.
+2. **Copy result** back based on the deployment scenario (see below)
 
 ### Copy Optimization
 
-To avoid unnecessary network transfers, `nh` optimizes copies based on your
-configuration:
+`nh` copies the result to the host that will activate it, and nowhere else:
 
 <!-- markdownlint-disable MD013 -->
 
-| Scenario                                     | Copy Path                                          |
-| -------------------------------------------- | -------------------------------------------------- |
-| Build remote, no target                      | `build -> local`                                   |
-| Build remote, target = different host        | `build -> target`, `build -> local` (for out-link) |
-| Build remote, target = build host            | `(nothing)` (already on target)                    |
-| Build remote, target = build host + out-link | `(nothing)` (local out-link is skipped)            |
+| Scenario                              | Copy Path                                        |
+| ------------------------------------- | ------------------------------------------------ |
+| Build local, target = remote host     | `local -> target`                                |
+| Build remote, no target               | `build -> local`                                 |
+| Build remote, target = different host | `build -> target`, or `build -> local -> target` |
+| Build remote, target = build host     | `(nothing)` (already on target)                  |
 
 <!-- markdownlint-enable MD013 -->
 
-If `--build-host` and `--target-host` differ, NH will attempt a quick connection
-from the build host to the target host to see if it can handle the copy directly
-without relaying over localhost. This operation **will not fail the remote build
-process**, and NH will simply relay over the orchestrator, i.e., the host you
-have ran `nh os build` on. This is implemented as a minor convenience function,
-and has zero negative effect over your builds. Instead, it may optimize the
-number of connections when all hosts are connected over Tailscale, for example.
+The copy happens right after the build, before `--ask` and the diff, so the diff
+can compare against the target host's current system. The local out-link is only
+created when the result reaches the local store.
 
-When `--build-host` and `--target-host` point to the same machine, the result
-stays on that machine. A requested local out-link is skipped rather than forcing
-the result back to localhost.
+If `--build-host` and `--target-host` differ, NH first tries to copy directly
+from the build host to the target host. If that fails, for example because the
+hosts can't reach each other, NH relays the copy over the orchestrator, i.e.,
+the host you ran `nh os` on.
 
 Remote build products are usually not signed by a binary cache key, so NH passes
 `--no-check-sigs` to its `nix copy` invocations. This preserves the behavior

@@ -1387,7 +1387,6 @@ dependencies = [
  "inquire",
  "misstep",
  "nh-core",
- "nh-installable",
  "nix-command",
  "proptest",
  "secrecy",
@@ -1395,7 +1394,6 @@ dependencies = [
  "shlex",
  "subprocess",
  "tracing",
- "which",
 ]
 
 [[package]]

@@ -61,11 +61,16 @@ Boolean environment variables such as `NH_ASK`, `NH_SHOW_ACTIVATION_LOGS` and
 `NH_NO_SYSTEMD_RUN` now accept `1`, `true`, `yes`, `0`, `false` and `no`. Other
 spellings like `on`, `y` or `TRUE` are rejected.
 
-### Changed
-
 - `nh search offline` now reads spam-db 0.3.0 databases and searches package,
   option, and library-function scopes in a single file. The previous
   `# spam-db-v3` format is not readable by spam-db 0.3.0.
+- `--json` is no longer forwarded to `nix build`. nh reads the built output path
+  from `nix build --print-out-paths`, which `--json` would replace. It is still
+  forwarded to the other Nix commands nh runs.
+- `--build-host` with a different `--target-host` no longer copies the result to
+  localhost when the build host can copy it to the target directly. The result
+  is copied straight to the host that activates it, before the diff and `--ask`,
+  and a local out-link is only created when it reaches the local store.
 
 ### Fixed
 
@@ -75,6 +80,9 @@ spellings like `on`, `y` or `TRUE` are rejected.
   now runs `nix build --store <build-host> --eval-store auto` locally, which
   copies the derivation, streams the build logs, and lets the remote daemon
   cancel the build when the connection drops, like a local build.
+- `nh os` only infers the running system's specialisation when activating
+  locally, rather than applying the local machine's specialisation to a
+  `--target-host`.
 - `nh search packages` and `nh search options` now query the newest
   search.nixos.org index available for the channel instead of the version
   bundled with nh. Outdated indices stay online, so nh previously kept showing

@@ -352,9 +352,56 @@ impl NixBuildPassthroughArgs {
   }
 
   #[must_use]
-  pub fn generate_remote_build_args(&self) -> Vec<String> {
+  pub fn generate_build_args(&self) -> Vec<String> {
     let mut args = Vec::new();
     self.append_execution_args(&mut args);
+    args
+  }
+
+  /// Generate the settings a Nix daemon applies to the builds it runs, as
+  /// `nix-daemon` arguments.
+  ///
+  /// Nix splits `remote-program` on whitespace, so a setting containing any is
+  /// skipped with a warning.
+  #[must_use]
+  pub fn generate_daemon_args(&self) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut forward = |setting: &[&str]| {
+      if setting
+        .iter()
+        .any(|word| word.contains(char::is_whitespace))
+      {
+        warn!(
+          "Not forwarding `{}` to the build host: it contains whitespace",
+          setting.join(" ")
+        );
+      } else {
+        args.extend(setting.iter().map(|&word| word.to_owned()));
+      }
+    };
+
+    if let Some(jobs) = self.max_jobs {
+      forward(&["--max-jobs", &jobs.to_string()]);
+    }
+    if let Some(cores) = self.cores {
+      forward(&["--cores", &cores.to_string()]);
+    }
+    if self.keep_going {
+      forward(&["--keep-going"]);
+    }
+    if self.keep_failed {
+      forward(&["--keep-failed"]);
+    }
+    if self.fallback {
+      forward(&["--fallback"]);
+    }
+    if let Some(ref builders) = self.builders {
+      forward(&["--builders", builders]);
+    }
+    for [name, value] in self.option.as_chunks().0 {
+      forward(&["--option", name, value]);
+    }
+
     args
   }
 }
@@ -461,13 +508,13 @@ mod tests {
   }
 
   #[test]
-  fn remote_build_args_exclude_json() {
+  fn build_args_exclude_json() {
     let args = NixBuildPassthroughArgs {
       json: true,
       no_net: true,
       ..Default::default()
     };
 
-    assert_eq!(args.generate_remote_build_args(), ["--no-net"]);
+    assert_eq!(args.generate_build_args(), ["--no-net"]);
   }
 }

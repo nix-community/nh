@@ -1,14 +1,14 @@
 use std::{
   env,
-  ffi::OsString,
-  io::Read,
   path::{Path, PathBuf},
   sync::OnceLock,
 };
 
 use misstep::{OptionExt, Report, Result, ResultExt, bail, ensure, report};
 use nh_core::{
+  args::NixBuildPassthroughArgs,
   command::{
+    Build,
     CommandKind,
     ElevationStrategy,
     NixCommand,
@@ -16,12 +16,11 @@ use nh_core::{
     get_cached_password,
     get_sudo_opts,
   },
-  util::NixVariant,
+  util::{NixVariant, parse_nix_variant},
 };
-use nh_installable::Installable;
 use secrecy::{ExposeSecret, SecretString};
 use subprocess::{Exec, Redirection};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 
 mod copy;
 mod dix;
@@ -1284,93 +1283,6 @@ fn activate_nixos_remote(
 /// Used by remote activation functions.
 const NIXOS_SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
 
-/// Evaluate a flake installable to get its derivation path.
-/// Matches nixos-rebuild-ng: `nix eval --raw <flake>.drvPath`
-fn eval_drv_path(
-  installable: &Installable,
-  evaluation_args: &[String],
-) -> Result<PathBuf> {
-  // Build the installable with .drvPath appended
-  let drv_installable = installable.with_attribute("drvPath").context(
-    "Cannot perform remote build with a store path. Store paths are already \
-     built.",
-  )?;
-
-  let args = drv_installable.to_args()?;
-  debug!("Evaluating drvPath: nix eval --raw {:?}", args);
-
-  let cmd = NixCommand::new(CommandKind::Eval)
-    .global_args(get_flake_flags())
-    .args(evaluation_args)
-    .arg("--raw")
-    .args(&args)
-    .to_exec()
-    .stdout(Redirection::Pipe)
-    .stderr(Redirection::Pipe);
-
-  let capture = cmd.capture().context("Failed to run nix eval")?;
-
-  if !capture.exit_status.success() {
-    bail!(
-      "Failed to evaluate derivation path:\n{}",
-      capture.stderr_str()
-    );
-  }
-
-  let drv_path = PathBuf::from(capture.stdout_str().trim().to_string());
-  if !drv_path.is_file() {
-    bail!(
-      "nix eval returned invalid derivation path: {}",
-      drv_path.display()
-    );
-  }
-
-  debug!("Derivation path: {}", drv_path.display());
-  Ok(drv_path)
-}
-
-/// Configuration for a remote build operation.
-///
-/// # Host Interaction Semantics
-///
-/// The behavior depends on which hosts are specified:
-///
-/// | `build_host` | `target_host` | Behavior |
-/// |--------------|---------------|----------|
-/// | Some(H2)     | None          | Build on H2, copy result to localhost |
-/// | Some(H2)     | Some(H2)      | Build on H2, no copy (build host = target) |
-/// | Some(H2)     | Some(H3)      | Build on H2, try direct copy to H3; if that fails, relay through localhost |
-///
-/// When `build_host` and `target_host` differ, the code attempts a direct
-/// copy between remotes first. If this fails (common when the hosts can't
-/// see each other), it falls back to relaying through localhost:
-///
-/// - Direct: Host2 -> Host3
-/// - Fallback: Host2 -> Host1 (localhost) → Host3
-///
-/// If `out_link` is requested and the result is copied to localhost, the
-/// symlink points at the local store path. When the build host is also the
-/// target host, the result stays remote-only and local out-link creation is
-/// skipped.
-#[derive(Debug, Clone)]
-pub struct RemoteBuildConfig {
-  /// The host to build on
-  pub build_host: RemoteHost,
-
-  /// Optional target host to copy the result to (instead of localhost).
-  /// When set, copies directly from `build_host` to `target_host`.
-  pub target_host: Option<RemoteHost>,
-
-  /// Whether to use nix-output-monitor for build output
-  pub use_nom: bool,
-
-  /// Whether to use substitutes when copying closures
-  pub use_substitutes: bool,
-
-  /// Arguments to pass to remote build execution.
-  pub execution_args: Vec<OsString>,
-}
-
 fn clear_out_link(link: &Path) -> Result<()> {
   let Some(metadata) = std::fs::symlink_metadata(link)
     .map(Some)
@@ -1393,228 +1305,172 @@ fn clear_out_link(link: &Path) -> Result<()> {
     .erase()
 }
 
-/// Perform a remote build of a flake installable.
+/// The `ssh-ng` store URI to build on `host` with the build settings from
+/// `passthrough`.
 ///
-/// 1. Evaluate drvPath locally via `nix eval --raw`
-/// 2. Build on the remote store via `nix build --store <host> <drv>^*`, which
-///    copies the derivation there first
-/// 3. Copy the result back (to localhost or `target_host`)
-///
-/// Returns the output path in the Nix store.
+/// `ssh-ng` stores don't forward client settings like `--cores` or
+/// `--max-jobs`. When there are any, they are passed to a remote
+/// `nix-daemon --stdio` that handles the connection itself instead of relaying
+/// it. `remote-store=auto` makes it build in-process when the SSH user can
+/// write the store, as root or on a single-user install, and through the
+/// daemon, which receives its settings, otherwise. `--force-untrusted` makes it
+/// handle the connection on Lix. Nix relays even then (fixed by
+/// NixOS/nix#16637), so it also needs `--process-ops`, which Lix lacks, and the
+/// build host's `nix-daemon` is asked which it is.
 ///
 /// # Errors
 ///
-/// Returns an error if any step fails (evaluation, copy, build).
-pub fn build_remote(
-  installable: &Installable,
-  config: &RemoteBuildConfig,
-  out_link: Option<&std::path::Path>,
-) -> Result<PathBuf> {
-  build_remote_with_args(installable, config, out_link, &[])
+/// Returns an error if the build host's Nix implementation can't be detected.
+fn build_store_uri(
+  host: &RemoteHost,
+  passthrough: &NixBuildPassthroughArgs,
+) -> Result<String> {
+  let settings = passthrough.generate_daemon_args();
+  if settings.is_empty() {
+    return Ok(host.nix_store_uri());
+  }
+
+  let version = run_remote_command(host, &["nix-daemon", "--version"], true)
+    .with_context(|| {
+      format!(
+        "Failed to detect the Nix implementation on '{host}' to forward build \
+         settings to it"
+      )
+    })?
+    .unwrap_or_default();
+  let mut proxy = vec![
+    "nix-daemon",
+    "--extra-experimental-features",
+    "daemon-trust-override",
+    "--force-untrusted",
+  ];
+  if parse_nix_variant(&version) != NixVariant::Lix {
+    proxy.extend([
+      "--extra-experimental-features",
+      "mounted-ssh-store",
+      "--process-ops",
+    ]);
+  }
+  debug!("Forwarding build settings to '{host}' ({version})");
+
+  let program = proxy
+    .into_iter()
+    .map(shell_quote)
+    .chain(settings.iter().map(|arg| shell_quote(arg)))
+    .collect::<Vec<_>>()
+    .join(" ");
+
+  Ok(format!(
+    "ssh-ng://{}?remote-store=auto&remote-program={}",
+    host.host,
+    percent_encode(&program)
+  ))
 }
 
-/// Build remotely while applying arguments to pre-build Nix operations.
+/// Percent-encode `s` for use in a URI query value.
+fn percent_encode(s: &str) -> String {
+  s.bytes()
+    .map(|byte| {
+      if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
+        char::from(byte).to_string()
+      } else {
+        format!("%{byte:02X}")
+      }
+    })
+    .collect()
+}
+
+/// Build `build` and make sure the result is in the store of the host that
+/// will activate it: `target_host`, or localhost if there is none.
+///
+/// | Build      | Target     | Result                                          |
+/// |------------|------------|-------------------------------------------------|
+/// | local      | none       | Built locally                                   |
+/// | local      | B          | Built locally, copied to B                      |
+/// | A          | none       | Built on A, copied to localhost                 |
+/// | A          | A          | Built on A                                      |
+/// | A          | B          | Built on A, copied to B, relayed via localhost if A can't reach B |
+///
+/// `out_link` is created whenever the result ends up in the local store.
+///
+/// Returns the built store path.
 ///
 /// # Errors
 ///
-/// Returns an error if evaluation, copying, or building fails.
-pub fn build_remote_with_args(
-  installable: &Installable,
-  config: &RemoteBuildConfig,
-  out_link: Option<&std::path::Path>,
-  evaluation_args: &[String],
+/// Returns an error if building or copying fails.
+pub fn build(
+  build: Build,
+  build_host: Option<&RemoteHost>,
+  target_host: Option<&RemoteHost>,
+  out_link: &Path,
+  passthrough: &NixBuildPassthroughArgs,
 ) -> Result<PathBuf> {
-  let build_host = &config.build_host;
-  let use_substitutes = config.use_substitutes;
-
-  // Step 1: Evaluate drvPath locally
-  info!("Evaluating derivation path");
-  let drv_path = eval_drv_path(installable, evaluation_args)?;
-
-  // Step 2: Build on remote, which also copies the derivation there
-  info!("Building on remote host '{}'", build_host);
-  let out_path = build_on_remote(build_host, &drv_path, config)?;
-
-  // Step 3: Copy result to destination
-  //
-  // Optimizes copy paths based on hostname comparison:
-  // - When build_host != target_host: copy build -> target, then build -> local
-  //   if needed
-  // - When build_host == target_host: skip redundant copies and leave the
-  //   result remote-only
-  // - When target_host is None: always copy build -> local
-  let target_is_build_host = config
-    .target_host
-    .as_ref()
-    .is_some_and(|th| th.hostname() == build_host.hostname());
-
-  let (need_local_copy, relay_target) = match &config.target_host {
-    None => (true, None),
-    Some(_target_host) if target_is_build_host => {
-      debug!(
-        "Skipping copy from build host to target host (same host: {})",
-        build_host.hostname()
-      );
-
-      // When build_host == target_host and both are remote, the result is
-      // already where it needs to be. No need to copy to localhost even if
-      // out_link is requested, since the closure will be activated remotely.
-      // This is a little confusing, but frankly, respecting --out-link to
-      // create a local path while everything happens remotely is a bit
-      // more confusing.
-      (false, None)
-    },
-    Some(target_host) => {
-      match copy_closure_between_remotes_with_args(
-        build_host,
-        target_host,
-        &out_path,
-        use_substitutes,
-        evaluation_args,
-      ) {
-        Ok(()) => {
-          debug!(
-            "Successfully copied closure directly from {} to {}",
-            build_host.hostname(),
-            target_host.hostname()
-          );
-          (out_link.is_some(), None)
-        },
-        Err(e) => {
-          warn!(
-            "Direct copy from {} to {} failed: {}. Will relay through \
-             localhost.",
-            build_host.hostname(),
-            target_host.hostname(),
-            e
-          );
-          (true, Some(target_host))
-        },
-      }
-    },
+  let use_substitutes =
+    passthrough.use_substitutes && !passthrough.network_restricted();
+  let evaluation_args = passthrough.generate_evaluation_args();
+  let copy_to = |host: &RemoteHost, path: &Path| {
+    copy_to_remote_with_args(host, path, use_substitutes, &evaluation_args)
   };
 
-  if need_local_copy {
-    copy_closure_from_with_args(build_host, &out_path, evaluation_args)?;
-  }
+  let Some(build_host) = build_host else {
+    let out_path = build.extra_arg("--out-link").extra_arg(out_link).run()?;
+    if let Some(target_host) = target_host {
+      copy_to(target_host, &out_path)?;
+    }
+    return Ok(out_path);
+  };
 
-  if let Some(target_host) = relay_target {
-    copy_to_remote_with_args(
-      target_host,
-      Path::new(&out_path),
-      use_substitutes,
-      evaluation_args,
-    )
-    .context("Failed to relay closure to target host")?;
-  }
+  // Nix evaluates locally, copies the derivation to the build host, streams
+  // the build logs back, and the remote daemon cancels the build once the
+  // connection drops, so Ctrl+C behaves like it does for local builds.
+  let out_path = build
+    .extra_args(["--store", &build_store_uri(build_host, passthrough)?])
+    .extra_args(["--eval-store", "auto", "--no-link"])
+    .env("NIX_SSHOPTS", get_nix_sshopts_env())
+    .run()?;
 
-  // Clear an old link even when the new result remains on the remote host.
+  // Clear an old link even when the new result remains on a remote host.
   // Otherwise callers can mistake a previous local result for this build.
-  if let Some(link) = out_link {
-    clear_out_link(link)?;
-    if need_local_copy {
-      debug!("Creating out-link: {} -> {}", link.display(), out_path);
-      std::os::unix::fs::symlink(&out_path, link)
-        .context("Failed to create out-link")?;
+  clear_out_link(out_link)?;
+
+  if let Some(target_host) = target_host {
+    if target_host.hostname() == build_host.hostname() {
+      return Ok(out_path);
+    }
+    match copy_closure_between_remotes_with_args(
+      build_host,
+      target_host,
+      &out_path,
+      use_substitutes,
+      &evaluation_args,
+    ) {
+      Ok(()) => return Ok(out_path),
+      Err(e) => {
+        warn!(
+          "Direct copy from {} to {} failed: {}. Will relay through localhost.",
+          build_host.hostname(),
+          target_host.hostname(),
+          e
+        );
+      },
     }
   }
 
-  Ok(PathBuf::from(out_path))
-}
+  copy_closure_from_with_args(build_host, &out_path, &evaluation_args)?;
+  debug!(
+    "Creating out-link: {} -> {}",
+    out_link.display(),
+    out_path.display()
+  );
+  std::os::unix::fs::symlink(&out_path, out_link)
+    .context("Failed to create out-link")?;
 
-/// Build a derivation using the remote host as Nix's store.
-///
-/// Nix copies the derivation closure to the build host, streams the build
-/// logs back over the daemon protocol, and the remote daemon cancels the build
-/// once the connection drops, so Ctrl+C behaves like it does for local builds.
-///
-/// Returns the output path.
-fn build_on_remote(
-  host: &RemoteHost,
-  drv_path: &Path,
-  config: &RemoteBuildConfig,
-) -> Result<String> {
-  let log_flags: &[&str] = if config.use_nom {
-    which::which("nom")
-      .context("nom (nix-output-monitor) is required but not found in PATH")?;
-    &["--log-format", "internal-json", "--verbose"]
-  } else {
-    &[]
-  };
-
-  let mut build = build_nix_command(
-    &host.nix_store_uri(),
-    &format!("{}^*", drv_path.display()),
-    log_flags,
-    &config.execution_args,
-  )?
-  .to_exec()
-  .stdout(Redirection::Pipe);
-  if config.use_nom {
-    build = build.stderr(Redirection::Pipe);
+  // Relay to the target host if the direct copy failed
+  if let Some(target_host) = target_host {
+    copy_to(target_host, &out_path)
+      .context("Failed to relay closure to target host")?;
   }
-  let mut job = build.start().context("Failed to start remote build")?;
-
-  // Logs go to stderr and output paths to stdout, so nom can consume the
-  // former while we read the latter.
-  let nom = job
-    .stderr
-    .take()
-    .map(|logs| Exec::cmd("nom").arg("--json").stdin(logs).start())
-    .transpose()
-    .context("Failed to start nom")?;
-
-  let mut out_paths = String::new();
-  job
-    .stdout
-    .take()
-    .context("Failed to capture remote build output")?
-    .read_to_string(&mut out_paths)?;
-
-  let status = job.wait()?;
-  if let Some(nom) = nom {
-    nom.wait()?;
-  }
-  if !status.success() {
-    bail!("Remote build failed with exit status: {status:?}");
-  }
-
-  // --print-out-paths may return multiple lines; take first
-  let out_path = out_paths
-    .lines()
-    .next()
-    .context("Remote build returned empty output")?
-    .trim()
-    .to_string();
-
-  debug!("Remote build output: {}", out_path);
   Ok(out_path)
-}
-
-/// Build the local `nix build` command that builds on `store`.
-fn build_nix_command(
-  store: &str,
-  drv_with_outputs: &str,
-  extra_flags: &[&str],
-  extra_args: &[OsString],
-) -> Result<NixCommand> {
-  if extra_args.iter().any(|arg| {
-    matches!(arg.to_str(), Some("--json" | "--pretty" | "--no-pretty"))
-  }) {
-    bail!("remote builds do not support output-format arguments after `--`");
-  }
-
-  Ok(
-    NixCommand::new(CommandKind::Build)
-      .print_build_logs(false)
-      .global_args(get_flake_flags())
-      .args(["--store", store, "--eval-store", "auto"])
-      .args(["--no-link", "--print-out-paths"])
-      .arg(drv_with_outputs)
-      .args(extra_args)
-      .args(extra_flags)
-      .env("NIX_SSHOPTS", get_nix_sshopts_env()),
-  )
 }
 
 fn profile_nix_command(
@@ -1638,6 +1494,8 @@ mod tests {
     clippy::panic,
     reason = "Fine in tests"
   )]
+  use std::ffi::OsString;
+
   use proptest::prelude::*;
   use serial_test::serial;
 
@@ -1700,39 +1558,14 @@ mod tests {
   }
 
   #[test]
-  fn remote_build_and_profile_commands_preserve_no_net() {
-    let extra_args = [OsString::from("--no-net")];
-    let build = nix_argv_to_strings(
-      &build_nix_command(
-        "ssh-ng://build.example",
-        "/nix/store/example.drv^*",
-        &[],
-        &extra_args,
-      )
-      .unwrap(),
-    )
-    .unwrap();
+  fn remote_profile_command_preserves_no_net() {
     let profile =
       profile_nix_command(Path::new("/nix/store/example-system"), &[
         "--no-net".into(),
       ])
       .unwrap();
 
-    assert!(build.iter().any(|arg| arg == "--no-net"));
     assert!(profile.iter().any(|arg| arg == "--no-net"));
-  }
-
-  #[test]
-  fn remote_build_commands_reject_output_format_args() {
-    assert!(
-      build_nix_command(
-        "ssh-ng://build.example",
-        "/nix/store/example.drv^*",
-        &[],
-        &[OsString::from("--json")],
-      )
-      .is_err()
-    );
   }
 
   proptest! {

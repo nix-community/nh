@@ -71,6 +71,20 @@ fn get_nix_version_output() -> Option<&'static String> {
     .as_ref()
 }
 
+/// The Nix implementation that printed `version`.
+#[must_use]
+pub fn parse_nix_variant(version: &str) -> NixVariant {
+  let version = version.to_lowercase();
+
+  if version.contains("determinate") {
+    NixVariant::Determinate
+  } else if version.contains("lix") {
+    NixVariant::Lix
+  } else {
+    NixVariant::Nix
+  }
+}
+
 /// Get the Nix variant
 ///
 /// # Panics
@@ -89,17 +103,7 @@ pub fn get_nix_variant() -> &'static NixVariant {
       return NixVariant::Nix;
     };
 
-    let output_lower = output_str.to_lowercase();
-
-    // FIXME: This fails to account for Nix variants we don't check for and
-    // assumes the environment is mainstream Nix.
-    if output_lower.contains("determinate") {
-      NixVariant::Determinate
-    } else if output_lower.contains("lix") {
-      NixVariant::Lix
-    } else {
-      NixVariant::Nix
-    }
+    parse_nix_variant(output_str)
   });
 
   #[allow(clippy::expect_used)]
