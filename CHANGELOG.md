@@ -18,6 +18,7 @@ functionality, under the "Removed" section.
 
 ### Added
 
+- `nh hm` is now an alias for `nh home`.
 - `nh os dry-activate` builds and previews activation without applying it.
   Existing `--dry` still builds without invoking activation.
 - `nh os build --dry` now shows what Nix would build or fetch, without building.

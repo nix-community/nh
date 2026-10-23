@@ -58,6 +58,7 @@ pub enum NHCommand {
     args: nh_nixos::args::OsArgs,
   },
   /// Home-manager functionality
+  #[pound(alias = "hm")]
   Home {
     #[pound(flatten)]
     args: nh_home::args::HomeArgs,
@@ -233,6 +234,18 @@ mod tests {
       } if args.common.passthrough.option == ["sandbox", "false"]
         && args.extra_args == ["--cores", "8"]
     ));
+    Ok(())
+  }
+
+  #[test]
+  #[serial]
+  fn hm_is_an_alias_for_home() -> Result<(), pound::Error> {
+    let parsed = Main::try_parse_from(["hm", "switch"])?;
+    assert!(matches!(parsed.command, NHCommand::Home {
+      args: nh_home::args::HomeArgs {
+        subcommand: nh_home::args::HomeSubcommand::Switch { .. },
+      },
+    }));
     Ok(())
   }
 
