@@ -439,12 +439,6 @@ the common variables that you may encounter or choose to employ are as follows:
     elevated commands. Set to `"0"` to disable preservation, `"1"` to force
     preservation. If unset, preservation defaults to enabled.
 
-- `NH_SHOW_ACTIVATION_LOGS`
-  - Controls whether activation output is displayed. By default, activation
-    output is hidden. Setting this to `"1"` will show the full activation logs,
-    which is useful for debugging activation failures. Supported on all
-    platforms (NixOS, Home Manager, and Darwin).
-
 - `NH_CONTINUE_ON_ACTIVATION_FAILURE`
   - For `nh os switch`, activation runs before the new generation is added to
     the bootloader. By default a failed activation aborts the switch, so the

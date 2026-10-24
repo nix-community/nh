@@ -57,9 +57,9 @@ less space. Help text, error reports, and generated shell completions now use
 the replacement libraries. Please open an issue if you notice anything out of
 the ordinary!
 
-Boolean environment variables such as `NH_ASK`, `NH_SHOW_ACTIVATION_LOGS` and
-`NH_NO_SYSTEMD_RUN` now accept `1`, `true`, `yes`, `0`, `false` and `no`. Other
-spellings like `on`, `y` or `TRUE` are rejected.
+Boolean environment variables such as `NH_ASK` and `NH_NO_SYSTEMD_RUN` now
+accept `1`, `true`, `yes`, `0`, `false` and `no`. Other spellings like `on`, `y`
+or `TRUE` are rejected.
 
 - `nh search offline` now reads spam-db 0.3.0 databases and searches package,
   option, and library-function scopes in a single file. The previous
@@ -79,9 +79,18 @@ spellings like `on`, `y` or `TRUE` are rejected.
   `NH_ROM` also accepts `on` and `off`, as `NH_NOM` did. rom honours `NO_COLOR`
   and `TERM=dumb`, and `NH_ROM_LOG=<file>` records the build log stream so it
   can be replayed through rom.
+- Activation output is always shown, and remote activation logs each step as it
+  starts. Remote activation used to print nothing until it finished.
+  `--show-activation-logs` and `NH_SHOW_ACTIVATION_LOGS` now do nothing and will
+  be removed in 5.0. Passing the flag warns that it is deprecated.
 
 ### Fixed
 
+- A wrong sudo password for `--target-host` is asked for again, up to three
+  times, before activation starts. It used to fail activation.
+- `--target-host` sets the system profile with `nix-env --set`, as nixos-rebuild
+  does. The previous `nix build --profile` could keep running on the target
+  after Ctrl+C and hold its store locks.
 - Ctrl+C now cancels remote builds. `--build-host` builds previously ran
   `nix build` on the build host through `ssh`, where an interrupt neither
   stopped nh (it waited for the build output to end) nor the remote build. nh

@@ -89,6 +89,11 @@ pub struct HomeRebuildArgs {
   pub backup_extension: Option<String>,
 
   /// Show activation logs
+  #[deprecated(
+    since = "4.5.0",
+    note = "activation output is always shown, and this flag will be removed \
+            in 5.0"
+  )]
   #[pound(long, env = "NH_SHOW_ACTIVATION_LOGS")]
   pub show_activation_logs: bool,
 
