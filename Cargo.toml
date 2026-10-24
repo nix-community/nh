@@ -26,7 +26,7 @@ nix-command     = { path = "crates/nix-command", version = "0.2.4" }
 nix-installable = { path = "crates/nix-installable", version = "0.1.0" }
 rom             = { default-features = false, version = "0.3.1" }
 
-caress            = "0.2.1"
+caress            = "0.3.0"
 dix               = "2.2.0"
 elasticsearch-dsl = "0.4.24"
 flub              = "0.1.0"
@@ -34,7 +34,7 @@ humantime         = "2.3.0"
 indicatif         = "0.18.4"
 inquire           = { default-features = false, features = [ "crossterm" ], version = "0.9.1" }
 jiff              = { default-features = false, features = [ "std", "tzdb-zoneinfo" ], version = "0.2.35" }
-pound             = "0.5.3"
+pound             = "0.6.1"
 spam-db           = "0.3.0"
 
 nix = { default-features = false, features = [ "fs", "user", "hostname" ], version = "0.31.1" }
