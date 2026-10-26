@@ -2025,15 +2025,16 @@ dependencies = [
 
 [[package]]
 name = "rom"
-version = "0.3.1"
+version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20640f36b5ce363c5ce8cd382a13f32f84948a73ed5819a74fcbe225ad9ee119"
+checksum = "c52867be311839678bd2094d6a7bfd9482ae94efe480d26f17e1598249036f5e"
 dependencies = [
  "cognos",
  "crossterm",
  "csv",
  "etcetera",
  "flub",
+ "foldhash",
  "indexmap",
  "jiff",
  "libc",

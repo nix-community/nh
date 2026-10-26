@@ -35,7 +35,7 @@ misstep = { features = [
   "pretty",
 ], version = "0.4.1" }
 pound = "0.6.1"
-rom = { default-features = false, version = "0.3.1" }
+rom = { default-features = false, version = "0.3.3" }
 spam-db = "0.3.0"
 
 elasticsearch-dsl = "0.4.26"
