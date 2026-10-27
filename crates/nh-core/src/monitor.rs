@@ -54,7 +54,7 @@ pub fn run(command: Exec, rom: bool) -> Result<(ExitStatus, Vec<u8>)> {
 
   let mut monitor = Monitor::new()?;
   let command = command
-    .args(["--log-format", "internal-json", "--verbose"])
+    .args(["--log-format", "internal-json"])
     .stdout(Redirection::Pipe)
     .stderr(Redirection::Pipe);
   debug!(?command);
