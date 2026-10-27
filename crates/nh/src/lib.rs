@@ -1,7 +1,10 @@
 use std::str::FromStr;
 
 use misstep::Result;
-use nh_core::command::{ElevationStrategy, ElevationStrategyArg};
+use nh_core::{
+  command::{ElevationStrategy, ElevationStrategyArg},
+  privileged::{PrivilegedOp, PrivilegedRequest},
+};
 
 pub mod interface;
 pub mod logging;
@@ -16,6 +19,12 @@ pub const NH_REV: Option<&str> = option_env!("NH_REV");
 /// Returns an error if logging setup, Nix environment validation, environment
 /// checks, or the selected command fails.
 pub fn main() -> Result<()> {
+  if let Some(request) =
+    PrivilegedRequest::from_args(std::env::args_os().skip(1))
+  {
+    return run_privileged(request?);
+  }
+
   caress::handle(<crate::interface::Main as pound::Parse>::SPEC);
   let mut args = <crate::interface::Main as pound::Parse>::parse();
 
@@ -74,4 +83,19 @@ pub fn main() -> Result<()> {
       });
 
   args.command.run(elevation)
+}
+
+fn run_privileged(request: PrivilegedRequest) -> Result<()> {
+  crate::logging::setup_logging_at(request.log_level()?)?;
+  match request.op {
+    PrivilegedOp::NixosActivate(args) => {
+      nh_nixos::nixos::run_activation_commands(&args)
+    },
+    PrivilegedOp::NixosRollback(args) => {
+      nh_nixos::nixos::run_rollback_commands(&args)
+    },
+    PrivilegedOp::DarwinActivate(args) => {
+      nh_darwin::run_darwin_commands(&args, false)
+    },
+  }
 }

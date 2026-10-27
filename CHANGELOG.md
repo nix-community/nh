@@ -83,9 +83,16 @@ or `TRUE` are rejected.
   starts. Remote activation used to print nothing until it finished.
   `--show-activation-logs` and `NH_SHOW_ACTIVATION_LOGS` now do nothing and will
   be removed in 5.0. Passing the flag warns that it is deprecated.
+- Local `nh os switch`/`boot`/`test`/`rollback` and `nh darwin switch` now
+  elevate once and run all privileged steps in a single `nh` process, instead of
+  elevating each step separately. Builds remain under the invoking user. Sudoers
+  rules that grant `NOPASSWD` to individual activation commands no longer apply.
 
 ### Fixed
 
+- `nh darwin switch --elevation-strategy none` now sets the system profile and
+  activates without elevation, like `nh os`. It previously failed to resolve an
+  elevation program.
 - A wrong sudo password for `--target-host` is asked for again, up to three
   times, before activation starts. It used to fail activation.
 - `--target-host` sets the system profile with `nix-env --set`, as nixos-rebuild
