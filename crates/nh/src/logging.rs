@@ -78,7 +78,15 @@ pub fn setup_logging(verbosity: Verbosity) -> Result<()> {
       4 => LevelFilter::DEBUG,
       5.. => LevelFilter::TRACE,
     };
+  setup_logging_at(fallback_level)
+}
 
+/// Install the tracing subscriber at a fixed fallback level.
+///
+/// # Errors
+///
+/// Returns an error if tracing filter directives cannot be parsed.
+pub fn setup_logging_at(fallback_level: LevelFilter) -> Result<()> {
   let layer = fmt::layer()
     .with_writer(std::io::stderr)
     .without_time()

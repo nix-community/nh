@@ -1,12 +1,13 @@
 pub mod args;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use args::{DarwinArgs, DarwinRebuildArgs, DarwinReplArgs, DarwinSubcommand};
 use misstep::{Result, ResultExt, bail};
 use nh_core::{
   args::DiffType,
   command::{Command, CommandKind, ElevationStrategy, NixCommand},
+  privileged::{DarwinActivation, PrivilegedOp},
   update::update_with_args,
   util::{get_hostname, use_rom},
 };
@@ -154,21 +155,6 @@ impl DarwinRebuildArgs {
     }
 
     if matches!(variant, Switch) {
-      let (binary, args, _) = NixCommand::new(CommandKind::Build)
-        .print_build_logs(false)
-        .args(["--no-link", "--profile", SYSTEM_PROFILE])
-        .arg(&out_path)
-        .args(self.common.passthrough.generate_passthrough_args())
-        .into_parts();
-      Command::new(binary)
-        .args(args)
-        .elevate(Some(elevation.clone()))
-        .dry(self.common.dry)
-        .with_required_env()
-        .run()
-        .context("Failed to set Darwin system profile")?;
-
-      let activate = out_path.join("activate");
       let activate_user = out_path.join("activate-user");
 
       // Determine if we need to elevate privileges
@@ -179,21 +165,67 @@ impl DarwinRebuildArgs {
           .context("Failed to read activate-user file")?
           .contains("# nix-darwin: deprecated");
 
-      // Create and run the activation command with or without elevation
-      Command::new(activate)
-        .message("Activating configuration")
-        .elevate(needs_elevation.then_some(elevation))
-        .dry(self.common.dry)
-        .show_output(true)
-        .with_required_env()
-        .run()
-        .context("Darwin activation failed")?;
+      let activation = DarwinActivation {
+        system:   out_path.clone(),
+        activate: needs_elevation,
+        nix_args: self.common.passthrough.generate_passthrough_args(),
+      };
+      if self.common.dry
+        || nix::unistd::Uid::effective().is_root()
+        || matches!(elevation, ElevationStrategy::None)
+      {
+        run_darwin_commands(&activation, self.common.dry)?;
+      } else {
+        PrivilegedOp::DarwinActivate(activation).run_elevated(elevation)?;
+      }
+
+      if !needs_elevation {
+        run_activate(&out_path, self.common.dry)?;
+      }
     }
 
     debug!("Completed operation with output path: {out_path:?}");
 
     Ok(())
   }
+}
+
+/// Installs the system profile and, when requested, activates it.
+///
+/// # Errors
+///
+/// Returns an error if profile installation or activation fails.
+pub fn run_darwin_commands(
+  activation: &DarwinActivation,
+  dry: bool,
+) -> Result<()> {
+  let (binary, args, _) = NixCommand::new(CommandKind::Build)
+    .print_build_logs(false)
+    .args(["--no-link", "--profile", SYSTEM_PROFILE])
+    .arg(&activation.system)
+    .args(&activation.nix_args)
+    .into_parts();
+  Command::new(binary)
+    .args(args)
+    .dry(dry)
+    .with_required_env()
+    .run()
+    .context("Failed to set Darwin system profile")?;
+
+  if activation.activate {
+    run_activate(&activation.system, dry)?;
+  }
+  Ok(())
+}
+
+fn run_activate(system: &Path, dry: bool) -> Result<()> {
+  Command::new(system.join("activate"))
+    .message("Activating configuration")
+    .dry(dry)
+    .show_output(true)
+    .with_required_env()
+    .run()
+    .context("Darwin activation failed")
 }
 
 impl DarwinReplArgs {
