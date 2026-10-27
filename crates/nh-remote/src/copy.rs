@@ -35,7 +35,7 @@ impl CopyDirection<'_> {
         vec![
           "--no-check-sigs".to_string(),
           "--from".to_string(),
-          store_uri(host),
+          host.nix_store_uri(),
         ]
       },
       Self::ToRemote {
@@ -45,7 +45,7 @@ impl CopyDirection<'_> {
         let mut args = vec![
           "--no-check-sigs".to_string(),
           "--to".to_string(),
-          store_uri(host),
+          host.nix_store_uri(),
         ];
         push_substitute_on_destination(&mut args, use_substitutes);
         args
@@ -58,9 +58,9 @@ impl CopyDirection<'_> {
         let mut args = vec![
           "--no-check-sigs".to_string(),
           "--from".to_string(),
-          store_uri(from_host),
+          from_host.nix_store_uri(),
           "--to".to_string(),
-          store_uri(to_host),
+          to_host.nix_store_uri(),
         ];
         push_substitute_on_destination(&mut args, use_substitutes);
         args
@@ -76,10 +76,6 @@ fn push_substitute_on_destination(
   if use_substitutes {
     args.push("--substitute-on-destination".to_string());
   }
-}
-
-fn store_uri(host: &RemoteHost) -> String {
-  host.nix_store_uri()
 }
 
 fn build_nix_copy_command<P: Into<OsString>>(
@@ -359,25 +355,6 @@ mod tests {
         "--no-check-sigs",
         "--to",
         "ssh-ng://build.example",
-        "--substitute-on-destination",
-      ]
-    );
-  }
-
-  #[test]
-  fn test_copy_direction_preserves_ssh_store_scheme() {
-    let host = RemoteHost::parse("ssh://build.example").unwrap();
-
-    assert_eq!(
-      CopyDirection::ToRemote {
-        host:            &host,
-        use_substitutes: true,
-      }
-      .args(),
-      vec![
-        "--no-check-sigs",
-        "--to",
-        "ssh://build.example",
         "--substitute-on-destination",
       ]
     );

@@ -75,16 +75,16 @@ avoids unnecessary data transfers by detecting when both hosts are the same.
 
 Hosts can be specified in several formats:
 
-- `hostname` - connects as the current user and uses `ssh-ng://` for Nix store
-  copies
-- `user@hostname` - connects as the specified user and uses `ssh-ng://` for Nix
-  store copies
-- `ssh-ng://hostname` or `ssh-ng://user@hostname` - uses the Nix SSH-NG store
-  protocol
-- `ssh://hostname` or `ssh://user@hostname` - uses the legacy Nix SSH store
-  protocol
+- `hostname` - connects as the current user
+- `user@hostname` - connects as the specified user
+- `ssh-ng://hostname` or `ssh-ng://user@hostname` - same as above
 - IPv6 addresses must use bracketed notation: `[2001:db8::1]` or
   `user@[2001:db8::1]`
+
+> [!NOTE]
+> NH always talks to Nix stores on remote hosts over `ssh-ng://`. The legacy
+> `ssh://` store protocol is not supported, and an `ssh://` prefix is treated
+> like `ssh-ng://`.
 
 > [!NOTE]
 > Due to restrictions of Nix's SSH remote handling, ports cannot be specified in
