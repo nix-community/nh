@@ -22,14 +22,14 @@ use subprocess::{Exec, Redirection};
 use tracing::{debug, error, info, warn};
 
 mod copy;
-mod dix;
+mod snapshot;
 
 use copy::{
   copy_closure_between_remotes_with_args,
   copy_closure_from_with_args,
 };
 pub use copy::{copy_to_remote, copy_to_remote_with_args};
-pub use dix::ResolvedRemoteStorePath;
+pub use snapshot::{query_remote_snapshot, resolve_remote_store_path};
 
 /// Builds a remote command string with proper elevation handling.
 ///

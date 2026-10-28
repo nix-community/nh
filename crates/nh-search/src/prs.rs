@@ -57,7 +57,7 @@ pub fn run(json: bool, args: &args::PrsArgs) -> Result<()> {
     .collect::<Vec<_>>();
   let reachability_by_pr = probe_reachability_by_pr(&client, &prs, &plans);
 
-  progress.finish();
+  drop(progress);
 
   if json {
     return print_json(

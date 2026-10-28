@@ -9,7 +9,7 @@ use nh_core::{
   update::update_with_args,
   util::{get_hostname, use_rom},
 };
-use nh_diff::print_dix_diff;
+use nh_diff::print_diff;
 use nh_installable::{
   CommandContext,
   ConfigurationInstallable,
@@ -181,14 +181,7 @@ impl HomeRebuildArgs {
 
     // just do nothing for None case (fresh installs)
     if let Some(generation) = prev_generation {
-      match self.common.diff {
-        nh_core::args::DiffType::Never => {
-          debug!("Not running dix as the --diff flag is set to never.");
-        },
-        _ => {
-          let _ = print_dix_diff(&generation, &target_profile);
-        },
-      }
+      print_diff(&self.common.diff, None, &generation, &target_profile)?;
     }
 
     if self.common.dry || matches!(variant, Build) {

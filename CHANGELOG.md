@@ -48,6 +48,9 @@ functionality, under the "Removed" section.
 - `nh os build-image`'s `--image-variant` flag is now optional. If the flag is
   not provided, the command will fallback to using
   `config.system.build.isoImage`.
+- `--diff` takes `full` to also show packages whose version did not change, as
+  in `--diff full` or `--diff always,full`. Like dix's `--full`, the diff now
+  notes how many packages it hides.
 
 ### Changed
 
@@ -87,6 +90,14 @@ or `TRUE` are rejected.
   elevate once and run all privileged steps in a single `nh` process, instead of
   elevating each step separately. Builds remain under the invoking user. Sudoers
   rules that grant `NOPASSWD` to individual activation commands no longer apply.
+- `nh os` diffs against a `--target-host` now run `dix snapshot` on the target
+  host instead of querying its store with `nix path-info --store ssh-ng://...`.
+  This requires dix >= 3.0.0 on the target host, unless both closures are
+  already in the local store, which is checked first.
+- With `--diff auto`, failing diffs now only warn instead of aborting the
+  rebuild, both locally and remotely.
+- `--diff always` now aborts on a failing diff for every command, including
+  `nh os rollback`, `nh home` and `nh darwin`, which used to ignore it.
 
 ### Fixed
 

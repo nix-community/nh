@@ -1,7 +1,5 @@
-use std::path::PathBuf;
-
 use nh_core::{
-  args::{DiffType, NixBuildPassthroughArgs},
+  args::{CommonRebuildArgs, Diff},
   checks::{
     FeatureRequirements,
     FlakeFeatures,
@@ -197,6 +195,9 @@ pub struct OsRebuildArgs {
   pub bypass_root_check: bool,
 
   /// Deploy the built configuration to a different host over SSH
+  ///
+  /// Diffing against the target host requires dix >= 3.0.0 on it, unless
+  /// both closures are already in the local store.
   #[pound(long, parse = str::parse::<RemoteHost>)]
   pub target_host: Option<RemoteHost>,
 
@@ -286,46 +287,13 @@ pub struct OsRollbackArgs {
   pub bypass_root_check: bool,
 
   /// Whether to display a package diff
-  #[pound(long, short, default = DiffType::Auto)]
-  pub diff: DiffType,
+  #[pound(long, short, default = "auto")]
+  pub diff: Diff,
 
   /// Run switch-to-configuration directly instead of in a transient systemd
   /// unit
   #[pound(long, env = "NH_NO_SYSTEMD_RUN")]
   pub no_systemd_run: bool,
-}
-
-#[derive(Debug, Parse)]
-pub struct CommonRebuildArgs {
-  /// Only print actions, without performing them
-  #[pound(long, short = 'n')]
-  pub dry: bool,
-
-  /// Ask for confirmation
-  #[pound(long, short, env = "NH_ASK")]
-  pub ask: bool,
-
-  #[pound(flatten)]
-  pub installable: InstallableArgs,
-
-  /// Don't use rom for the build process
-  #[pound(long)]
-  pub no_rom: bool,
-
-  /// Deprecated alias for `--no-rom`
-  #[pound(long, hidden)]
-  pub no_nom: bool,
-
-  /// Path to save the result link, defaults to using a temporary directory
-  #[pound(long, short)]
-  pub out_link: Option<PathBuf>,
-
-  /// Whether to display a package diff
-  #[pound(long, short, default = DiffType::Auto)]
-  pub diff: DiffType,
-
-  #[pound(flatten)]
-  pub passthrough: NixBuildPassthroughArgs,
 }
 
 #[derive(Debug, Parse)]

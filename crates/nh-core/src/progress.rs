@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::{ProgressBar, ProgressFinish, ProgressStyle};
 
 pub type Spinner = ProgressBar;
 
@@ -8,6 +8,9 @@ const DEFAULT_SPINNER_TICK: Duration = Duration::from_millis(80);
 const SPINNER_FRAMES: &[&str] = &["⢹", "⢺", "⢼", "⣸", "⣇", "⡧", "⡗", "⡏"];
 
 /// Returns a spinner with a blue animation and message.
+///
+/// The spinner is cleared when it is dropped, so early returns don't leave it
+/// behind.
 ///
 /// # Panics
 ///
@@ -20,7 +23,9 @@ pub fn spinner(message: impl Into<String>) -> Spinner {
     .tick_strings(SPINNER_FRAMES);
 
   // Haha spinner go brr
-  let spinner = ProgressBar::new_spinner().with_style(style);
+  let spinner = ProgressBar::new_spinner()
+    .with_style(style)
+    .with_finish(ProgressFinish::AndClear);
   spinner.set_message(message.into());
   spinner.enable_steady_tick(DEFAULT_SPINNER_TICK);
 

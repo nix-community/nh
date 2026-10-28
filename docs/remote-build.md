@@ -92,6 +92,20 @@ Hosts can be specified in several formats:
 > for nixos-rebuild compatibility) or configure ports in `~/.ssh/config` for the
 > host you are building on/deploying to.
 
+## Diffing Remote Systems
+
+When deploying to a `--target-host`, nh diffs the target's current system
+against the new one. Closures that are already in the local store are read
+locally. Otherwise, nh runs `dix snapshot` on the target host, which requires
+[dix](https://github.com/faukah/dix) >= 3.0.0 there:
+
+```nix
+environment.systemPackages = [ pkgs.dix ];
+```
+
+If dix is missing or too old, nh warns and continues without a diff. Pass
+`--diff always` to make this an error, or `--diff never` to skip diffing.
+
 ## SSH Configuration
 
 ### Authentication
