@@ -1,6 +1,12 @@
 pub mod args;
+mod rollback;
 
-use std::path::{Path, PathBuf};
+use std::{
+  convert::Into,
+  fs,
+  io,
+  path::{Path, PathBuf},
+};
 
 use args::{DarwinArgs, DarwinRebuildArgs, DarwinReplArgs, DarwinSubcommand};
 use misstep::{Result, ResultExt, bail};
@@ -53,6 +59,7 @@ impl DarwinArgs {
         args.rebuild(&Build, elevation)
       },
       DarwinSubcommand::Repl { args } => args.run(),
+      DarwinSubcommand::Rollback { args } => args.rollback(elevation),
     }
   }
 }
@@ -125,7 +132,15 @@ impl DarwinRebuildArgs {
 
     let target_profile = out_path.clone();
 
-    target_profile.try_exists().context("Doesn't exist")?;
+    if !target_profile
+      .try_exists()
+      .context("Failed to check build output")?
+    {
+      bail!(
+        "Darwin build output does not exist: {}",
+        target_profile.display()
+      );
+    }
 
     print_diff(
       &self.common.diff,
@@ -216,6 +231,56 @@ fn run_activate(system: &Path, dry: bool) -> Result<()> {
     .with_required_env()
     .run()
     .context("Darwin activation failed")
+}
+
+/// Prepare activation before changing the system profile.
+fn activation_command(
+  system: &Path,
+  elevation: Option<ElevationStrategy>,
+  show_logs: bool,
+) -> Result<Command> {
+  let activate = system.join("activate");
+  fs::metadata(&activate).with_context(|| {
+    format!(
+      "Missing Darwin activation executable: {}",
+      activate.display()
+    )
+  })?;
+
+  let activate_user = system.join("activate-user");
+  let needs_elevation = match fs::read_to_string(&activate_user) {
+    Ok(script) => {
+      script
+        .lines()
+        .any(|line| line == "# nix-darwin: deprecated")
+    },
+    Err(error) if error.kind() == io::ErrorKind::NotFound => true,
+    Err(error) => {
+      return Err(error)
+        .with_context(|| format!("Failed to read {}", activate_user.display()))
+        .erase();
+    },
+  };
+
+  Ok(
+    Command::new(activate)
+      .message("Activating configuration")
+      .elevate(if needs_elevation { elevation } else { None })
+      .show_output(show_logs)
+      .with_required_env(),
+  )
+}
+
+fn elevation_if_needed(
+  elevation: ElevationStrategy,
+) -> Option<ElevationStrategy> {
+  if nix::unistd::Uid::effective().is_root()
+    || matches!(elevation, ElevationStrategy::None)
+  {
+    None
+  } else {
+    Some(elevation)
+  }
 }
 
 impl DarwinReplArgs {
