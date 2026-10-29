@@ -254,6 +254,10 @@ pub enum ElevationStrategyArg {
   /// NOPASSWD configured.
   Passwordless,
 
+  /// Use remote sudo with an empty stdin password line, for PAM modules that
+  /// authenticate out-of-band, such as `pam_rssh` with a forwarded SSH agent.
+  EmptyPassword,
+
   /// Use the specified elevation program.
   Program(PathBuf),
 }
@@ -266,6 +270,7 @@ impl FromStr for ElevationStrategyArg {
       "none" => Ok(Self::None),
       "auto" => Ok(Self::Auto),
       "passwordless" => Ok(Self::Passwordless),
+      "empty-password" => Ok(Self::EmptyPassword),
       _ => {
         s.strip_prefix("program:").map_or_else(
           || Ok(Self::Program(PathBuf::from(s))),
@@ -304,6 +309,12 @@ pub enum ElevationStrategy {
   /// passwordless sudo (NOPASSWD in sudoers) or similar configurations. The
   /// elevation command runs without `--stdin` or password input.
   Passwordless,
+
+  /// Use `sudo`, and send remote hosts an empty password line instead of
+  /// prompting for one. For PAM modules that authenticate out-of-band, such as
+  /// `pam_rssh`, which checks a key in the SSH agent forwarded with `ssh -A`.
+  /// Locally, this is plain `sudo`.
+  EmptyPassword,
 }
 
 impl ElevationStrategy {
@@ -345,6 +356,14 @@ impl ElevationStrategy {
           ))
           .erase()
       },
+      Self::EmptyPassword => {
+        which("sudo")
+          .context(
+            "sudo, which --elevation-strategy=empty-password uses, not found \
+             in PATH",
+          )
+          .erase()
+      },
       // Only reachable if resolve() is called directly. Safe since callers
       // check is_some() before invoking resolve().
       Self::None => bail!("Elevation disabled via --elevation-strategy=none"),
@@ -361,7 +380,8 @@ impl ElevationStrategy {
   ///
   /// `Auto` and `Passwordless` can't see the remote's `PATH`, so they default
   /// to `sudo`, the same default `nixos-rebuild` assumes. Pass
-  /// `--elevation-strategy` to pick another program.
+  /// `--elevation-strategy` to pick another program. `EmptyPassword` always
+  /// uses `sudo`.
   ///
   /// # Errors
   ///
@@ -370,9 +390,18 @@ impl ElevationStrategy {
     match self {
       Self::Force(program_name) => Ok(PathBuf::from(program_name)),
       Self::Prefer(program) => Ok(program.clone()),
-      Self::Auto | Self::Passwordless => Ok(PathBuf::from("sudo")),
+      Self::Auto | Self::Passwordless | Self::EmptyPassword => {
+        Ok(PathBuf::from("sudo"))
+      },
       Self::None => bail!("Elevation disabled via --elevation-strategy=none"),
     }
+  }
+
+  /// Whether SSH connections to remote hosts must forward the local SSH agent,
+  /// so that PAM on the remote can authenticate `sudo` with it.
+  #[must_use]
+  pub const fn forwards_ssh_agent(&self) -> bool {
+    matches!(self, Self::EmptyPassword)
   }
 
   /// Gets a path to a privilege elevation program based on what is available in
@@ -1466,11 +1495,34 @@ mod tests {
 
   #[test]
   fn test_resolve_remote_auto_defaults_to_sudo() {
-    for strategy in [ElevationStrategy::Auto, ElevationStrategy::Passwordless] {
+    for strategy in [
+      ElevationStrategy::Auto,
+      ElevationStrategy::Passwordless,
+      ElevationStrategy::EmptyPassword,
+    ] {
       let program = strategy
         .resolve_remote()
         .expect("auto should resolve for remote");
       assert_eq!(program, PathBuf::from("sudo"));
+    }
+  }
+
+  #[test]
+  fn test_elevation_strategy_arg_empty_password_parsing() {
+    let parsed = "empty-password".parse::<ElevationStrategyArg>();
+    assert!(matches!(parsed, Ok(ElevationStrategyArg::EmptyPassword)));
+  }
+
+  #[test]
+  fn test_only_empty_password_forwards_ssh_agent() {
+    assert!(ElevationStrategy::EmptyPassword.forwards_ssh_agent());
+    for strategy in [
+      ElevationStrategy::Auto,
+      ElevationStrategy::Passwordless,
+      ElevationStrategy::None,
+      ElevationStrategy::Force("sudo"),
+    ] {
+      assert!(!strategy.forwards_ssh_agent());
     }
   }
 

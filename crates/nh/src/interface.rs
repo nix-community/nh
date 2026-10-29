@@ -32,8 +32,10 @@ pub struct Main {
   /// Can be a path to an elevation program (e.g., /usr/bin/sudo),
   /// or one of: 'none' (no elevation),
   /// 'passwordless' (use elevation without password prompt for remote hosts
-  /// with NOPASSWD configured), or 'auto' (automatically detect available
-  /// elevation programs in order: doas, sudo, run0, pkexec)
+  /// with NOPASSWD configured), 'empty-password' (use remote sudo with an
+  /// empty password and a forwarded SSH agent, for PAM modules such as
+  /// `pam_rssh`), or 'auto' (automatically detect available elevation programs
+  /// in order: doas, sudo, run0, pkexec)
   #[pound(
     short,
     long,

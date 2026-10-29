@@ -18,6 +18,11 @@ functionality, under the "Removed" section.
 
 ### Added
 
+- `--elevation-strategy=empty-password` for remote sudo setups where PAM
+  authenticates out-of-band, such as `pam_rssh` with a security key. nh sends
+  remote `sudo` an empty password instead of asking for one, and forwards the
+  local SSH agent to the target host
+  ([#583](https://github.com/nix-community/nh/issues/583)).
 - `nh os dry-activate` builds and previews activation without applying it.
   Existing `--dry` still builds without invoking activation.
 - `nh os build --dry` now shows what Nix would build or fetch, without building.
