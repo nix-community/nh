@@ -1150,6 +1150,7 @@ fn remote_sudo_password(
   loop {
     let password = inquire::Password::new(&prompt)
       .without_confirmation()
+      .with_display_mode(inquire::PasswordDisplayMode::Masked)
       .prompt()
       .context("Failed to read sudo password")?;
     ensure!(

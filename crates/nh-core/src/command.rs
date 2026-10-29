@@ -834,6 +834,7 @@ impl Command {
         let password =
           inquire::Password::new(&format!("[sudo] password for {host}:"))
             .without_confirmation()
+            .with_display_mode(inquire::PasswordDisplayMode::Masked)
             .prompt()
             .context("Failed to read sudo password")?;
         if password.is_empty() {
