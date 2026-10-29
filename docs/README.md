@@ -385,6 +385,11 @@ the common variables that you may encounter or choose to employ are as follows:
 - `NIXOS_NO_CHECK` - Forwarded to `switch-to-configuration` during activation.
   Inhibits certain NixOS service checks.
 
+- `NIXOS_LABEL`
+  - Label used by `nh os build`, `test`, `boot`, and `switch`. Equivalent to
+    `--label`. Leading and trailing whitespace is stripped, the rest replaced by
+    `-`. The resulting label must only contain ASCII characters.
+
 ### NH Specific
 
 - `NH_ASK`

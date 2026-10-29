@@ -957,6 +957,7 @@ pub struct Build {
   installable: Installable,
   extra_args:  Vec<OsString>,
   envs:        Vec<(OsString, OsString)>,
+  impure:      bool,
   rom:         bool,
 }
 
@@ -968,6 +969,7 @@ impl Build {
       installable,
       extra_args: vec![],
       envs: vec![],
+      impure: false,
       rom: false,
     }
   }
@@ -997,6 +999,12 @@ impl Build {
   }
 
   #[must_use]
+  pub const fn impure(mut self, yes: bool) -> Self {
+    self.impure = yes;
+    self
+  }
+
+  #[must_use]
   pub const fn rom(mut self, yes: bool) -> Self {
     self.rom = yes;
     self
@@ -1019,6 +1027,22 @@ impl Build {
     self.extra_args(passthrough.generate_build_args())
   }
 
+  /// Construct the underlying Nix command without executing it.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the installable can't be converted to arguments.
+  pub fn to_nix_command(&self) -> Result<NixCommand> {
+    Ok(
+      NixCommand::new(CommandKind::Build)
+        .print_build_logs(false)
+        .args(&self.installable.to_args()?)
+        .args(&self.extra_args)
+        .envs(self.envs.iter().map(|(key, value)| (key, value)))
+        .impure(self.impure),
+    )
+  }
+
   /// Print what the build would do without building anything.
   ///
   /// # Errors
@@ -1029,15 +1053,7 @@ impl Build {
       info!("{m}");
     }
 
-    let mut cmd = NixCommand::new(CommandKind::Build)
-      .print_build_logs(false)
-      .args(&self.installable.to_args()?)
-      .arg("--dry-run")
-      .args(&self.extra_args)
-      .to_exec();
-    for (key, value) in &self.envs {
-      cmd = cmd.env(key, value);
-    }
+    let cmd = self.to_nix_command()?.arg("--dry-run").to_exec();
     debug!(?cmd);
 
     let exit_status = cmd.join()?;
@@ -1067,17 +1083,7 @@ impl Build {
       bail!("builds do not support output-format arguments after `--`");
     }
 
-    let installable_args = self.installable.to_args()?;
-
-    let mut cmd = NixCommand::new(CommandKind::Build)
-      .print_build_logs(false)
-      .args(&installable_args)
-      .arg("--print-out-paths")
-      .args(&self.extra_args)
-      .to_exec();
-    for (key, value) in &self.envs {
-      cmd = cmd.env(key, value);
-    }
+    let cmd = self.to_nix_command()?.arg("--print-out-paths").to_exec();
 
     let (exit_status, out_paths) = crate::monitor::run(cmd, self.rom)?;
     if !exit_status.success() {
@@ -1631,7 +1637,13 @@ mod tests {
       installable.to_args().unwrap()
     );
     assert!(build.extra_args.is_empty());
+    assert!(build.envs.is_empty());
+    assert!(!build.impure);
     assert!(!build.rom);
+
+    let (_, args, env) = build.to_nix_command().unwrap().into_parts();
+    assert!(!args.contains(&OsString::from("--impure")));
+    assert!(env.is_empty());
   }
 
   #[test]
@@ -1655,6 +1667,28 @@ mod tests {
       OsString::from("value")
     ]);
     assert!(build.rom);
+  }
+
+  #[test]
+  fn test_build_applies_environment_and_impurity() {
+    let installable = Installable::Flake {
+      reference: "github:user/repo".to_string(),
+      attribute: vec!["package".to_string()],
+    };
+
+    let command = Build::new(installable)
+      .env("TEST_KEY", "test-value")
+      .impure(true)
+      .rom(true)
+      .to_nix_command()
+      .unwrap();
+    let (_, args, env) = command.into_parts();
+
+    assert!(args.contains(&OsString::from("--impure")));
+    assert_eq!(env, vec![(
+      OsString::from("TEST_KEY"),
+      OsString::from("test-value")
+    )]);
   }
 
   #[test]
