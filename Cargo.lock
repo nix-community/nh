@@ -1827,9 +1827,9 @@ dependencies = [
 
 [[package]]
 name = "rom"
-version = "0.3.3"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c52867be311839678bd2094d6a7bfd9482ae94efe480d26f17e1598249036f5e"
+checksum = "a5a776a328de7a4c5b7200fad5ba910163073299c699758449534ab9569d951d"
 dependencies = [
  "cognos",
  "crossterm",
