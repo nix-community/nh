@@ -24,7 +24,12 @@ const DEFAULT_DAYS: u32 = 15;
 
 pub fn run(json: bool, args: &args::PrsArgs) -> Result<()> {
   let query = args.query.join(" ");
-  let direct_pr_number = parse_direct_pr_number(&query);
+  // `--title` searches titles for the number instead of fetching that PR.
+  let direct_pr_number = if args.title.only {
+    None
+  } else {
+    parse_direct_pr_number(&query)
+  };
   let days = args.days.value.unwrap_or(DEFAULT_DAYS);
   let token = github::auth::token()?;
   let client = GitHubClient::new(token)?;
@@ -41,7 +46,7 @@ pub fn run(json: bool, args: &args::PrsArgs) -> Result<()> {
   let prs = if let Some(number) = direct_pr_number {
     client.pull_request(number)?.into_iter().collect::<Vec<_>>()
   } else {
-    client.search_prs(&query, days)?
+    client.search_prs(&query, days, args.title.only)?
   };
 
   if prs.iter().any(|pr| {
