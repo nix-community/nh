@@ -42,8 +42,13 @@ impl GitHubClient {
   ///
   /// Returns an error when GitHub search fails or the response shape is
   /// invalid.
-  pub fn search_prs(&self, query: &str, days: u32) -> Result<Vec<PullRequest>> {
-    prs::search(&self.graphql, query, days)
+  pub fn search_prs(
+    &self,
+    query: &str,
+    days: u32,
+    title_only: bool,
+  ) -> Result<Vec<PullRequest>> {
+    prs::search(&self.graphql, query, days, title_only)
   }
 
   /// Fetch a single Nixpkgs pull request by number.
@@ -62,8 +67,13 @@ impl GitHubClient {
   ///
   /// Returns an error when GitHub search fails or the response shape is
   /// invalid.
-  pub fn search_issues(&self, query: &str, days: u32) -> Result<Vec<Issue>> {
-    issues::search(&self.graphql, query, days)
+  pub fn search_issues(
+    &self,
+    query: &str,
+    days: u32,
+    title_only: bool,
+  ) -> Result<Vec<Issue>> {
+    issues::search(&self.graphql, query, days, title_only)
   }
 
   pub fn probe_branch_reachability(

@@ -18,6 +18,9 @@ functionality, under the "Removed" section.
 
 ### Added
 
+- `nh search prs` and `nh search issues` accept `--title` (`-t`) to match the
+  query against titles only, instead of titles, bodies and comments
+  ([#814](https://github.com/nix-community/nh/issues/814)).
 - `--elevation-strategy=empty-password` for remote sudo setups where PAM
   authenticates out-of-band, such as `pam_rssh` with a security key. nh sends
   remote `sudo` an empty password instead of asking for one, and forwards the

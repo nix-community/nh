@@ -41,7 +41,7 @@ pub fn run(json: bool, args: &args::PrsArgs) -> Result<()> {
   let prs = if let Some(number) = direct_pr_number {
     client.pull_request(number)?.into_iter().collect::<Vec<_>>()
   } else {
-    client.search_prs(&query, days)?
+    client.search_prs(&query, days, args.title.only)?
   };
 
   if prs.iter().any(|pr| {

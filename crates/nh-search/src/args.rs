@@ -143,6 +143,9 @@ pub struct PrsArgs {
   #[pound(flatten)]
   pub days: DaysArg,
 
+  #[pound(flatten)]
+  pub title: TitleArg,
+
   /// Pull request search query
   #[pound(min_values = 1)]
   pub query: Vec<String>,
@@ -152,6 +155,9 @@ pub struct PrsArgs {
 pub struct IssuesArgs {
   #[pound(flatten)]
   pub days: DaysArg,
+
+  #[pound(flatten)]
+  pub title: TitleArg,
 
   /// Issue search query
   #[pound(min_values = 1)]
@@ -212,6 +218,13 @@ pub struct DaysArg {
   /// Search GitHub results updated in the last n days (default: 15).
   #[pound(short = 'd', long = "days", min = 1)]
   pub value: Option<u32>,
+}
+
+#[derive(Parse, Debug, Clone, Copy)]
+pub struct TitleArg {
+  /// Only match the query against titles
+  #[pound(short = 't', long = "title")]
+  pub only: bool,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]

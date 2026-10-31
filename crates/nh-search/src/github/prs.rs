@@ -88,11 +88,12 @@ pub(super) fn search(
   client: &GraphqlClient,
   query: &str,
   days: u32,
+  title_only: bool,
 ) -> Result<Vec<PullRequest>> {
   let updated_since = Timestamp::now()
     .checked_sub((i64::from(days) * 24).hours())?
     .to_string();
-  let github_query = search_query(query, &updated_since);
+  let github_query = search_query(query, &updated_since, title_only);
   let data = client.query::<SearchPullRequestsData>(
     SEARCH_PULL_REQUESTS_QUERY,
     &json!({
@@ -136,9 +137,10 @@ pub fn parse_direct_pr_number(query: &str) -> Option<u64> {
     .flatten()
 }
 
-fn search_query(query: &str, updated_since: &str) -> String {
+fn search_query(query: &str, updated_since: &str, title_only: bool) -> String {
+  let scope = if title_only { " in:title" } else { "" };
   format!(
-    "repo:NixOS/nixpkgs {query} type:pr updated:>{updated_since} \
+    "repo:NixOS/nixpkgs {query} type:pr{scope} updated:>{updated_since} \
      sort:updated-desc"
   )
 }
@@ -196,7 +198,7 @@ mod tests {
     assert_eq!(
       "repo:NixOS/nixpkgs hello type:pr updated:>2026-07-01T12:00:00Z \
        sort:updated-desc",
-      search_query("hello", "2026-07-01T12:00:00Z")
+      search_query("hello", "2026-07-01T12:00:00Z", false)
     );
   }
 
