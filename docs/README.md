@@ -387,122 +387,122 @@ the common variables that you may encounter or choose to employ are as follows:
 
 ### NH Specific
 
-- `NH_ASK`
+- `NH_ASK` <sub>(since version [4.5.0](https://github.com/nix-community/nh/releases/tag/v4.5.0) ([PR #762](https://github.com/nix-community/nh/pull/762)))</sub>
   - When set to a truthy value such as `1`, `true`, `yes`, or `on`, asks for
     confirmation before applying supported operations. Falsy values such as `0`,
     `false`, `no`, or `off` disable it. Equivalent to `--ask`.
 
-- `NH_ROM`
+- `NH_ROM` <sub>(since version [4.5.0](https://github.com/nix-community/nh/releases/tag/v4.5.0) ([PR #836](https://github.com/nix-community/nh/pull/836)))</sub>
   - Forces whether rom shows build progress. Without it, rom runs only when
     stdout is a terminal, and stays off when stdout is a pipe or file, such as
     in CI or under an agent. Set to `1`, `true`, `yes`, or `on` to force rom on,
     or `0`, `false`, `no`, or `off` to force it off. `--no-rom` still takes
     precedence. `NH_NOM` is a deprecated alias that will be removed in 5.0.
 
-- `NH_ROM_LOG`
+- `NH_ROM_LOG` <sub>(since version [4.5.0](https://github.com/nix-community/nh/releases/tag/v4.5.0) ([PR #836](https://github.com/nix-community/nh/pull/836)))</sub>
   - Path to a file that records the Nix log stream of builds shown by rom, so it
     can be replayed through rom.
 
-- `NH_NO_CHECKS`
+- `NH_NO_CHECKS` <sub>(since version [4.1.0](https://github.com/nix-community/nh/releases/tag/v4.1.0) ([PR #277](https://github.com/nix-community/nh/pull/277)))</sub>
   - When set (any non-empty value), skips startup checks such as Nix version and
     experimental feature validation. Useful for generating completions or
     running in constrained build environments. You can also consider this an
     "expert flag" that you can set for a non-zero performance benefit. It
     assumes you know what you are doing.
 
-- `NH_FLAKE`
+- `NH_FLAKE` <sub>(since version [4.0.0](https://github.com/nix-community/nh/releases/tag/v4.0.0) ([PR #151](https://github.com/nix-community/nh/pull/151)))</sub>
   - Preferred path/reference to a directory containing your `flake.nix` used by
     NH when running flake-based commands. Historically `FLAKE` was used; NH will
     migrate `FLAKE` into `NH_FLAKE` if present and the specific `NH_*_FLAKE`
     vars are not set.
 
-- `NH_OS_FLAKE`, `NH_HOME_FLAKE`, `NH_DARWIN_FLAKE`
+- `NH_OS_FLAKE`, `NH_HOME_FLAKE`, `NH_DARWIN_FLAKE` <sub>(since version [4.0.0](https://github.com/nix-community/nh/releases/tag/v4.0.0) ([PR #250](https://github.com/nix-community/nh/pull/250)))</sub>
   - Command-specific flake references for `os`, `home`, and `darwin` commands
     respectively. If present they take precedence over `NH_FLAKE`.
 
-- `NH_SUDO_ASKPASS`
+- `NH_SUDO_ASKPASS` <sub>(since version [4.0.3](https://github.com/nix-community/nh/releases/tag/v4.0.3) ([PR #261](https://github.com/nix-community/nh/pull/261)))</sub>
   - Path to a program used as `SUDO_ASKPASS` when NH self-elevates with `sudo`.
     If set and `sudo` is used for elevation, NH will pass `-A` to `sudo` and set
     `SUDO_ASKPASS` accordingly.
 
-- `NH_SUDOOPTS`
+- `NH_SUDOOPTS` <sub>(since version [4.4.0](https://github.com/nix-community/nh/releases/tag/v4.4.0) ([PR #712](https://github.com/nix-community/nh/pull/712)))</sub>
   - Extra arguments inserted into the `sudo` invocation when NH elevates
     privileges. Accepts the same shell-quoted format as `NIX_SUDOOPTS`, which it
     takes precedence over.
 
-- `NH_SSHOPTS`
+- `NH_SSHOPTS` <sub>(since version [4.4.0](https://github.com/nix-community/nh/releases/tag/v4.4.0) ([PR #712](https://github.com/nix-community/nh/pull/712)))</sub>
   - SSH options for remote operations. Accepts the same format as `NIX_SSHOPTS`,
     which it takes precedence over.
 
-- `NH_ELEVATION_STRATEGY`
+- `NH_ELEVATION_STRATEGY` <sub>(since version [4.3.0](https://github.com/nix-community/nh/releases/tag/v4.3.0) ([PR #497](https://github.com/nix-community/nh/pull/497)))</sub>
   - Privilege elevation strategy. Accepted values include `auto`, `none`,
     `passwordless`, `empty-password`, and `program:<path>`. Use `empty-password`
     for remote sudo setups where PAM authenticates out-of-band, such as
     `pam_rssh` with a security key, and expects an empty stdin password line.
 
-- `NH_PRESERVE_ENV`
+- `NH_PRESERVE_ENV` <sub>(since version [4.2.0](https://github.com/nix-community/nh/releases/tag/v4.2.0) ([PR #92](https://github.com/nix-community/nh/pull/92)))</sub>
   - Controls whether environment variables marked for preservation are passed to
     elevated commands. Set to `"0"` to disable preservation, `"1"` to force
     preservation. If unset, preservation defaults to enabled.
 
-- `NH_CONTINUE_ON_ACTIVATION_FAILURE`
+- `NH_CONTINUE_ON_ACTIVATION_FAILURE` <sub>(since version [4.5.0](https://github.com/nix-community/nh/releases/tag/v4.5.0) ([commit](https://github.com/nix-community/nh/commit/093e2e4b4632e51e333bff9a1063653697ece21d)))</sub>
   - For `nh os switch`, activation runs before the new generation is added to
     the bootloader. By default a failed activation aborts the switch, so the
     generation is not added to the bootloader. Setting this to `"1"` (or passing
     `--continue-on-activation-failure`) continues to the bootloader step
     regardless, so the generation is still bootable on next reboot.
 
-- `NH_LOG`
+- `NH_LOG` <sub>(since version [4.0.0](https://github.com/nix-community/nh/releases/tag/v4.0.0) ([commit](https://github.com/nix-community/nh/commit/3d692d38583fdc3151a58ded1ef63996157a2468)))</sub>
   - Sets the tracing/log filter for NH. This uses the same format as
     `tracing_subscriber` env filters (for example: `nh=trace`).
 
-- `NH_CONFIG`
+- `NH_CONFIG` <sub>(since version [4.4.0](https://github.com/nix-community/nh/releases/tag/v4.4.0) ([PR #669](https://github.com/nix-community/nh/pull/669)))</sub>
   - Overrides the path to the NH configuration file. If unset, NH uses
     `$XDG_CONFIG_HOME/nh/config.toml`, falling back to
     `~/.config/nh/config.toml`.
 
-- `GH_TOKEN`
+- `GH_TOKEN` <sub>(since version [4.4.0](https://github.com/nix-community/nh/releases/tag/v4.4.0) ([PR #669](https://github.com/nix-community/nh/pull/669)))</sub>
   - GitHub token used by `nh search prs` and `nh search issues`. If set, this
     takes priority over any token file.
 
-- `NH_GITHUB_TOKEN_FILE`
+- `NH_GITHUB_TOKEN_FILE` <sub>(since version [4.4.0](https://github.com/nix-community/nh/releases/tag/v4.4.0) ([PR #689](https://github.com/nix-community/nh/pull/689)))</sub>
   - Overrides the path to the GitHub token file used by `nh search prs` and
     `nh search issues` when `GH_TOKEN` is unset. If unset, NH uses
     `$XDG_STATE_HOME/nh/github-token`, falling back to
     `~/.local/state/nh/github-token`. Tokens entered through the interactive
     prompt are saved to this file with user-only permissions.
 
-- `NH_SEARCH_CHANNEL`
+- `NH_SEARCH_CHANNEL` <sub>(since version [4.0.0](https://github.com/nix-community/nh/releases/tag/v4.0.0) ([commit](https://github.com/nix-community/nh/commit/3d692d38583fdc3151a58ded1ef63996157a2468)))</sub>
   - Default Nixpkgs channel used by `nh search packages` and `nh search options`
     (e.g. `nixos-unstable`, `nixos-24.11`). Overridden per-invocation by
     `--channel`.
 
-- `NH_SEARCH_JSON`
+- `NH_SEARCH_JSON` <sub>(since version [4.0.2](https://github.com/nix-community/nh/releases/tag/v4.0.2) ([PR #259](https://github.com/nix-community/nh/pull/259)))</sub>
   - When set to a truthy value, `nh search` outputs results as raw JSON instead
     of the formatted display. Equivalent to `--json`.
 
-- `NH_SEARCH_PLATFORM`
+- `NH_SEARCH_PLATFORM` <sub>(since version [4.0.0](https://github.com/nix-community/nh/releases/tag/v4.0.0) ([commit](https://github.com/nix-community/nh/commit/7bd0d00a3f1aab85a7e29d34b4f1f6744263e6c3)))</sub>
   - When set to a truthy value, supported platforms are shown for each package
     result. Equivalent to `--platforms`.
 
-- `NH_DEFAULT_SEARCH`
+- `NH_DEFAULT_SEARCH` <sub>(since version [4.4.0](https://github.com/nix-community/nh/releases/tag/v4.4.0) ([PR #649](https://github.com/nix-community/nh/pull/649)))</sub>
   - Controls the target of the `nh search <query>` shorthand when no subcommand
     is given. Accepted values: `packages` (default), `options` (uses scope
     `all`). Equivalent to `--default-search`.
 
-- `NH_SEARCH_BACKEND_VERSION`
+- `NH_SEARCH_BACKEND_VERSION` <sub>(since version [4.5.0](https://github.com/nix-community/nh/releases/tag/v4.5.0) ([PR #751](https://github.com/nix-community/nh/pull/751)))</sub>
   - Backend index version queried on search.nixos.org by `nh search packages`
     and `nh search options`. By default nh queries the newest index available
     for the channel, falling back to the version bundled with nh if that cannot
     be determined. Use this to pin a specific index. Equivalent to
     `--backend-version`.
 
-- `NH_SEARCH_BACKEND_FALLBACKS`
+- `NH_SEARCH_BACKEND_FALLBACKS` <sub>(since version [4.5.0](https://github.com/nix-community/nh/releases/tag/v4.5.0) ([PR #751](https://github.com/nix-community/nh/pull/751)))</sub>
   - Number of newer index versions to try when the requested version is outdated
     (missing on the backend). Defaults to `1`, so nh retries the next version
     once before failing. Equivalent to `--backend-version-fallbacks`.
 
-- `NH_OFFLINE_DB`
+- `NH_OFFLINE_DB` <sub>(since version [4.4.0](https://github.com/nix-community/nh/releases/tag/v4.4.0) ([PR #649](https://github.com/nix-community/nh/pull/649)))</sub>
   - Colon-separated list of paths to SPAM database files used by
     `nh search offline`. Each path is treated as a separate database. Equivalent
     to passing `--db` multiple times. Example:
