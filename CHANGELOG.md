@@ -92,9 +92,6 @@ or `TRUE` are rejected.
   `NH_ROM` also accepts `on` and `off`, as `NH_NOM` did. rom honours `NO_COLOR`
   and `TERM=dumb`, and `NH_ROM_LOG=<file>` records the build log stream so it
   can be replayed through rom.
-- Build monitoring is now disabled by default when stdout is not a terminal,
-  such as in CI or when output is piped or redirected to a file. Set `NH_ROM=1`
-  (or the deprecated `NH_NOM=1`) to force it on. `--no-rom` takes precedence.
 - Activation output is always shown, and remote activation logs each step as it
   starts. Remote activation used to print nothing until it finished.
   `--show-activation-logs` and `NH_SHOW_ACTIVATION_LOGS` now do nothing and will
@@ -114,20 +111,13 @@ or `TRUE` are rejected.
 
 ### Fixed
 
-- Remote `sudo` password prompts now use masked input, showing a mask character
-  for each character entered
-  ([#845](https://github.com/nix-community/nh/pull/845)).
+- `nh search` no longer drops `--limit`, `--channel`, `--platforms` and
+  `--fields` when they come before a subcommand, as in
+  `nh search --limit 5 packages hello`. They now apply to every subcommand that
+  uses them, and `--limit` and `--fields` are rejected for modes that don't.
 - `nh darwin switch --elevation-strategy none` now sets the system profile and
   activates without elevation, like `nh os`. It previously failed to resolve an
   elevation program.
-- Remote elevation programs are now resolved on the target host. For example,
-  `--elevation-strategy=program:doas` no longer requires `doas` to be installed
-  locally; `auto` and `passwordless` use remote `sudo`
-  ([#561](https://github.com/nix-community/nh/issues/561)).
-- When nh infers a running NixOS specialisation that is absent from the
-  configuration being built, it now warns and falls back to the base
-  configuration. An explicitly requested missing specialisation still errors
-  ([#756](https://github.com/nix-community/nh/issues/756)).
 - A wrong sudo password for `--target-host` is asked for again, up to three
   times, before activation starts. It used to fail activation.
 - `--target-host` sets the system profile with `nix-env --set`, as nixos-rebuild

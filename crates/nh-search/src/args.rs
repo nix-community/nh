@@ -4,6 +4,7 @@ use misstep::{Result, bail};
 use pound::{Parse, ValueEnum};
 
 const DEFAULT_CHANNEL: &str = "nixos-unstable";
+const DEFAULT_LIMIT: u64 = 30;
 
 /// Searches packages or NixOS/home-manager options via search.nixos.org,
 /// or a local SPAM database
@@ -76,14 +77,13 @@ pub enum SearchMode {
 
 #[derive(Parse, Debug)]
 pub struct PackagesArgs {
-  #[pound(flatten)]
-  pub limit: LimitArg,
+  /// Name of the channel to query (e.g nixos-23.11, nixos-unstable, etc)
+  #[pound(long, short = 'c')]
+  pub channel: Option<String>,
 
-  #[pound(flatten)]
-  pub channel: ChannelArg,
-
-  #[pound(flatten)]
-  pub platforms: PlatformsArg,
+  /// Show supported platforms for each package
+  #[pound(long, short = 'P')]
+  pub platforms: bool,
 
   /// Comma-delimited list of fields to display for each package
   #[pound(long, delimiter = ',')]
@@ -96,11 +96,9 @@ pub struct PackagesArgs {
 
 #[derive(Parse, Debug)]
 pub struct OptionsArgs {
-  #[pound(flatten)]
-  pub limit: LimitArg,
-
-  #[pound(flatten)]
-  pub channel: ChannelArg,
+  /// Name of the channel to query (e.g nixos-23.11, nixos-unstable, etc)
+  #[pound(long, short = 'c')]
+  pub channel: Option<String>,
 
   /// Options scope: nixpkgs, home-manager, nix-darwin, or all (default)
   #[pound(long, default_missing = "all", value_name = "SCOPE")]
@@ -113,9 +111,6 @@ pub struct OptionsArgs {
 
 #[derive(Parse, Debug)]
 pub struct OfflineArgs {
-  #[pound(flatten)]
-  pub limit: LimitArg,
-
   /// Database scope to search: pkg, opt, lib, or all (default)
   #[pound(long, default = OfflineScope::All, value_name = "SCOPE")]
   pub scope: OfflineScope,
@@ -165,9 +160,9 @@ pub struct IssuesArgs {
 
 #[derive(Parse, Debug, Clone, Copy)]
 pub struct LimitArg {
-  /// Number of search results to display
-  #[pound(long = "limit", short = 'l', default = "30")]
-  pub value: u64,
+  /// Number of search results to display (default: 30)
+  #[pound(long = "limit", short = 'l', global)]
+  pub value: Option<u64>,
 }
 
 #[derive(Parse, Debug, Clone)]
@@ -313,33 +308,29 @@ impl SearchArgs {
   /// Returns an error when shorthand search is used without a query, or when
   /// package-only flags are combined with a non-package mode.
   pub fn resolved_mode(&self) -> Result<ResolvedSearchMode<'_>> {
-    if self.fields.is_some()
-      && !matches!(self.mode, None | Some(SearchMode::Packages { .. }))
-    {
-      bail!("--fields only applies to package search");
-    }
+    self.reject_unused_flags()?;
 
     match &self.mode {
       Some(SearchMode::Packages { args }) => {
         Ok(ResolvedSearchMode::Packages {
-          channel:   &args.channel.value,
-          limit:     args.limit.value,
-          platforms: args.platforms.value,
+          channel:   args.channel.as_deref().unwrap_or(&self.channel.value),
+          limit:     self.limit(),
+          platforms: args.platforms || self.platforms.value,
           fields:    args.fields.as_deref().or(self.fields.as_deref()),
           query:     &args.query,
         })
       },
       Some(SearchMode::Options { args }) => {
         Ok(ResolvedSearchMode::Options {
-          channel: &args.channel.value,
-          limit:   args.limit.value,
+          channel: args.channel.as_deref().unwrap_or(&self.channel.value),
+          limit:   self.limit(),
           scope:   args.scope.unwrap_or(OptionScope::All),
           query:   &args.query,
         })
       },
       Some(SearchMode::Offline { args }) => {
         Ok(ResolvedSearchMode::Offline {
-          limit:     args.limit.value,
+          limit:     self.limit(),
           databases: &args.databases,
           scope:     args.scope,
           query:     &args.query,
@@ -349,6 +340,35 @@ impl SearchArgs {
       Some(SearchMode::Issues { args }) => Ok(ResolvedSearchMode::Issues(args)),
       None => self.resolved_shorthand_mode(),
     }
+  }
+
+  fn limit(&self) -> u64 {
+    self.limit.value.unwrap_or(DEFAULT_LIMIT)
+  }
+
+  /// Reject top-level flags the selected subcommand would ignore.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error when `--fields` is given outside package search, or
+  /// `--limit` with `prs` or `issues`.
+  fn reject_unused_flags(&self) -> Result<()> {
+    // Env-backed flags (--channel, --platforms) cannot be told apart from
+    // their env vars, so only flags without env are checked.
+    let packages =
+      matches!(self.mode, None | Some(SearchMode::Packages { .. }));
+    let github = matches!(
+      self.mode,
+      Some(SearchMode::Prs { .. } | SearchMode::Issues { .. })
+    );
+
+    if self.fields.is_some() && !packages {
+      bail!("--fields only applies to package search");
+    }
+    if self.limit.value.is_some() && github {
+      bail!("--limit does not apply to GitHub search");
+    }
+    Ok(())
   }
 
   fn resolved_shorthand_mode(&self) -> Result<ResolvedSearchMode<'_>> {
@@ -363,7 +383,7 @@ impl SearchArgs {
       SearchDefault::Packages => {
         Ok(ResolvedSearchMode::Packages {
           channel:   &self.channel.value,
-          limit:     self.limit.value,
+          limit:     self.limit(),
           platforms: self.platforms.value,
           fields:    self.fields.as_deref(),
           query:     &self.query,
@@ -376,7 +396,7 @@ impl SearchArgs {
 
         Ok(ResolvedSearchMode::Options {
           channel: &self.channel.value,
-          limit:   self.limit.value,
+          limit:   self.limit(),
           scope:   OptionScope::All,
           query:   &self.query,
         })
@@ -437,8 +457,8 @@ mod tests {
 
     match args.mode {
       Some(SearchMode::Packages { args: packages }) => {
-        assert_eq!(packages.channel.value, "nixos-unstable");
-        assert!(packages.platforms.value);
+        assert_eq!(packages.channel.as_deref(), Some("nixos-unstable"));
+        assert!(packages.platforms);
         assert_eq!(packages.query, ["hello"]);
       },
       other => {
@@ -462,8 +482,8 @@ mod tests {
 
     match args.mode {
       Some(SearchMode::Packages { args: packages }) => {
-        assert_eq!(packages.channel.value, "nixos-unstable");
-        assert!(packages.platforms.value);
+        assert_eq!(packages.channel.as_deref(), Some("nixos-unstable"));
+        assert!(packages.platforms);
         assert_eq!(packages.query, ["hello"]);
       },
       other => {
@@ -480,9 +500,9 @@ mod tests {
       parse_search(&["search", "packages", "--limit", "5", "--json", "hello"])?;
 
     assert!(args.json);
+    assert_eq!(args.limit.value, Some(5));
     match args.mode {
       Some(SearchMode::Packages { args: packages }) => {
-        assert_eq!(packages.limit.value, 5);
         assert_eq!(packages.query, ["hello"]);
       },
       other => {
@@ -507,7 +527,7 @@ mod tests {
       "packages",
     ])?;
 
-    assert_eq!(args.limit.value, 5);
+    assert_eq!(args.limit.value, Some(5));
     assert_eq!(args.channel.value, "nixos-unstable");
     assert!(args.platforms.value);
     assert!(matches!(args.default_search, SearchDefault::Packages));
@@ -649,9 +669,9 @@ mod tests {
 
   #[test]
   fn prs_rejects_limit() -> Result<(), Box<dyn std::error::Error>> {
-    let err = parse_search_error(&["search", "prs", "hello", "--limit", "5"])?;
+    let args = parse_search(&["search", "prs", "hello", "--limit", "5"])?;
 
-    assert!(matches!(err.kind, ErrorKind::Unknown { .. }));
+    assert!(args.resolved_mode().is_err());
     Ok(())
   }
 
@@ -683,10 +703,9 @@ mod tests {
 
   #[test]
   fn issues_rejects_limit() -> Result<(), Box<dyn std::error::Error>> {
-    let err =
-      parse_search_error(&["search", "issues", "hello", "--limit", "5"])?;
+    let args = parse_search(&["search", "issues", "hello", "--limit", "5"])?;
 
-    assert!(matches!(err.kind, ErrorKind::Unknown { .. }));
+    assert!(args.resolved_mode().is_err());
     Ok(())
   }
 }
