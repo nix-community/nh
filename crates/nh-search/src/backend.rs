@@ -20,26 +20,18 @@ const NH_VERSION: &str = env!("CARGO_PKG_VERSION");
 const BACKEND_USER: &str = "aWVSALXpZv";
 const BACKEND_PASSWORD: &str = "X8gPHnzL52wFEekuxsfQ9cSh";
 
-/// Backend index version bundled with nh, used when the user does not override
-/// it via [`BackendConfig::version`] and the newest version cannot be
-/// discovered.
+/// Backend index version bundled with nh, used when the newest version cannot
+/// be discovered.
 pub const BUNDLED_BACKEND_VERSION: &str = include_str!("../BACKEND_VERSION");
+
+/// Number of newer index versions to try when the starting one is outdated.
+const BACKEND_FALLBACKS: u32 = 2;
 
 #[derive(Clone, Copy)]
 pub struct SearchContexts {
   pub build:   &'static str,
   pub execute: &'static str,
   pub parse:   &'static str,
-}
-
-/// Backend index version selection for a search request.
-#[derive(Clone, Copy)]
-pub struct BackendConfig {
-  /// Index version to try first. `None` discovers the newest version, falling
-  /// back to [`BUNDLED_BACKEND_VERSION`].
-  pub version:   Option<u32>,
-  /// Number of newer versions to try when the requested one is outdated.
-  pub fallbacks: u32,
 }
 
 /// Outcome of a single request to a specific backend index version.
@@ -53,35 +45,26 @@ pub fn search_documents<T>(
   query: &Search,
   channel: &str,
   contexts: SearchContexts,
-  config: BackendConfig,
 ) -> Result<(Vec<T>, Duration)>
 where
   T: DeserializeOwned,
 {
   let client = reqwest::blocking::Client::new();
 
-  let start = match config.version {
-    Some(version) => version,
-    None => {
-      match discover_latest_version(&client, channel) {
-        Ok(Some(version)) => version,
-        Ok(None) => bundled_backend_version()?,
-        Err(err) => {
-          debug!(
-            %err,
-            "backend index discovery failed, using the bundled version"
-          );
-          bundled_backend_version()?
-        },
-      }
+  let start = match discover_latest_version(&client, channel) {
+    Ok(Some(version)) => version,
+    Ok(None) => bundled_backend_version()?,
+    Err(err) => {
+      debug!(%err, "backend index discovery failed, using the bundled version");
+      bundled_backend_version()?
     },
   };
-  let last = start.saturating_add(config.fallbacks);
+  let last = start.saturating_add(BACKEND_FALLBACKS);
   let then = Instant::now();
 
-  // The requested index version tracks search.nixos.org but can fall behind
-  // between releases. A missing index answers with 404, so when a version is
-  // outdated we retry against successively newer versions, up to `fallbacks`
+  // The bundled index version can fall behind search.nixos.org between
+  // releases. A missing index answers with 404, so when a version is outdated
+  // we retry against successively newer versions, up to `BACKEND_FALLBACKS`
   // times, before giving up.
   let mut version = start;
   let response = loop {
@@ -89,13 +72,6 @@ where
       BackendResponse::Found(response) => break response,
       BackendResponse::Outdated => {
         if version >= last {
-          if start == last {
-            bail!(
-              "search.nixos.org has no index for channel '{channel}' at \
-               backend version {start}. The channel may not exist, or the \
-               version may be wrong."
-            );
-          }
           bail!(
             "search.nixos.org has no index for channel '{channel}' at backend \
              versions {start} through {last}. The channel may not exist, or \
