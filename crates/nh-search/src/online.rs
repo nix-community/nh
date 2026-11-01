@@ -21,12 +21,13 @@ pub fn run_packages(
   channel: &str,
   limit: u64,
   platforms: bool,
+  fields: Option<&[args::PackageField]>,
   json: bool,
   backend: BackendConfig,
   query: &[String],
 ) -> Result<()> {
   run_online(
-    &Packages { platforms },
+    &Packages { platforms, fields },
     channel,
     limit,
     json,
@@ -103,11 +104,12 @@ trait OnlineMode {
   fn print_results(&self, channel: &str, documents: &[Self::Document]);
 }
 
-struct Packages {
+struct Packages<'a> {
   platforms: bool,
+  fields:    Option<&'a [args::PackageField]>,
 }
 
-impl OnlineMode for Packages {
+impl OnlineMode for Packages<'_> {
   type Document = PackageSearchResult;
 
   fn log_query(&self, query_s: &str) {
@@ -149,7 +151,7 @@ impl OnlineMode for Packages {
   }
 
   fn print_results(&self, channel: &str, documents: &[Self::Document]) {
-    render::packages::print(channel, self.platforms, documents);
+    render::packages::print(channel, self.platforms, self.fields, documents);
   }
 }
 

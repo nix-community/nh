@@ -17,6 +17,7 @@ impl args::SearchArgs {
         channel,
         limit,
         platforms,
+        fields,
         backend,
         query,
       } => {
@@ -24,6 +25,7 @@ impl args::SearchArgs {
           channel,
           limit,
           platforms,
+          fields,
           self.json,
           BackendConfig {
             version:   backend.version,

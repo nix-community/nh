@@ -18,6 +18,10 @@ pub struct SearchArgs {
   #[pound(flatten)]
   pub platforms: PlatformsArg,
 
+  /// Comma-delimited list of fields to display for each package
+  #[pound(long, delimiter = ',')]
+  pub fields: Option<Vec<PackageField>>,
+
   #[pound(flatten)]
   pub backend: BackendArgs,
 
@@ -83,6 +87,10 @@ pub struct PackagesArgs {
 
   #[pound(flatten)]
   pub platforms: PlatformsArg,
+
+  /// Comma-delimited list of fields to display for each package
+  #[pound(long, delimiter = ',')]
+  pub fields: Option<Vec<PackageField>>,
 
   #[pound(flatten)]
   pub backend: BackendArgs,
@@ -213,6 +221,37 @@ pub struct PlatformsArg {
   pub value: bool,
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum PackageField {
+  /// Package attribute name and version
+  #[pound(name = "attr_name")]
+  AttrName,
+  /// Package description
+  #[pound(name = "description")]
+  Description,
+  /// Main program provided by the package
+  #[pound(name = "main_program")]
+  MainProgram,
+  /// Package homepage
+  #[pound(name = "homepage")]
+  Homepage,
+  /// Supported package platforms
+  #[pound(name = "platforms")]
+  Platforms,
+  /// Package source position
+  #[pound(name = "position")]
+  Position,
+  /// GitHub link for the package source
+  #[pound(name = "link")]
+  GithubLink,
+  /// Programs provided by the package
+  #[pound(name = "programs")]
+  Programs,
+  /// Package license(s)
+  #[pound(name = "license")]
+  LicenseSet,
+}
+
 #[derive(Parse, Debug, Clone, Copy)]
 pub struct DaysArg {
   /// Search GitHub results updated in the last n days (default: 15).
@@ -279,6 +318,7 @@ pub enum ResolvedSearchMode<'a> {
     channel:   &'a str,
     limit:     u64,
     platforms: bool,
+    fields:    Option<&'a [PackageField]>,
     backend:   BackendArgs,
     query:     &'a [String],
   },
@@ -305,14 +345,21 @@ impl SearchArgs {
   /// # Errors
   ///
   /// Returns an error when shorthand search is used without a query, or when
-  /// shorthand option search receives package-only flags.
+  /// package-only flags are combined with a non-package mode.
   pub fn resolved_mode(&self) -> Result<ResolvedSearchMode<'_>> {
+    if self.fields.is_some()
+      && !matches!(self.mode, None | Some(SearchMode::Packages { .. }))
+    {
+      bail!("--fields only applies to package search");
+    }
+
     match &self.mode {
       Some(SearchMode::Packages { args }) => {
         Ok(ResolvedSearchMode::Packages {
           channel:   &args.channel.value,
           limit:     args.limit.value,
           platforms: args.platforms.value,
+          fields:    args.fields.as_deref().or(self.fields.as_deref()),
           backend:   args.backend,
           query:     &args.query,
         })
@@ -354,13 +401,14 @@ impl SearchArgs {
           channel:   &self.channel.value,
           limit:     self.limit.value,
           platforms: self.platforms.value,
+          fields:    self.fields.as_deref(),
           backend:   self.backend,
           query:     &self.query,
         })
       },
       SearchDefault::Options => {
-        if self.platforms.value {
-          bail!("--platforms only applies to package search");
+        if self.platforms.value || self.fields.is_some() {
+          bail!("--platforms and --fields only apply to package search");
         }
 
         Ok(ResolvedSearchMode::Options {

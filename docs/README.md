@@ -179,13 +179,6 @@ config would look like this:
 }
 ```
 
-Use `--specialisation NAME` to select one explicitly, or `--no-specialisation`
-to use the base configuration. Automatic selection only uses the local running
-system's specialisation for local activation, not for a `--target-host`. If an
-inferred specialisation is missing from a locally available build result, nh
-warns and falls back to the base configuration; an explicitly requested missing
-specialisation is an error.
-
 #### Home-Manager
 
 Home specialisations are read from `~/.local/share/home-manager/specialisation`.
@@ -243,14 +236,14 @@ The command exposes several explicit subcommands and a convenient shorthand:
 
 [found here]: https://github.com/feel-co/spam/actions/workflows/auto-index.yml
 
-| Invocation                                           | What it does                                                                                                       |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `nh search <query>`                                  | Shorthand; searches packages by default (see `NH_DEFAULT_SEARCH`.)                                                 |
-| `nh search packages <query>`                         | Search Nixpkgs packages via <https://search.nixos.org> elasticsearch API.                                          |
-| `nh search options [--scope=<SCOPE>] <query>`        | Search NixOS/Home Manager/nix-darwin options (`--scope`: `nixpkgs`, `home-manager`, `nix-darwin`, `all`.)          |
-| `nh search offline --db <PATH> <query>`              | Search a local [SPAM] database without network access. Generated DBs can be [found here].                          |
-| `nh search prs [--days <DAYS>] [--title] <query>`    | Search Nixpkgs pull requests and show branch reachability for merged PRs. Defaults to updates in the last 15 days. |
-| `nh search issues [--days <DAYS>] [--title] <query>` | Search Nixpkgs issues, excluding pull requests. Defaults to updates in the last 15 days.                           |
+| Invocation                                    | What it does                                                                                                       |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `nh search <query>`                           | Shorthand; searches packages by default (see `NH_DEFAULT_SEARCH`.)                                                 |
+| `nh search packages <query>`                  | Search Nixpkgs packages via <https://search.nixos.org> elasticsearch API.                                          |
+| `nh search options [--scope=<SCOPE>] <query>` | Search NixOS/Home Manager/nix-darwin options (`--scope`: `nixpkgs`, `home-manager`, `nix-darwin`, `all`.)          |
+| `nh search offline --db <PATH> <query>`       | Search a local [SPAM] database without network access. Generated DBs can be [found here].                          |
+| `nh search prs [--days <DAYS>] <query>`       | Search Nixpkgs pull requests and show branch reachability for merged PRs. Defaults to updates in the last 15 days. |
+| `nh search issues [--days <DAYS>] <query>`    | Search Nixpkgs issues, excluding pull requests. Defaults to updates in the last 15 days.                           |
 
 <!--markdownlint-enable MD013 -->
 
@@ -260,13 +253,14 @@ The command exposes several explicit subcommands and a convenient shorthand:
 > across all `--db` files. Files without the selected scope yield no results.
 
 `--json` is shared by all search modes. `--limit`, `--channel`, and
-`--platforms` are available on the modes that use them and on the shorthand
-form. `--title` restricts pull request and issue searches to titles instead of
-matching titles, bodies, and comments. `nh search prs` and `nh search issues`
-use `GH_TOKEN` for GitHub authentication. If `GH_TOKEN` is unset, NH reads the
-token from `NH_GITHUB_TOKEN_FILE`, or from `$XDG_STATE_HOME/nh/github-token`
-falling back to `~/.local/state/nh/github-token`. If no token is found in an
-interactive terminal, NH prompts for one and saves it to that token file.
+`--platforms` and package `--fields` are available on the modes that use them
+and on the shorthand form. `--fields` takes a comma-delimited list, such as
+`attr_name,homepage,link,programs,license`. `nh search prs` and
+`nh search issues` use `GH_TOKEN` for GitHub authentication. If `GH_TOKEN` is
+unset, NH reads the token from `NH_GITHUB_TOKEN_FILE`, or from
+`$XDG_STATE_HOME/nh/github-token` falling back to
+`~/.local/state/nh/github-token`. If no token is found in an interactive
+terminal, NH prompts for one and saves it to that token file.
 
 <p align="center">
     <img
@@ -291,27 +285,12 @@ the cleanup process to let you know what is to be cleaned.
   </p>
 
 > [!NOTE]
-> By default, `nh clean all` and `nh clean user` also scan
+> By default `nh clean` will automatically clean up your
 > [gcroots](https://nixos.org/guides/nix-pills/11-garbage-collector.html#indirect-roots)
-> for expired build-result and direnv roots, as well as orphaned or broken
-> roots. `--keep-since` controls age-based retention.
+> directory, which will remove all your built result and direnv directories.
 >
 > Use `--no-gcroots` to skip all gcroot cleanup, or `--no-direnv` to preserve
-> direnv roots from age-based cleanup. `--keep-one` preserves all active direnv
-> gcroots regardless of age; orphaned and broken roots are still removed.
-> `--cross-filesystems` / `-x` lets the scan cross filesystem boundaries; by
-> default it stays on the same filesystem as `/nix/var/nix/gcroots`.
-
-Profile cleanup keeps the newest `--keep` generations and generations within
-`--keep-since`, as well as the generation selected by each profile symlink. The
-selected generation is protected even after a rollback. `--delete-current`
-allows it to expire under the normal retention limits, which can leave the
-profile symlink dangling. Use `--dry` to preview removal or `--ask` to confirm
-before cleaning, for example:
-
-```sh
-nh clean user --keep 3 --keep-since 7d --keep-one --ask
-```
+> direnv gcroots while still cleaning everything else.
 
 ### Platform Specific Subcommands
 
@@ -331,41 +310,9 @@ from ground up _with the addition of_:
 - `nh os build --dry` shows what a local build would do without building it.
 - `nh os info --json` reports running and boot-default generations separately.
 
-Remote builds and deployments use `--build-host` and `--target-host`. See the
-[Remote Deployment](remote-build.md) guide for workflows, SSH configuration,
-copy behaviour, and remote diffing.
-
-NH also supports environment variables and additional safeguards to make these
-workflows easier to use.
-
-##### NixOS commands and options
-
-<!-- markdownlint-disable MD013 -->
-
-| Command              | Behaviour and useful options                                                                                       |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `nh os switch`       | Build, activate, and select the new configuration as the boot default.                                             |
-| `nh os boot`         | Build and select the new boot default without changing the running system.                                         |
-| `nh os test`         | Build and activate without changing the boot default.                                                              |
-| `nh os dry-activate` | Build and preview activation without applying it.                                                                  |
-| `nh os build`        | Build without activation; `--dry` previews a local build without building.                                         |
-| `nh os build-vm`     | Build a VM; `--with-bootloader` (`-B`) includes a bootloader, and `--run` (`-r`) starts the VM after building.     |
-| `nh os build-image`  | Build `config.system.build.isoImage`, or use `--image-variant NAME` to select from `config.system.build.images`.   |
-| `nh os rollback`     | Activate the predecessor of the selected system profile, or choose a generation with `--to NUMBER`.                |
-| `nh os info`         | List generations and distinguish the running generation from the boot default; `--json` emits status and metadata. |
-| `nh os repl`         | Load the selected system configuration in a Nix REPL.                                                              |
-
-<!-- markdownlint-enable MD013 -->
-
-For `nh os info`, `--fields` takes a comma-separated list of `id`, `date`,
-`nver`, `kernel`, `confRev`, `spec`, and `size`. Empty columns are hidden by
-default; explicitly selecting them makes them visible. `--fields` and `--json`
-are mutually exclusive:
-
-```sh
-nh os info --fields id,date,kernel,size
-nh os rollback --to 42 --ask
-```
+and other additional changes to make the UI more intuitive, from supporting
+environment variables to additional safeguards. Is this all? No, more is to
+come.
 
 <p align="center">
     <img
@@ -418,37 +365,6 @@ can specify the Nix file and Nix attribute path with the `NH_FILE` and
 `NH_ATTRP` environment variables. If `NH_FILE` and `NH_ATTRP` are both set,
 `nh os switch` effectively evaluates `$NH_FILE#$NH_ATTRP`.
 
-### Nix passthrough options
-
-Rebuild commands such as `nh os build`, `nh home switch`, and `nh darwin switch`
-accept repeatable Nix options before the `--` separator:
-
-- `--option NAME VALUE` sets a Nix configuration option for the invocation.
-- `--override-input INPUT FLAKE_URL` overrides a flake input without writing the
-  override to `flake.lock`.
-
-```sh
-nh os build . --option sandbox false
-nh home switch . --override-input nixpkgs github:NixOS/nixpkgs/nixos-unstable
-```
-
-### Reviewing changes
-
-Rebuild commands and `nh os rollback` accept `--diff` to control package
-diffing:
-
-- `--diff auto` (the default) displays a diff when possible and only warns if
-  diffing fails, allowing the operation to continue.
-- `--diff always` requires the diff to succeed, aborting the operation if it
-  fails.
-- `--diff never` skips diffing.
-
-By default, the diff hides packages whose versions did not change and reports
-how many it hid. Add `full` to include them: `--diff full` uses the default
-`auto` policy, while `--diff always,full` requires a complete diff to succeed.
-Remote diffing may require dix on the target host; see
-[Diffing Remote Systems](remote-build.md#diffing-remote-systems).
-
 ## Environment variables
 
 NH supports several environment variables to control command behaviour. Some of
@@ -474,9 +390,9 @@ the common variables that you may encounter or choose to employ are as follows:
 ### NH Specific
 
 - `NH_ASK`
-  - Set to `1`, `true`, or `yes` to ask for confirmation before applying
-    supported operations. `0`, `false`, and `no` disable it. Equivalent to
-    `--ask`. Values such as `on`, `off`, and `TRUE` are rejected.
+  - When set to a truthy value such as `1`, `true`, `yes`, or `on`, asks for
+    confirmation before applying supported operations. Falsy values such as `0`,
+    `false`, `no`, or `off` disable it. Equivalent to `--ask`.
 
 - `NH_ROM`
   - Forces whether rom shows build progress. Without it, rom runs only when
@@ -525,10 +441,6 @@ the common variables that you may encounter or choose to employ are as follows:
     `passwordless`, `empty-password`, and `program:<path>`. Use `empty-password`
     for remote sudo setups where PAM authenticates out-of-band, such as
     `pam_rssh` with a security key, and expects an empty stdin password line.
-    For remote commands, `auto` and `passwordless` use the target's `sudo`.
-    `program:<path>` is resolved on the target, so the program need not exist
-    locally. `NH_ELEVATION_PROGRAM` is a deprecated fallback when no strategy is
-    otherwise configured.
 
 - `NH_PRESERVE_ENV`
   - Controls whether environment variables marked for preservation are passed to
@@ -541,17 +453,6 @@ the common variables that you may encounter or choose to employ are as follows:
     generation is not added to the bootloader. Setting this to `"1"` (or passing
     `--continue-on-activation-failure`) continues to the bootloader step
     regardless, so the generation is still bootable on next reboot.
-
-- `NH_NO_SYSTEMD_RUN`
-  - Set to `1`, `true`, or `yes` (or pass `--no-systemd-run`) to run NixOS
-    activation directly instead of in a transient systemd service. By default,
-    nh uses the service when systemd is available, so switching does not
-    terminate its own session. This requires systemd 261; on older versions, use
-    the opt-out. Systems without systemd run activation directly.
-
-- `NH_NO_VALIDATE`
-  - Skips pre-activation system validation checks. This is useful when the
-    target host's store path is not accessible from the local machine.
 
 - `NH_LOG`
   - Sets the tracing/log filter for NH. This uses the same format as

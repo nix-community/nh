@@ -18,6 +18,8 @@ functionality, under the "Removed" section.
 
 ### Added
 
+- `nh search` accepts `--fields` to select package fields in normal output
+  ([#621](https://github.com/nix-community/nh/issues/621)).
 - `nh search prs` and `nh search issues` accept `--title` (`-t`) to match the
   query against titles only, instead of titles, bodies and comments
   ([#814](https://github.com/nix-community/nh/issues/814)).
