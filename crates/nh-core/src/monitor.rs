@@ -25,7 +25,6 @@ use serde::Serialize;
 use subprocess::{Exec, ExitStatus, Redirection};
 use tracing::{debug, warn};
 
-const FRAME_INTERVAL: Duration = Duration::from_millis(50);
 const TIMER_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Runs `command`, returning its exit status and stdout.
@@ -170,12 +169,14 @@ impl Monitor {
   ) -> Result<()> {
     self.render(false)?;
     let mut last_frame = Instant::now();
+    let frame_interval = self.terminal.frame_interval();
+    let mut animating = false;
 
     loop {
-      let wait = if self.dirty {
-        FRAME_INTERVAL.saturating_sub(last_frame.elapsed())
+      let wait = if self.dirty || animating {
+        frame_interval.saturating_sub(last_frame.elapsed())
       } else {
-        FRAME_INTERVAL
+        frame_interval
       };
       match chunks.recv_timeout(wait) {
         Ok(Ok(Chunk::Stdout(bytes))) => stdout.extend_from_slice(&bytes),
@@ -191,7 +192,9 @@ impl Monitor {
       }
 
       let since_frame = last_frame.elapsed();
-      if (self.dirty && since_frame >= FRAME_INTERVAL)
+      animating = !self.terminal.is_retired()
+        && self.stream.engine().state().has_unfinished();
+      if ((self.dirty || animating) && since_frame >= frame_interval)
         || since_frame >= TIMER_INTERVAL
       {
         self.render(false)?;

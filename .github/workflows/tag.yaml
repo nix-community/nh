@@ -63,7 +63,7 @@ jobs:
             runner: ubuntu-latest
             target: x86_64-unknown-linux-gnu
           - platform: aarch64-linux
-            runner: ubuntu-latest
+            runner: ubuntu-26.04-arm
             target: aarch64-unknown-linux-gnu
           - platform: aarch64-darwin
             runner: macos-14
@@ -74,21 +74,16 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install cross
+      - name: Install Linux dependencies
         if: matrix.platform == 'aarch64-linux'
-        run: cargo install cross
+        run: sudo apt-get update && sudo apt-get install --yes libsqlite3-dev
 
       - name: Install Rust target
         if: matrix.platform != 'aarch64-linux'
         run: rustup target add ${{ matrix.target }}
 
       - name: Build
-        run: |
-          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
-            cross build --release --target ${{ matrix.target }}
-          else
-            cargo build --release --target ${{ matrix.target }}
-          fi
+        run: cargo build --release --target ${{ matrix.target }}
 
       - name: Prepare binary
         run: |
