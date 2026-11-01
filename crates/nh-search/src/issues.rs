@@ -23,7 +23,7 @@ pub fn run(json: bool, args: &args::IssuesArgs) -> Result<()> {
     json,
     format!("Searching NixOS/nixpkgs issues for {query}..."),
   );
-  let issues = client.search_issues(&query, days)?;
+  let issues = client.search_issues(&query, days, args.title.only)?;
   drop(progress);
 
   if json {
