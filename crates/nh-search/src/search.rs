@@ -1,7 +1,7 @@
 use misstep::Result;
 use tracing::trace;
 
-use crate::{args, backend::BackendConfig, issues, offline, online, prs};
+use crate::{args, issues, offline, online, prs};
 
 impl args::SearchArgs {
   /// Execute the search subcommand.
@@ -18,41 +18,18 @@ impl args::SearchArgs {
         limit,
         platforms,
         fields,
-        backend,
         query,
       } => {
         online::run_packages(
-          channel,
-          limit,
-          platforms,
-          fields,
-          self.json,
-          BackendConfig {
-            version:   backend.version,
-            fallbacks: backend.fallbacks,
-          },
-          query,
+          channel, limit, platforms, fields, self.json, query,
         )
       },
       args::ResolvedSearchMode::Options {
         channel,
         limit,
         scope,
-        backend,
         query,
-      } => {
-        online::run_options(
-          channel,
-          limit,
-          self.json,
-          scope,
-          BackendConfig {
-            version:   backend.version,
-            fallbacks: backend.fallbacks,
-          },
-          query,
-        )
-      },
+      } => online::run_options(channel, limit, self.json, scope, query),
       args::ResolvedSearchMode::Offline {
         limit,
         scope,

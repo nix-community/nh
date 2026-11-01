@@ -216,6 +216,10 @@ or `TRUE` are rejected.
 
 ### Removed
 
+- `nh search` no longer accepts `--backend-version` and
+  `--backend-version-fallbacks`, nor reads `NH_SEARCH_BACKEND_VERSION` and
+  `NH_SEARCH_BACKEND_FALLBACKS`. nh discovers the newest search.nixos.org index
+  for the channel, and falls back to the bundled version plus two newer ones.
 - `NH_REMOTE_CLEANUP` has been removed. Interrupted remote builds are now
   cancelled by the remote Nix daemon, so the `pkill`-based cleanup is no longer
   needed.

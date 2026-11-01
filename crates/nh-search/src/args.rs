@@ -22,9 +22,6 @@ pub struct SearchArgs {
   #[pound(long, delimiter = ',')]
   pub fields: Option<Vec<PackageField>>,
 
-  #[pound(flatten)]
-  pub backend: BackendArgs,
-
   /// Output results as JSON
   #[pound(long, short = 'j', env = "NH_SEARCH_JSON", global)]
   pub json: bool,
@@ -92,9 +89,6 @@ pub struct PackagesArgs {
   #[pound(long, delimiter = ',')]
   pub fields: Option<Vec<PackageField>>,
 
-  #[pound(flatten)]
-  pub backend: BackendArgs,
-
   /// Name of the package to search
   #[pound(min_values = 1)]
   pub query: Vec<String>,
@@ -111,9 +105,6 @@ pub struct OptionsArgs {
   /// Options scope: nixpkgs, home-manager, nix-darwin, or all (default)
   #[pound(long, default_missing = "all", value_name = "SCOPE")]
   pub scope: Option<OptionScope>,
-
-  #[pound(flatten)]
-  pub backend: BackendArgs,
 
   /// Name of the option to search
   #[pound(min_values = 1)]
@@ -189,29 +180,6 @@ pub struct ChannelArg {
     default = { DEFAULT_CHANNEL }
   )]
   pub value: String,
-}
-
-#[derive(Parse, Debug, Clone, Copy)]
-pub struct BackendArgs {
-  /// Backend index version to query on search.nixos.org. Defaults to the
-  /// newest version available for the channel, or the version bundled with nh
-  /// if that cannot be determined
-  #[pound(
-    long = "backend-version",
-    env = "NH_SEARCH_BACKEND_VERSION",
-    value_name = "VERSION"
-  )]
-  pub version: Option<u32>,
-
-  /// Number of newer index versions to try when the requested version is
-  /// outdated (missing on the backend)
-  #[pound(
-    long = "backend-version-fallbacks",
-    env = "NH_SEARCH_BACKEND_FALLBACKS",
-    default = "1",
-    value_name = "COUNT"
-  )]
-  pub fallbacks: u32,
 }
 
 #[derive(Parse, Debug, Clone, Copy)]
@@ -319,14 +287,12 @@ pub enum ResolvedSearchMode<'a> {
     limit:     u64,
     platforms: bool,
     fields:    Option<&'a [PackageField]>,
-    backend:   BackendArgs,
     query:     &'a [String],
   },
   Options {
     channel: &'a str,
     limit:   u64,
     scope:   OptionScope,
-    backend: BackendArgs,
     query:   &'a [String],
   },
   Offline {
@@ -360,7 +326,6 @@ impl SearchArgs {
           limit:     args.limit.value,
           platforms: args.platforms.value,
           fields:    args.fields.as_deref().or(self.fields.as_deref()),
-          backend:   args.backend,
           query:     &args.query,
         })
       },
@@ -369,7 +334,6 @@ impl SearchArgs {
           channel: &args.channel.value,
           limit:   args.limit.value,
           scope:   args.scope.unwrap_or(OptionScope::All),
-          backend: args.backend,
           query:   &args.query,
         })
       },
@@ -402,7 +366,6 @@ impl SearchArgs {
           limit:     self.limit.value,
           platforms: self.platforms.value,
           fields:    self.fields.as_deref(),
-          backend:   self.backend,
           query:     &self.query,
         })
       },
@@ -415,7 +378,6 @@ impl SearchArgs {
           channel: &self.channel.value,
           limit:   self.limit.value,
           scope:   OptionScope::All,
-          backend: self.backend,
           query:   &self.query,
         })
       },
@@ -563,42 +525,6 @@ mod tests {
     assert!(matches!(args.default_search, SearchDefault::Options));
     assert_eq!(args.query, ["hello"]);
     assert!(args.mode.is_none());
-    Ok(())
-  }
-
-  #[test]
-  fn backend_version_flags_parse_and_default()
-  -> Result<(), Box<dyn std::error::Error>> {
-    let args = parse_search(&[
-      "search",
-      "packages",
-      "hello",
-      "--backend-version",
-      "51",
-      "--backend-version-fallbacks",
-      "3",
-    ])?;
-
-    match args.mode {
-      Some(SearchMode::Packages { args: packages }) => {
-        assert_eq!(packages.backend.version, Some(51));
-        assert_eq!(packages.backend.fallbacks, 3);
-      },
-      other => {
-        return Err(format!("expected packages mode, got {other:?}").into());
-      },
-    }
-
-    let defaults = parse_search(&["search", "options", "hello"])?;
-    match defaults.mode {
-      Some(SearchMode::Options { args: options }) => {
-        assert_eq!(options.backend.version, None);
-        assert_eq!(options.backend.fallbacks, 1);
-      },
-      other => {
-        return Err(format!("expected options mode, got {other:?}").into());
-      },
-    }
     Ok(())
   }
 

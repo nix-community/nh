@@ -5,7 +5,7 @@ use tracing::debug;
 
 use crate::{
   args,
-  backend::{self, BackendConfig, SearchContexts},
+  backend::{self, SearchContexts},
   channel,
   query,
   render,
@@ -23,17 +23,9 @@ pub fn run_packages(
   platforms: bool,
   fields: Option<&[args::PackageField]>,
   json: bool,
-  backend: BackendConfig,
   query: &[String],
 ) -> Result<()> {
-  run_online(
-    &Packages { platforms, fields },
-    channel,
-    limit,
-    json,
-    backend,
-    query,
-  )
+  run_online(&Packages { platforms, fields }, channel, limit, json, query)
 }
 
 pub fn run_options(
@@ -41,10 +33,9 @@ pub fn run_options(
   limit: u64,
   json: bool,
   scope: args::OptionScope,
-  backend: BackendConfig,
   query: &[String],
 ) -> Result<()> {
-  run_online(&Options { scope }, channel, limit, json, backend, query)
+  run_online(&Options { scope }, channel, limit, json, query)
 }
 
 fn run_online<M>(
@@ -52,7 +43,6 @@ fn run_online<M>(
   requested_channel: &str,
   limit: u64,
   json: bool,
-  backend: BackendConfig,
   query: &[String],
 ) -> Result<()>
 where
@@ -72,7 +62,6 @@ where
     &search,
     &channel,
     mode.contexts(),
-    backend,
   )?;
 
   if json {
