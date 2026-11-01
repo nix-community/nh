@@ -35,9 +35,11 @@ use tracing::{debug, info, warn};
 use crate::{
   args::{
     self,
+    OsBuildArgs,
     OsBuildImageArgs,
     OsBuildVmArgs,
     OsGenerationsArgs,
+    OsLabelArgs,
     OsRebuildActivateArgs,
     OsRebuildArgs,
     OsReplArgs,
@@ -45,6 +47,7 @@ use crate::{
     OsSubcommand::{self},
   },
   generations,
+  label::GenerationLabel,
 };
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
@@ -95,7 +98,7 @@ impl args::OsArgs {
   /// - Nix evaluation or building fails
   /// - File system operations fail
   pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
-    use OsRebuildVariant::{Boot, Build, DryActivate, Switch, Test};
+    use OsRebuildVariant::{Boot, DryActivate, Switch, Test};
     match self.subcommand {
       OsSubcommand::Boot { args } => {
         args.rebuild_and_activate(&Boot, None, elevation)
@@ -110,6 +113,7 @@ impl args::OsArgs {
         #[expect(deprecated, reason = "the struct still carries the flag")]
         let activate = OsRebuildActivateArgs {
           rebuild:                        args.rebuild,
+          label:                          OsLabelArgs::default(),
           install_bootloader:             false,
           show_activation_logs:           false,
           continue_on_activation_failure: false,
@@ -118,15 +122,11 @@ impl args::OsArgs {
         activate.rebuild_and_activate(&DryActivate, None, elevation)
       },
       OsSubcommand::Build { args } => {
-        if args.common.ask {
+        if args.rebuild.common.ask {
           warn!("`--ask` has no effect for `nh os build`");
         }
 
-        if args.common.dry {
-          args.dry_build()
-        } else {
-          args.build_only(&Build, None, &elevation)
-        }
+        args.build(&elevation)
       },
       OsSubcommand::BuildVm { args } => args.build_vm(&elevation),
       OsSubcommand::Repl { args } => args.run(),
@@ -335,7 +335,12 @@ impl OsBuildVmArgs {
       });
     }
 
-    rebuild.build_only(&OsRebuildVariant::BuildVm, Some(&[attr]), elevation)?;
+    rebuild.build_only(
+      &OsRebuildVariant::BuildVm,
+      Some(&[attr]),
+      elevation,
+      None,
+    )?;
 
     // If --run flag is set, execute the VM
     if self.run {
@@ -343,6 +348,19 @@ impl OsBuildVmArgs {
     }
 
     Ok(())
+  }
+}
+
+impl OsBuildArgs {
+  fn build(self, elevation: &ElevationStrategy) -> Result<()> {
+    let label = self.label.label_with_report();
+    if self.rebuild.common.dry {
+      self.rebuild.dry_build(label)
+    } else {
+      self
+        .rebuild
+        .build_only(&OsRebuildVariant::Build, None, elevation, label)
+    }
   }
 }
 
@@ -356,15 +374,19 @@ impl OsRebuildActivateArgs {
   ) -> Result<()> {
     use OsRebuildVariant::{Build, BuildVm};
 
+    let label = self.label.label_with_report();
+
     let (local_elevate, target_hostname) =
       self.rebuild.setup_build_context(&elevation)?;
 
     let (out_path, _tempdir_guard) =
       self.rebuild.determine_output_path(variant)?;
 
-    let toplevel = self
-      .rebuild
-      .resolve_installable_and_toplevel(&target_hostname, final_attrs)?;
+    let toplevel = self.rebuild.resolve_installable_and_toplevel(
+      &target_hostname,
+      final_attrs,
+      label,
+    )?;
 
     if self.rebuild.update_args.update_all
       || self.rebuild.update_args.update_input.is_some()
@@ -414,8 +436,9 @@ impl OsRebuildActivateArgs {
       local_elevate
     };
 
-    let store_path =
-      self.rebuild.execute_build(toplevel, &out_path, message)?;
+    let store_path = self
+      .rebuild
+      .execute_build(toplevel, &out_path, message, label)?;
 
     let target_profile = self
       .rebuild
@@ -687,12 +710,17 @@ impl OsRebuildArgs {
     &self,
     target_hostname: &str,
     final_attrs: Option<&[&str]>,
+    label: Option<&GenerationLabel>,
   ) -> Result<Installable> {
     let installable = self
       .common
       .installable
       .clone()
       .resolve_or_default(CommandContext::Os)?;
+
+    if let Some(label) = label {
+      label.ensure_evaluable(&installable)?;
+    }
 
     let mut build_attr = vec!["config", "system", "build"];
     build_attr.extend_from_slice(final_attrs.unwrap_or(&["toplevel"]));
@@ -707,12 +735,17 @@ impl OsRebuildArgs {
     toplevel: Installable,
     out_path: &Path,
     message: &str,
+    label: Option<&GenerationLabel>,
   ) -> Result<PathBuf> {
-    let build = command::Build::new(toplevel)
+    let mut build = command::Build::new(toplevel)
       .extra_args(&self.extra_args)
       .passthrough(&self.common.passthrough)
       .message(message)
       .rom(use_rom(self.common.no_rom, self.common.no_nom));
+
+    if let Some(label) = label {
+      build = label.configure_build(build);
+    }
 
     nh_remote::build(
       build,
@@ -783,7 +816,7 @@ impl OsRebuildArgs {
     Ok(store_path.to_path_buf())
   }
 
-  fn dry_build(&self) -> Result<()> {
+  fn dry_build(&self, label: Option<&GenerationLabel>) -> Result<()> {
     if self.build_host.is_some() || self.target_host.is_some() {
       bail!(
         "`nh os build --dry` does not support remote build or target hosts"
@@ -791,7 +824,8 @@ impl OsRebuildArgs {
     }
 
     let hostname = get_hostname(self.hostname.clone())?;
-    let installable = self.resolve_installable_and_toplevel(&hostname, None)?;
+    let installable =
+      self.resolve_installable_and_toplevel(&hostname, None, label)?;
 
     if self.update_args.update_all || self.update_args.update_input.is_some() {
       update_with_args(
@@ -801,11 +835,15 @@ impl OsRebuildArgs {
       )?;
     }
 
-    command::Build::new(installable)
+    let mut build = command::Build::new(installable)
       .extra_args(&self.extra_args)
-      .passthrough(&self.common.passthrough)
-      .dry_run()
-      .context("Failed to calculate build plan")
+      .passthrough(&self.common.passthrough);
+
+    if let Some(label) = label {
+      build = label.configure_build(build);
+    }
+
+    build.dry_run().context("Failed to calculate build plan")
   }
 
   // final_attr is the attribute of config.system.build.X to evaluate.
@@ -815,6 +853,7 @@ impl OsRebuildArgs {
     variant: &OsRebuildVariant,
     final_attrs: Option<&[&str]>,
     elevation: &ElevationStrategy,
+    label: Option<&GenerationLabel>,
   ) -> Result<()> {
     use OsRebuildVariant::{Build, BuildIso, BuildVm};
 
@@ -845,7 +884,11 @@ impl OsRebuildArgs {
         attr,
       ])?
     } else {
-      self.resolve_installable_and_toplevel(&target_hostname, final_attrs)?
+      self.resolve_installable_and_toplevel(
+        &target_hostname,
+        final_attrs,
+        label,
+      )?
     };
 
     if self.update_args.update_all || self.update_args.update_input.is_some() {
@@ -867,7 +910,7 @@ impl OsRebuildArgs {
       _ => "Building NixOS configuration",
     };
 
-    let store_path = self.execute_build(toplevel, &out_path, message)?;
+    let store_path = self.execute_build(toplevel, &out_path, message, label)?;
 
     let target_profile = if matches!(variant, BuildVm) {
       store_path
@@ -1122,7 +1165,12 @@ impl OsBuildImageArgs {
       .image_variant
       .as_deref()
       .map_or_else(|| vec!["isoImage"], |variant| vec!["images", variant]);
-    rebuild.build_only(&OsRebuildVariant::BuildIso, Some(&attrs), elevation)?;
+    rebuild.build_only(
+      &OsRebuildVariant::BuildIso,
+      Some(&attrs),
+      elevation,
+      None,
+    )?;
 
     Ok(())
   }
