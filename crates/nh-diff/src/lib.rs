@@ -50,7 +50,7 @@ pub fn print_diff(
   // was explicitly requested.
   match (&diff.mode, print_closure_diff(host, old, new, options)) {
     (DiffType::Auto, Err(err)) => {
-      warn!("Skipping diff: {err:#}");
+      warn!("Skipping diff: {err:?}");
       Ok(())
     },
     (_, result) => result,
@@ -121,7 +121,7 @@ fn snapshot(
     .query_snapshot_document(&path)
     .or_else(|err| {
       debug!(
-        "Could not snapshot '{}' locally, using dix on '{host}': {err:#}",
+        "Could not snapshot '{}' locally, using dix on '{host}': {err}",
         path.display()
       );
       query_remote_snapshot(host, &path)
