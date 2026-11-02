@@ -405,6 +405,19 @@ the common variables that you may encounter or choose to employ are as follows:
   - Path to a file that records the Nix log stream of builds shown by rom, so it
     can be replayed through rom.
 
+- `NH_TERM_STATUS`
+  - Selects how builds report status to the terminal: `auto`, `always`, or
+    `never`. Equivalent to `--term-status`, which takes precedence over this
+    variable. `auto` (the default) reports OSC 9;4 progress only when the
+    terminal's environment advertises it. `always` reports without that check.
+    `never` disables reporting. Reports go to stderr only, and nothing is
+    written when stderr is not a terminal, even when `always` is selected.
+    Builds run with `--no-rom` report nothing. Terminals that are identifiable
+    only through variables not forwarded over SSH are not detected
+    automatically; select `always` there. An interrupt (Ctrl-C) ends nh without
+    clearing its indicator, which then stays set until cleared;
+    `printf '\e]9;4;0\e\\'` clears it.
+
 - `NH_NO_CHECKS`
   - When set (any non-empty value), skips startup checks such as Nix version and
     experimental feature validation. Useful for generating completions or
