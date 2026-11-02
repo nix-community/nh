@@ -92,6 +92,8 @@ pub fn setup_logging_at(fallback_level: LevelFilter) -> Result<()> {
     .without_time()
     .compact()
     .with_line_number(true)
+    // Misstep reports are colored.
+    .with_ansi_sanitization(false)
     .event_format(InfoFormatter)
     .with_filter(
       EnvFilter::from_env("NH_LOG")
