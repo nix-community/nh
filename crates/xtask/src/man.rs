@@ -82,6 +82,15 @@ const ENVIRONMENT: &[Entry] = &[
      so it can be replayed through rom.",
   ),
   (
+    "NH_TERM_STATUS",
+    "Selects terminal status reporting for builds: auto, always, or never. \
+     Equivalent to --term-status, which takes precedence. Auto writes OSC 9;4 \
+     only when the environment advertises it. Always writes it without that \
+     check. Neither queries the terminal. Reporting needs a terminal on \
+     stderr. An interrupt leaves the indicator set until the terminal clears \
+     it.",
+  ),
+  (
     "NH_SSHOPTS",
     "SSH options for remote operations. Takes precedence over NIX_SSHOPTS. \
      Accepts the same format as NIX_SSHOPTS.",

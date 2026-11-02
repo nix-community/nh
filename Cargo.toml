@@ -38,6 +38,7 @@ pound = "0.6.1"
 rom = { default-features = false, version = "0.4.0" }
 spam-db = "0.3.0"
 
+anstyle-progress = "0.1.5"
 elasticsearch-dsl = "0.4.26"
 flub = "0.1.0"
 humantime = "2.4.0"

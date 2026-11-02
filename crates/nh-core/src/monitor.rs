@@ -25,19 +25,26 @@ use serde::Serialize;
 use subprocess::{Exec, ExitStatus, Redirection};
 use tracing::{debug, warn};
 
+use crate::{args::StatusMode, status::BuildStatus};
+
 const TIMER_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Runs `command`, returning its exit status and stdout.
 ///
 /// With `rom`, rom renders the internal-JSON logs `command` writes to stderr.
 /// If monitoring fails, `command` is killed, since nothing would drain its
-/// logs anymore. Without `rom`, stderr is inherited.
+/// logs anymore. Without `rom`, stderr is inherited and terminal status is not
+/// reported.
 ///
 /// # Errors
 ///
 /// Returns an error if `command` cannot be started or its output cannot be
 /// read, decoded, or presented.
-pub fn run(command: Exec, rom: bool) -> Result<(ExitStatus, Vec<u8>)> {
+pub fn run(
+  command: Exec,
+  rom: bool,
+  status: StatusMode,
+) -> Result<(ExitStatus, Vec<u8>)> {
   if !rom {
     let command = command.stdout(Redirection::Pipe);
     debug!(?command);
@@ -51,7 +58,7 @@ pub fn run(command: Exec, rom: bool) -> Result<(ExitStatus, Vec<u8>)> {
     return Ok((job.wait()?, stdout));
   }
 
-  let mut monitor = Monitor::new()?;
+  let mut monitor = Monitor::new(status)?;
   let command = command
     .args(["--log-format", "internal-json"])
     .stdout(Redirection::Pipe)
@@ -124,11 +131,12 @@ struct Monitor {
   render:   RenderConfig,
   history:  BuildReportCache,
   recorder: Option<Recorder>,
+  status:   BuildStatus<io::Stderr>,
   dirty:    bool,
 }
 
 impl Monitor {
-  fn new() -> Result<Self> {
+  fn new(status_mode: StatusMode) -> Result<Self> {
     let history =
       BuildReportCache::new(BuildReportCache::default_cache_path()?);
     let mut stream = StreamEngine::new(EngineConfig::default());
@@ -152,12 +160,17 @@ impl Monitor {
       terminal.retire()?;
     }
 
+    // Selection writes nothing. The first report is the first render, which
+    // runs only after the child has been spawned.
+    let status = BuildStatus::detect(io::stderr(), status_mode);
+
     Ok(Self {
       stream,
       terminal,
       render,
       history,
       recorder: Recorder::from_env()?,
+      status,
       dirty: false,
     })
   }
@@ -230,6 +243,10 @@ impl Monitor {
   }
 
   fn render(&mut self, final_render: bool) -> Result<()> {
+    if !final_render {
+      let progress = self.stream.engine().state().builds_progress();
+      self.status.build_progress(progress.done, progress.expected);
+    }
     self.terminal.render(
       self.stream.engine().state(),
       &self.render,
@@ -241,6 +258,9 @@ impl Monitor {
   }
 
   fn finish(&mut self, succeeded: bool) -> Result<()> {
+    // Clear the owned status record before any fallible rom finalization, so
+    // cleanup is never deferred behind a presentation failure.
+    self.status.finish();
     let processed = self.stream.finish_at(current_time())?;
     self.output(processed.output)?;
     if succeeded {
@@ -305,5 +325,21 @@ impl Recorder {
     self.partial.drain(..=end);
     self.file.flush()?;
     Ok(())
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  #![allow(clippy::expect_used, clippy::unwrap_used, reason = "Fine in tests")]
+
+  use super::*;
+
+  #[test]
+  fn unmonitored_run_keeps_stdout_and_exit_status() {
+    let command = Exec::cmd("sh").args(["-c", "printf out; exit 3"]);
+    let (status, stdout) =
+      run(command, false, StatusMode::Always).expect("unmonitored run");
+    assert_eq!(stdout, b"out");
+    assert!(!status.success());
   }
 }

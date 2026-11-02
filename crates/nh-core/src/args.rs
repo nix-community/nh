@@ -33,6 +33,10 @@ pub struct CommonRebuildArgs {
   #[pound(long, short, default = "auto")]
   pub diff: Diff,
 
+  /// Terminal status reporting: auto, always, or never
+  #[pound(long = "term-status", env = "NH_TERM_STATUS", default = "auto")]
+  pub term_status: StatusMode,
+
   #[pound(flatten)]
   pub passthrough: NixBuildPassthroughArgs,
 }
@@ -96,6 +100,22 @@ impl FromArg for Diff {
 
     Ok(Self { mode, full })
   }
+}
+
+/// When monitored builds publish terminal status with OSC 9;4.
+///
+/// `Auto` asks `anstyle-progress` whether the terminal supports OSC 9;4.
+/// `Always` skips that check. `Never` disables reporting. Neither reports
+/// unless stderr is a terminal, and no mode queries the terminal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
+pub enum StatusMode {
+  /// Report when the terminal's environment advertises OSC 9;4
+  #[default]
+  Auto,
+  /// Report without checking the terminal's environment
+  Always,
+  /// Disable terminal status reporting
+  Never,
 }
 
 #[derive(Debug, Default, Parse)]
@@ -461,7 +481,22 @@ impl NixBuildPassthroughArgs {
 
 #[cfg(test)]
 mod tests {
-  use super::NixBuildPassthroughArgs;
+  use pound::FromArg;
+
+  use super::{NixBuildPassthroughArgs, StatusMode};
+
+  #[test]
+  fn status_mode_accepts_documented_values_only() {
+    assert_eq!(StatusMode::from_arg("auto").ok(), Some(StatusMode::Auto));
+    assert_eq!(
+      StatusMode::from_arg("always").ok(),
+      Some(StatusMode::Always)
+    );
+    assert_eq!(StatusMode::from_arg("never").ok(), Some(StatusMode::Never));
+    assert!(StatusMode::from_arg("9;4").is_err());
+    assert!(StatusMode::from_arg("off").is_err());
+    assert!(StatusMode::from_arg("").is_err());
+  }
 
   #[test]
   fn no_build_output_maps_to_nix_quiet_flag() {
