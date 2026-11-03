@@ -615,24 +615,31 @@ fn cleanable_generations(
   };
 
   let now = SystemTime::now();
-  for (generation, tbr) in &mut result {
-    if selected
+  let mut succ_last_modified = profile
+    .symlink_metadata()
+    .and_then(|metadata| metadata.modified())
+    .unwrap_or(SystemTime::UNIX_EPOCH);
+  for (generation, tbr) in result.iter_mut().rev() {
+    let is_selected = selected
       .as_ref()
-      .is_some_and(|target| target.file_name() == generation.path.file_name())
+      .is_some_and(|target| target.file_name() == generation.path.file_name());
+    let is_in_window = match now
+      .duration_since(succ_last_modified.max(generation.last_modified))
     {
-      *tbr = false;
-      continue;
-    }
-
-    match now.duration_since(generation.last_modified) {
+      Ok(val) => val <= keep_since.into(),
       Err(err) => {
-        warn!(?err, ?now, ?generation, "Failed to compare time!");
+        warn!(
+          ?err,
+          ?now,
+          ?succ_last_modified,
+          ?generation,
+          "Failed to compare time!"
+        );
+        false
       },
-      Ok(val) if val <= keep_since.into() => {
-        *tbr = false;
-      },
-      Ok(_) => {},
-    }
+    };
+    *tbr = !(is_selected || is_in_window);
+    succ_last_modified = generation.last_modified;
   }
 
   for (_, tbr) in result.iter_mut().rev().take(keep as _) {
@@ -698,6 +705,59 @@ mod tests {
   use std::{fs, os::unix::fs::symlink, time::Duration};
 
   use super::*;
+
+  #[test]
+  fn cleaning_generation_used_in_last_n_days_stays() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let profile = dir.path().join("profile");
+    let now = SystemTime::now()
+      .duration_since(SystemTime::UNIX_EPOCH)
+      .expect("clock");
+
+    let target1 = dir.path().join("contents-1");
+    let link1 = dir.path().join("profile-1-link");
+    fs::create_dir(&target1).expect("contents");
+    symlink(&target1, &link1).expect("generation");
+    let thirty_d_ago = nix::sys::time::TimeSpec::from_duration(
+      now.checked_sub(Duration::from_hours(24 * 30)).expect("sub"),
+    );
+    nix::sys::stat::utimensat(
+      nix::fcntl::AT_FDCWD,
+      &link1,
+      &thirty_d_ago,
+      &thirty_d_ago,
+      nix::sys::stat::UtimensatFlags::NoFollowSymlink,
+    )
+    .expect("set generation mtime");
+
+    let target2 = dir.path().join("contents-2");
+    let link2 = dir.path().join("profile-2-link");
+    fs::create_dir(&target2).expect("contents");
+    symlink(&target2, &link2).expect("generation");
+
+    symlink("profile-2-link", &profile).expect("profile");
+
+    let keep_since = "7d".parse().expect("duration");
+    let generations = cleanable_generations(&profile, 0, keep_since, false)
+      .expect("cleanable generations");
+
+    let tagged = |generations: &GenerationsTagged, number| {
+      generations
+        .iter()
+        .find(|(generation, _)| generation.number == number)
+        .map(|(_, remove)| *remove)
+    };
+    assert_eq!(
+      tagged(&generations, 1),
+      Some(false),
+      "generation in use during window must be kept"
+    );
+    assert_eq!(
+      tagged(&generations, 2),
+      Some(false),
+      "current generation must be kept"
+    );
+  }
 
   #[test]
   fn cleaning_rolled_back_profile_requires_opt_in_to_delete_selected() {
