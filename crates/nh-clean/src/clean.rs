@@ -623,21 +623,9 @@ fn cleanable_generations(
     let is_selected = selected
       .as_ref()
       .is_some_and(|target| target.file_name() == generation.path.file_name());
-    let is_in_window = match now
-      .duration_since(succ_last_modified.max(generation.last_modified))
-    {
-      Ok(val) => val <= keep_since.into(),
-      Err(err) => {
-        warn!(
-          ?err,
-          ?now,
-          ?succ_last_modified,
-          ?generation,
-          "Failed to compare time!"
-        );
-        false
-      },
-    };
+    let is_in_window = now
+      .duration_since(succ_last_modified.max(generation.last_modified).min(now))
+      .is_ok_and(|age| age <= keep_since.into());
     *tbr = !(is_selected || is_in_window);
     succ_last_modified = generation.last_modified;
   }
