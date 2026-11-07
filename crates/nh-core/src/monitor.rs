@@ -340,6 +340,6 @@ mod tests {
     let (status, stdout) =
       run(command, false, StatusMode::Always).expect("unmonitored run");
     assert_eq!(stdout, b"out");
-    assert!(!status.success());
+    assert_eq!(status.code(), Some(3));
   }
 }

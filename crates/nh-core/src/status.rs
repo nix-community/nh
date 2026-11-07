@@ -87,13 +87,12 @@ impl<W: Write> BuildStatus<W> {
     self.working(counted_percent(done, expected));
   }
 
-  /// Finalizes the build by clearing owned state. Idempotent.
+  /// Stops reporting and clears owned state, retrying a failed clear on drop
+  /// or a later call. A successful clear is never repeated.
   pub(crate) fn finish(&mut self) {
-    if std::mem::replace(&mut self.finished, true) {
-      return;
-    }
-    if self.last.take().is_some() {
-      self.write(TermProgress::remove());
+    self.finished = true;
+    if self.last.is_some() && self.write(TermProgress::remove()) {
+      self.last = None;
     }
   }
 
@@ -136,23 +135,32 @@ impl<W: Write> Drop for BuildStatus<W> {
 mod tests {
   #![allow(clippy::expect_used, clippy::unwrap_used, reason = "Fine in tests")]
 
-  use std::{cell::RefCell, rc::Rc};
+  use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+  };
 
   use super::*;
 
   /// Writer that shares its captured bytes with the test.
   #[derive(Clone, Default)]
-  struct SharedWriter(Rc<RefCell<Vec<u8>>>);
+  struct SharedWriter {
+    bytes:           Rc<RefCell<Vec<u8>>>,
+    fail_next_write: Rc<Cell<bool>>,
+  }
 
   impl SharedWriter {
     fn text(&self) -> String {
-      String::from_utf8(self.0.borrow().clone()).expect("utf-8")
+      String::from_utf8(self.bytes.borrow().clone()).expect("utf-8")
     }
   }
 
   impl Write for SharedWriter {
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
-      self.0.borrow_mut().extend_from_slice(buffer);
+      if self.fail_next_write.replace(false) {
+        return Err(io::ErrorKind::WouldBlock.into());
+      }
+      self.bytes.borrow_mut().extend_from_slice(buffer);
       Ok(buffer.len())
     }
 
@@ -258,6 +266,34 @@ mod tests {
       status.build_progress(1, 2);
     }
     assert_eq!(occurrences(&writer.text(), "9;4;0;"), 1);
+  }
+
+  #[test]
+  fn failed_clear_is_retried_without_resuming_progress() {
+    for retry_on_drop in [false, true] {
+      let writer = SharedWriter::default();
+      {
+        let mut status = BuildStatus::new(writer.clone(), true);
+        status.min_frame_interval = Duration::ZERO;
+        status.build_progress(1, 2);
+        writer.fail_next_write.set(true);
+
+        status.finish();
+        assert!(status.finished);
+        assert!(status.last.is_some());
+        assert_eq!(occurrences(&writer.text(), "9;4;0;"), 0);
+
+        status.build_progress(0, 0);
+        assert_eq!(writer.text(), "\x1b]9;4;1;50\x1b\\");
+
+        if !retry_on_drop {
+          status.finish();
+          assert!(status.last.is_none());
+          status.finish();
+        }
+      }
+      assert_eq!(occurrences(&writer.text(), "9;4;0;"), 1);
+    }
   }
 
   #[test]

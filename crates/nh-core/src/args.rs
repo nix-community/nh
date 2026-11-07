@@ -481,9 +481,9 @@ impl NixBuildPassthroughArgs {
 
 #[cfg(test)]
 mod tests {
-  use pound::FromArg;
+  use pound::{FromArg, Parse};
 
-  use super::{NixBuildPassthroughArgs, StatusMode};
+  use super::{CommonRebuildArgs, NixBuildPassthroughArgs, StatusMode};
 
   #[test]
   fn status_mode_accepts_documented_values_only() {
@@ -496,6 +496,50 @@ mod tests {
     assert!(StatusMode::from_arg("9;4").is_err());
     assert!(StatusMode::from_arg("off").is_err());
     assert!(StatusMode::from_arg("").is_err());
+  }
+
+  #[test]
+  fn terminal_status_parser_respects_default_env_and_cli()
+  -> Result<(), Box<dyn std::error::Error>> {
+    const CASE_ENV: &str = "NH_TEST_TERM_STATUS_CASE";
+    if let Ok(case) = std::env::var(CASE_ENV) {
+      let (args, expected): (&[&str], _) = match case.as_str() {
+        "default" => (&[], StatusMode::Auto),
+        "env" => (&[], StatusMode::Never),
+        "cli" | "precedence" => {
+          (&["--term-status", "always"], StatusMode::Always)
+        },
+        _ => return Err(format!("unknown parser test case: {case}").into()),
+      };
+      let parsed = CommonRebuildArgs::try_parse_from(args.iter().copied())?;
+      assert_eq!(parsed.term_status, expected);
+      return Ok(());
+    }
+
+    // Parse in isolated processes without mutating the test runner's
+    // environment.
+    for (case, env_value) in [
+      ("default", None),
+      ("env", Some("never")),
+      ("cli", None),
+      ("precedence", Some("never")),
+    ] {
+      let mut command = std::process::Command::new(std::env::current_exe()?);
+      command
+        .args([
+          "--exact",
+          "args::tests::terminal_status_parser_respects_default_env_and_cli",
+          "--nocapture",
+        ])
+        .env_clear()
+        .env(CASE_ENV, case);
+      if let Some(value) = env_value {
+        command.env("NH_TERM_STATUS", value);
+      }
+      let output = command.output()?;
+      assert!(output.status.success(), "{case}: {output:?}");
+    }
+    Ok(())
   }
 
   #[test]

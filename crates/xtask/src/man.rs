@@ -86,9 +86,9 @@ const ENVIRONMENT: &[Entry] = &[
     "Selects terminal status reporting for builds: auto, always, or never. \
      Equivalent to --term-status, which takes precedence. Auto writes OSC 9;4 \
      only when the environment advertises it. Always writes it without that \
-     check. Neither queries the terminal. Reporting needs a terminal on \
-     stderr. An interrupt leaves the indicator set until the terminal clears \
-     it.",
+     check. Neither queries the terminal. Reporting requires ROM monitoring; \
+     --no-rom or NH_ROM=0 disables it. Reporting needs a terminal on stderr. \
+     An interrupt leaves the indicator set until the terminal clears it.",
   ),
   (
     "NH_SSHOPTS",
