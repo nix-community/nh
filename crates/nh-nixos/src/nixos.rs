@@ -712,7 +712,8 @@ impl OsRebuildArgs {
       .extra_args(&self.extra_args)
       .passthrough(&self.common.passthrough)
       .message(message)
-      .rom(use_rom(self.common.no_rom, self.common.no_nom));
+      .rom(use_rom(self.common.no_rom, self.common.no_nom))
+      .status(self.common.term_status);
 
     nh_remote::build(
       build,
