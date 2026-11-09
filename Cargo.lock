@@ -1424,9 +1424,11 @@ dependencies = [
 [[package]]
 name = "nix-command"
 version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "267d20292d1e031df9eb97a6b4827f75ed85018cf4402380db19d21e49f831c7"
 dependencies = [
- "flub",
  "subprocess",
+ "thiserror",
 ]
 
 [[package]]
