@@ -1434,6 +1434,8 @@ dependencies = [
 [[package]]
 name = "nix-installable"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e49ff2ebcd7f511c7a12f74817a956f07415e5f0d10c8713abc7930becabdf0"
 
 [[package]]
 name = "nu-ansi-term"

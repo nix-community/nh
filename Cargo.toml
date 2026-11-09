@@ -22,7 +22,6 @@ nh-nixos       = { path = "crates/nh-nixos", version = "4.5.0-beta3" }
 nh-remote      = { path = "crates/nh-remote", version = "4.5.0-beta3" }
 nh-search      = { path = "crates/nh-search", version = "4.5.0-beta3" }
 
-nix-installable = { path = "crates/nix-installable", version = "0.1.0" }
 
 caress = "0.3.0"
 dix = { default-features = false, features = [ "store" ], version = "3.0.0" }
@@ -45,6 +44,7 @@ inquire = { default-features = false, features = [ "crossterm" ], version = "0.9
 jiff = { default-features = false, features = [ "std", "tzdb-zoneinfo" ], version = "0.2.38" }
 nix = { default-features = false, features = [ "fs", "user", "hostname" ], version = "0.31.3" }
 nix-command = "0.2.4"
+nix-installable = "0.1.0"
 proptest = "1.12.0"
 regex = "1.13.1"
 reqwest = { default-features = false, features = [
