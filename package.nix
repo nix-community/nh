@@ -3,6 +3,9 @@
   stdenv,
   rustPlatform,
   sqlite,
+  pkg-config,
+  zstd,
+  aws-lc,
   installShellFiles,
   versionCheckHook,
   sudo,
@@ -31,9 +34,14 @@ rustPlatform.buildRustPackage (finalAttrs: {
   strictDeps = true;
   nativeBuildInputs = [
     installShellFiles
+    pkg-config
   ];
 
-  buildInputs = [ sqlite ];
+  buildInputs = [
+    sqlite
+    zstd
+    aws-lc
+  ];
 
   cargoLock.lockFile = ./Cargo.lock;
 

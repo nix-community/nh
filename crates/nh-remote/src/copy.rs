@@ -98,6 +98,15 @@ pub fn copy_closure_from_with_args(
   path: &Path,
   nix_args: &[String],
 ) -> Result<()> {
+  // A valid store path implies its entire closure is valid, so there is
+  // nothing to copy if the result is already present locally.
+  if is_valid_locally(path, nix_args) {
+    info!(
+      "Result already present locally, skipping copy from build host '{host}'"
+    );
+    return Ok(());
+  }
+
   info!("Copying result from build host '{host}'");
 
   let cmd =
@@ -119,6 +128,22 @@ pub fn copy_closure_from_with_args(
   }
 
   Ok(())
+}
+
+/// Whether `path` is valid in the store `nix copy` would copy into.
+///
+/// `nix_args` are the same arguments passed to `nix copy`, so options such as
+/// `--option store` select the same destination store.
+fn is_valid_locally(path: &Path, nix_args: &[String]) -> bool {
+  NixCommand::new(CommandKind::PathInfo)
+    .global_args(get_flake_flags())
+    .arg(path)
+    .args(nix_args)
+    .to_std_command()
+    .stdout(std::process::Stdio::null())
+    .stderr(std::process::Stdio::null())
+    .status()
+    .is_ok_and(|status| status.success())
 }
 
 fn spawn_spinner_stream_thread<R>(

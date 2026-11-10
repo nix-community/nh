@@ -1424,14 +1424,18 @@ dependencies = [
 [[package]]
 name = "nix-command"
 version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "267d20292d1e031df9eb97a6b4827f75ed85018cf4402380db19d21e49f831c7"
 dependencies = [
- "flub",
  "subprocess",
+ "thiserror",
 ]
 
 [[package]]
 name = "nix-installable"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e49ff2ebcd7f511c7a12f74817a956f07415e5f0d10c8713abc7930becabdf0"
 
 [[package]]
 name = "nu-ansi-term"

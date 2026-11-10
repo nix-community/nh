@@ -80,6 +80,8 @@ or `TRUE` are rejected.
 - `--json` is no longer forwarded to `nix build`. nh reads the built output path
   from `nix build --print-out-paths`, which `--json` would replace. It is still
   forwarded to the other Nix commands nh runs.
+- `--build-host` no longer copies the result from the build host when it is
+  already present in the local store.
 - `--build-host` with a different `--target-host` no longer copies the result to
   localhost when the build host can copy it to the target directly. The result
   is copied straight to the host that activates it, before the diff and `--ask`,
