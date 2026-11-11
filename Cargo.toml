@@ -7,20 +7,20 @@ edition      = "2024"
 homepage     = "https://github.com/nix-community/nh"
 license      = "EUPL-1.2"
 rust-version = "1.98.0"
-version      = "4.5.0-beta3"
+version      = "4.5.0"
 
 [workspace.dependencies]
-nh             = { path = "crates/nh", version = "4.5.0-beta3" }
-nh-clean       = { path = "crates/nh-clean", version = "4.5.0-beta3" }
-nh-config      = { path = "crates/nh-config", version = "4.5.0-beta3" }
-nh-core        = { path = "crates/nh-core", version = "4.5.0-beta3" }
-nh-darwin      = { path = "crates/nh-darwin", version = "4.5.0-beta3" }
-nh-diff        = { path = "crates/nh-diff", version = "4.5.0-beta3" }
-nh-home        = { path = "crates/nh-home", version = "4.5.0-beta3" }
-nh-installable = { path = "crates/nh-installable", version = "4.5.0-beta3" }
-nh-nixos       = { path = "crates/nh-nixos", version = "4.5.0-beta3" }
-nh-remote      = { path = "crates/nh-remote", version = "4.5.0-beta3" }
-nh-search      = { path = "crates/nh-search", version = "4.5.0-beta3" }
+nh             = { path = "crates/nh", version = "4.5.0" }
+nh-clean       = { path = "crates/nh-clean", version = "4.5.0" }
+nh-config      = { path = "crates/nh-config", version = "4.5.0" }
+nh-core        = { path = "crates/nh-core", version = "4.5.0" }
+nh-darwin      = { path = "crates/nh-darwin", version = "4.5.0" }
+nh-diff        = { path = "crates/nh-diff", version = "4.5.0" }
+nh-home        = { path = "crates/nh-home", version = "4.5.0" }
+nh-installable = { path = "crates/nh-installable", version = "4.5.0" }
+nh-nixos       = { path = "crates/nh-nixos", version = "4.5.0" }
+nh-remote      = { path = "crates/nh-remote", version = "4.5.0" }
+nh-search      = { path = "crates/nh-search", version = "4.5.0" }
 
 
 caress = "0.3.0"

@@ -14,7 +14,7 @@ be put in the "Changed" section or, if it's just to remove code or
 functionality, under the "Removed" section.
 -->
 
-## Unreleased
+## 4.5.0
 
 ### Added
 
