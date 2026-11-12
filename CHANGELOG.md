@@ -18,6 +18,21 @@ functionality, under the "Removed" section.
 
 ### Added
 
+- Builds in `nh os`, `nh home` and `nh darwin` report progress to the terminal
+  with OSC 9;4 while rom renders the build. Select the behavior with
+  `--term-status` or `NH_TERM_STATUS`:
+  - `auto` (default) reports only when the terminal's environment advertises OSC
+    9;4 support.
+  - `always` reports without that environment check.
+  - `never` disables reporting.
+
+  Reports go to stderr only, and nothing is written when stderr is not a
+  terminal, even with `always`. Terminal support for `auto` is decided by the
+  `anstyle-progress` crate. Reports are cleared when the build finishes or
+  fails. Builds with `--no-rom` report nothing. An interrupt (Ctrl-C) ends nh
+  without clearing, so the indicator stays set until the terminal clears it.
+  Terminals that are identifiable only through variables not forwarded over SSH
+  are not detected automatically; select `always` there.
 - `nh search` accepts `--fields` to select package fields in normal output
   ([#621](https://github.com/nix-community/nh/issues/621)).
 - `nh search prs` and `nh search issues` accept `--title` (`-t`) to match the

@@ -18,6 +18,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
+name = "anstyle-progress"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "31c8de128a34de5ee1f96b96403c74611081e68100aa50368a2bf1d1a8e7d3f9"
+
+[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1230,6 +1236,7 @@ dependencies = [
 name = "nh-core"
 version = "4.5.0"
 dependencies = [
+ "anstyle-progress",
  "flub",
  "indicatif",
  "inquire",
