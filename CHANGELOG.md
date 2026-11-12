@@ -110,6 +110,8 @@ or `TRUE` are rejected.
   rebuild, both locally and remotely.
 - `--diff always` now aborts on a failing diff for every command, including
   `nh os rollback`, `nh home` and `nh darwin`, which used to ignore it.
+- `nh clean --keep-since` now keeps generations that were selected within the
+  duration, not merely created in it.
 
 ### Fixed
 
