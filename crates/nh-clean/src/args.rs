@@ -65,6 +65,10 @@ pub struct CleanArgs {
   #[pound(long = "no-gcroots", alias = "nogcroots")]
   pub no_gcroots: bool,
 
+  /// Don't clean retained build directories
+  #[pound(long)]
+  pub no_builds: bool,
+
   /// Don't clean direnv gcroots
   #[pound(long = "no-direnv", alias = "nodirenv")]
   pub no_direnv: bool,

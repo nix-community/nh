@@ -4,6 +4,7 @@ use std::{
   collections::{BTreeMap, HashMap},
   fmt,
   io::{self, ErrorKind},
+  os::unix::fs::MetadataExt,
   path::{Path, PathBuf},
   sync::LazyLock,
   time::SystemTime,
@@ -198,6 +199,16 @@ impl args::CleanMode {
       },
     };
 
+    let build_dirs = if !is_profile_clean && !args.no_builds {
+      cleanable_build_dirs(
+        Path::new("/nix/var/nix/builds"),
+        args.keep_since.into(),
+        uid,
+      )?
+    } else {
+      Vec::new()
+    };
+
     // Use mutation to raise errors as they come
     let mut profiles_tagged = ProfilesTagged::new();
     for p in profiles {
@@ -352,6 +363,9 @@ impl args::CleanMode {
     if args.no_direnv {
       println!("Skipping all direnv gcroots");
     }
+    if args.no_builds {
+      println!("Skipping retained build directories");
+    }
     println!();
     println!("legend:");
     println!(
@@ -398,6 +412,23 @@ impl args::CleanMode {
       }
       println!();
     }
+    if !build_dirs.is_empty() {
+      println!(
+        "{}",
+        Paint::new("retained build directories")
+          .fg(Color::Blue)
+          .bold()
+      );
+      for (path, tbr) in &build_dirs {
+        let status = if *tbr {
+          Paint::new("DEL").fg(Color::Red)
+        } else {
+          Paint::new("OK ").fg(Color::Green)
+        };
+        println!("- {} {}", status, path.display());
+      }
+      println!();
+    }
     for (profile, generations_tagged) in &profiles_tagged {
       println!(
         "{}",
@@ -428,6 +459,12 @@ impl args::CleanMode {
     }
 
     if !args.dry {
+      for (path, tbr) in &build_dirs {
+        if *tbr {
+          remove_build_dir_nofail(path);
+        }
+      }
+
       for gcroot in &gcroots_tagged {
         if gcroot.tbr {
           remove_path_nofail(gcroot_path_to_remove(gcroot));
@@ -692,6 +729,72 @@ fn gcroot_path_to_remove(gcroot: &GcRootTagged) -> &Path {
   &gcroot.src
 }
 
+#[instrument(err, level = "debug")]
+fn cleanable_build_dirs(
+  dir: &Path,
+  keep_since: std::time::Duration,
+  uid: nix::unistd::Uid,
+) -> Result<Vec<(PathBuf, ToBeRemoved)>> {
+  let entries = match dir.read_dir() {
+    Ok(entries) => entries,
+    Err(err) if err.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+    Err(err) => {
+      return Err(report!(err).context("Reading retained build directories"));
+    },
+  };
+  let now = SystemTime::now();
+  let mut paths = Vec::new();
+  for entry in entries {
+    let entry = entry.context("Reading build directory entry")?;
+    if !entry.file_name().as_encoded_bytes().starts_with(b"nix-") {
+      continue;
+    }
+    let path = entry.path();
+    let metadata = match path.symlink_metadata() {
+      Ok(metadata) => metadata,
+      Err(err) if err.kind() == ErrorKind::NotFound => continue,
+      Err(err) => {
+        return Err(report!(err).context(format_args!(
+          "Reading build directory metadata for {}",
+          path.display()
+        )));
+      },
+    };
+    // Nix creates active build directories with mode 0700 and changes them
+    // to 0755 only when preserving a failed build with --keep-failed.
+    if !metadata.is_dir()
+      || metadata.mode() & 0o7777 != 0o755
+      || (!uid.is_root() && metadata.uid() != uid.as_raw())
+    {
+      debug!(?path, "Not a retained build owned by this user, skipping");
+      continue;
+    }
+    let tbr = match now.duration_since(
+      metadata
+        .modified()
+        .context("Reading build directory modified time")?,
+    ) {
+      Err(err) => {
+        warn!(?err, ?now, ?path, "Failed to compare time!");
+        false
+      },
+      Ok(age) => age > keep_since,
+    };
+    debug!(?path, tbr, "Tagged retained build directory");
+    paths.push((path, tbr));
+  }
+  Ok(paths)
+}
+
+fn remove_build_dir_nofail(path: &Path) {
+  info!("Removing {}", path.to_string_lossy());
+  if let Err(err) = std::fs::remove_dir_all(path)
+    && err.kind() != ErrorKind::NotFound
+  {
+    warn!(?path, ?err, "Failed to remove build directory");
+  }
+}
+
 fn remove_path_nofail(path: &Path) {
   info!("Removing {}", path.to_string_lossy());
   if let Err(err) = std::fs::remove_file(path) {
@@ -705,6 +808,61 @@ mod tests {
   use std::{fs, os::unix::fs::symlink, time::Duration};
 
   use super::*;
+
+  #[test]
+  fn build_cleanup_selects_only_old_retained_directories() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    for (name, mode, old) in [
+      ("nix-retained", 0o755, true),
+      ("nix-active", 0o700, true),
+      ("nix-recent", 0o755, false),
+      ("nix-future", 0o755, false),
+      ("unrelated", 0o755, true),
+    ] {
+      let path = dir.path().join(name);
+      fs::create_dir(&path).expect("build directory");
+      fs::set_permissions(&path, fs::Permissions::from_mode(mode))
+        .expect("permissions");
+      if old {
+        fs::File::open(&path)
+          .expect("open directory")
+          .set_times(fs::FileTimes::new().set_modified(SystemTime::UNIX_EPOCH))
+          .expect("set build age");
+      }
+    }
+    fs::File::open(dir.path().join("nix-future"))
+      .expect("open future build")
+      .set_times(
+        fs::FileTimes::new()
+          .set_modified(SystemTime::now() + Duration::from_secs(86400)),
+      )
+      .expect("set future build age");
+    let outside = tempfile::tempdir().expect("outside directory");
+    symlink(outside.path(), dir.path().join("nix-symlink")).expect("symlink");
+    fs::write(dir.path().join("nix-file"), "keep").expect("regular file");
+
+    let uid = nix::unistd::Uid::effective();
+    let selected =
+      cleanable_build_dirs(dir.path(), Duration::from_secs(3600), uid)
+        .expect("select retained builds");
+    let selected: HashMap<_, _> = selected.into_iter().collect();
+    assert_eq!(
+      selected,
+      HashMap::from([
+        (dir.path().join("nix-retained"), true),
+        (dir.path().join("nix-recent"), false),
+        (dir.path().join("nix-future"), false),
+      ])
+    );
+    let other_uid = nix::unistd::Uid::from_raw(uid.as_raw() + 1);
+    assert!(
+      cleanable_build_dirs(dir.path(), Duration::ZERO, other_uid)
+        .expect("select another user's builds")
+        .is_empty()
+    );
+  }
 
   #[test]
   fn cleaning_rolled_back_profile_requires_opt_in_to_delete_selected() {
