@@ -21,6 +21,10 @@ functionality, under the "Removed" section.
 - `nh os info` displays generation build dates in the local timezone again,
   instead of UTC as in 4.5.0
   ([#877](https://github.com/nix-community/nh/issues/877)).
+- NixOS activation works again on systemd older than 261, such as NixOS 26.05.
+  nh now checks the `systemd-run` version and falls back to `--pipe` when
+  `--output=cat` is unsupported
+  ([#874](https://github.com/nix-community/nh/issues/874)).
 
 ## 4.5.0
 
