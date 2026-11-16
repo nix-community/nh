@@ -98,7 +98,9 @@ impl args::CleanMode {
     let uid = nix::unistd::Uid::effective();
     let args = match self {
       Self::Profile { args } => {
-        profiles.push(args.profile.clone());
+        if !args.common.no_profiles {
+          profiles.push(args.profile.clone());
+        }
         is_profile_clean = true;
         &args.common
       },
@@ -107,57 +109,60 @@ impl args::CleanMode {
           nh_core::util::self_elevate(elevate);
         }
 
-        let paths_to_check = [
-          PathBuf::from("/nix/var/nix/profiles"),
-          PathBuf::from("/nix/var/nix/profiles/per-user"),
-        ];
+        if !args.no_profiles {
+          let paths_to_check = [
+            PathBuf::from("/nix/var/nix/profiles"),
+            PathBuf::from("/nix/var/nix/profiles/per-user"),
+          ];
 
-        profiles.extend(filter_existing_dirs(paths_to_check).flat_map(
-          |path| {
-            if path.ends_with("per-user") {
-              path
-                .read_dir()
-                .map(|read_dir| {
-                  read_dir
-                    .filter_map(std::result::Result::ok)
-                    .map(|entry| entry.path())
-                    .filter(|path| path.is_dir())
-                    .flat_map(profiles_in_dir)
-                    .collect::<Vec<_>>()
-                })
-                .unwrap_or_default()
-            } else {
-              profiles_in_dir(path)
-            }
-          },
-        ));
+          profiles.extend(filter_existing_dirs(paths_to_check).flat_map(
+            |path| {
+              if path.ends_with("per-user") {
+                path
+                  .read_dir()
+                  .map(|read_dir| {
+                    read_dir
+                      .filter_map(std::result::Result::ok)
+                      .map(|entry| entry.path())
+                      .filter(|path| path.is_dir())
+                      .flat_map(profiles_in_dir)
+                      .collect::<Vec<_>>()
+                  })
+                  .unwrap_or_default()
+              } else {
+                profiles_in_dir(path)
+              }
+            },
+          ));
 
-        // Most unix systems start regular users at uid 1000+, but macos is
-        // special at 501+ https://en.wikipedia.org/wiki/User_identifier
-        let uid_min = if cfg!(target_os = "macos") { 501 } else { 1000 };
-        let uid_max = uid_min + 100;
-        debug!("Scanning XDG profiles for users 0, {uid_min}-{uid_max}");
+          // Most unix systems start regular users at uid 1000+, but macos is
+          // special at 501+ https://en.wikipedia.org/wiki/User_identifier
+          let uid_min = if cfg!(target_os = "macos") { 501 } else { 1000 };
+          let uid_max = uid_min + 100;
+          debug!("Scanning XDG profiles for users 0, {uid_min}-{uid_max}");
 
-        // Check root user (uid 0)
-        if let Some(user) =
-          nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(0))?
-        {
-          debug!(?user, "Adding XDG profiles for root user");
-          let user_profiles_path = user.dir.join(".local/state/nix/profiles");
-          if user_profiles_path.is_dir() {
-            profiles.extend(profiles_in_dir(user_profiles_path));
-          }
-        }
-
-        // Check regular users in the expected range
-        for uid in uid_min..uid_max {
+          // Check root user (uid 0)
           if let Some(user) =
-            nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(uid))?
+            nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(0))?
           {
-            debug!(?user, "Adding XDG profiles for user");
+            debug!(?user, "Adding XDG profiles for root user");
             let user_profiles_path = user.dir.join(".local/state/nix/profiles");
             if user_profiles_path.is_dir() {
               profiles.extend(profiles_in_dir(user_profiles_path));
+            }
+          }
+
+          // Check regular users in the expected range
+          for uid in uid_min..uid_max {
+            if let Some(user) =
+              nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(uid))?
+            {
+              debug!(?user, "Adding XDG profiles for user");
+              let user_profiles_path =
+                user.dir.join(".local/state/nix/profiles");
+              if user_profiles_path.is_dir() {
+                profiles.extend(profiles_in_dir(user_profiles_path));
+              }
             }
           }
         }
@@ -167,24 +172,26 @@ impl args::CleanMode {
         if uid.is_root() {
           bail!("nh clean user: don't run me as root!");
         }
-        let user = nix::unistd::User::from_uid(uid)?
-          .with_context(|| format!("User not found for uid {uid}"))?;
-        let home_dir = PathBuf::from(std::env::var("HOME")?);
+        if !args.no_profiles {
+          let user = nix::unistd::User::from_uid(uid)?
+            .with_context(|| format!("User not found for uid {uid}"))?;
+          let home_dir = PathBuf::from(std::env::var("HOME")?);
 
-        let paths_to_check = [
-          home_dir.join(".local/state/nix/profiles"),
-          PathBuf::from("/nix/var/nix/profiles/per-user").join(&user.name),
-        ];
+          let paths_to_check = [
+            home_dir.join(".local/state/nix/profiles"),
+            PathBuf::from("/nix/var/nix/profiles/per-user").join(&user.name),
+          ];
 
-        profiles.extend(
-          filter_existing_dirs(paths_to_check).flat_map(profiles_in_dir),
-        );
-
-        if profiles.is_empty() {
-          warn!(
-            "No active profile directories found for the current user. \
-             Nothing to clean."
+          profiles.extend(
+            filter_existing_dirs(paths_to_check).flat_map(profiles_in_dir),
           );
+
+          if profiles.is_empty() {
+            warn!(
+              "No active profile directories found for the current user. \
+               Skipping profile cleanup."
+            );
+          }
         }
 
         args
@@ -327,10 +334,14 @@ impl args::CleanMode {
     // Present the user the information about the paths to clean
     println!();
     println!("{}", Paint::new("Welcome to nh clean").bold());
-    println!(
-      "Keeping {} generation(s)",
-      Paint::new(args.keep).fg(Color::Green)
-    );
+    if args.no_profiles {
+      println!("Skipping all profile generations");
+    } else {
+      println!(
+        "Keeping {} generation(s)",
+        Paint::new(args.keep).fg(Color::Green)
+      );
+    }
     println!(
       "Keeping paths newer than {}",
       Paint::new(args.keep_since).fg(Color::Green)
