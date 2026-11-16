@@ -12,6 +12,7 @@ use nh_core::{
     NixosRollback,
     PrivilegedOp,
   },
+  systemd_run,
   update::update_with_args,
   util::{
     ensure_ssh_key_login,
@@ -62,10 +63,21 @@ const ESSENTIAL_FILES: &[(&str, &str)] = &[
   ("sw/bin", "system path"),
 ];
 
+/// Returns the `systemd-run` output arguments supported locally.
+fn local_systemd_run_output_args() -> &'static [&'static str] {
+  let version = Command::new("systemd-run")
+    .arg("--version")
+    .run_capture()
+    .ok()
+    .flatten();
+  systemd_run::output_args(version.as_deref())
+}
+
 fn activation_command(path: &Path, action: &str, systemd_run: bool) -> Command {
   let command = if systemd_run && Path::new("/run/systemd/system").is_dir() {
     Command::new("systemd-run")
-      .args(nh_remote::SYSTEMD_RUN_ARGS)
+      .args(systemd_run::UNIT_ARGS)
+      .args(local_systemd_run_output_args())
       .arg(path)
   } else {
     Command::new(path)

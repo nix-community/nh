@@ -15,6 +15,7 @@ use nh_core::{
     get_cached_password,
     get_sudo_opts,
   },
+  systemd_run,
   util::{NixVariant, parse_nix_variant},
 };
 use secrecy::{ExposeSecret, SecretString};
@@ -145,33 +146,23 @@ fn remote_sudo_command(prefix: &str, base_cmd: &str) -> String {
   }
 }
 
-/// Arguments for running `switch-to-configuration` in a transient unit.
-///
-/// `--pipe` would tie the unit's output to the caller's session, so a dropped
-/// SSH connection kills activation midway (NixOS/nixpkgs#506897). `--output`
-/// requires systemd 261.
-pub const SYSTEMD_RUN_ARGS: &[&str] = &[
-  "-E",
-  "LOCALE_ARCHIVE",
-  "-E",
-  "NIXOS_INSTALL_BOOTLOADER",
-  "-E",
-  "NIXOS_NO_CHECK",
-  "--collect",
-  "--no-ask-password",
-  "--wait",
-  "--verbose",
-  "--output=cat",
-  "--quiet",
-  "--service-type=exec",
-  "--unit=nixos-rebuild-switch-to-configuration",
-];
+/// Returns the `systemd-run` output arguments supported on `host`.
+fn remote_systemd_run_output_args(
+  host: &RemoteHost,
+) -> &'static [&'static str] {
+  let version = run_remote_command(host, &["systemd-run", "--version"], true)
+    .ok()
+    .flatten();
+  systemd_run::output_args(version.as_deref())
+}
 
+/// Builds the remote activation command. `systemd_run_output` holds the
+/// output arguments for `systemd-run`, or `None` to activate directly.
 fn nixos_activation_command(
   switch_to_config: &str,
   action: &str,
   install_bootloader: bool,
-  systemd_run: bool,
+  systemd_run_output: Option<&[&str]>,
 ) -> String {
   let mut parts = Vec::new();
 
@@ -185,9 +176,10 @@ fn nixos_activation_command(
 
   let switch = format!("{} {action}", shell_quote(switch_to_config));
 
-  if systemd_run {
-    let unit_args = SYSTEMD_RUN_ARGS
+  if let Some(output_args) = systemd_run_output {
+    let unit_args = systemd_run::UNIT_ARGS
       .iter()
+      .chain(output_args)
       .map(|arg| shell_quote(arg))
       .collect::<Vec<_>>()
       .join(" ");
@@ -1047,6 +1039,10 @@ fn activate_nixos_remote(
     run_remote_step(host, elevation, password.as_ref(), name, cmd)
   };
 
+  let systemd_run_output = config
+    .systemd_run
+    .then(|| remote_systemd_run_output_args(host));
+
   let switch_to_config = system_profile.join("bin/switch-to-configuration");
 
   let switch_path_str = switch_to_config
@@ -1067,7 +1063,7 @@ fn activate_nixos_remote(
           switch_path_str,
           config.activation_type.as_str(),
           false,
-          config.systemd_run,
+          systemd_run_output,
         ),
       )?;
     },
@@ -1089,7 +1085,7 @@ fn activate_nixos_remote(
           switch_path_str,
           "boot",
           config.install_bootloader,
-          config.systemd_run,
+          systemd_run_output,
         ),
       )?;
     },
