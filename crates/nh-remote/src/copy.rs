@@ -14,8 +14,8 @@ use tracing::{debug, error, info};
 
 use super::{RemoteHost, get_flake_flags, get_nix_sshopts_env};
 
-static STDOUT_STREAM_NAME: &'static str = "stdout";
-static STDERR_STREAM_NAME: &'static str = "stderr";
+static STDOUT_STREAM_NAME: &str = "stdout";
+static STDERR_STREAM_NAME: &str = "stderr";
 
 #[derive(Debug, Clone, Copy)]
 enum CopyDirection<'a> {
@@ -193,7 +193,7 @@ where
         if let Some(total) = total_lines {
           spinner.set_length(total);
           spinner.set_position(lines_read);
-        };
+        }
       }
 
       spinner.println(message);
@@ -234,12 +234,12 @@ fn exec_with_spinner_streaming(
   let stdout_thread = spawn_spinner_stream_thread(
     stdout_pipe,
     spinner.clone(),
-    &STDOUT_STREAM_NAME,
+    STDOUT_STREAM_NAME,
   );
   let stderr_thread = spawn_spinner_stream_thread(
     stderr_pipe,
     spinner.clone(),
-    &STDERR_STREAM_NAME,
+    STDERR_STREAM_NAME,
   );
 
   let exit_status = job
