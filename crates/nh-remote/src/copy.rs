@@ -163,7 +163,7 @@ where
     let mut output = String::new();
 
     let mut lines_read = 0;
-    let mut total_lines = None;
+    let mut total_line_count_set = false;
 
     loop {
       line.clear();
@@ -180,19 +180,37 @@ where
         .to_string();
 
       if STDERR_STREAM_NAME == stream_name {
-        if total_lines.is_none() {
-          // we should expect the first line to contain the number of packages
-          total_lines = message
+        // extract total number from first line, if possible
+        // otherwise the progress bar is not actually drawn
+        if !total_line_count_set {
+          match message
             .strip_prefix("copying ")
             .and_then(|prefix| prefix.split_whitespace().next())
-            .and_then(|number_string| number_string.parse::<u64>().ok());
+            .and_then(|number_string| number_string.parse::<u64>().ok())
+          {
+            Some(count) => {
+              tracing::trace!(
+                "Setting total package count that needs copying to {count}"
+              );
+              spinner.set_length(count);
+              total_line_count_set = true;
+            },
+            None => {
+              tracing::trace!(
+                "Unable to extract total package count from message \
+                 \"{message}\""
+              )
+            },
+          }
         } else {
-          lines_read += 1;
-        }
-
-        if let Some(total) = total_lines {
-          spinner.set_length(total);
-          spinner.set_position(lines_read);
+          if message.starts_with("copying path") {
+            lines_read += 1;
+            spinner.set_position(lines_read);
+          } else {
+            tracing::trace!(
+              "Not counting message \"{message}\" towards total package count."
+            )
+          }
         }
       }
 
