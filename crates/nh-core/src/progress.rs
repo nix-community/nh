@@ -44,10 +44,10 @@ pub fn spinner(message: impl Into<String>) -> Spinner {
 pub fn bar(message: impl Into<String>) -> Spinner {
   #[expect(clippy::expect_used)]
   let style = ProgressStyle::with_template(
-    "[{elapsed_precise}] {bar:40.cyan/blue}  {pos:>7}/{len:7} {msg}",
+    "[{elapsed_precise}] {bar:40.yellow}  {pos:>7}/{len:7} {msg}",
   )
   .expect("Static progressbar template is valid")
-  .progress_chars("##-");
+  .progress_chars("━╸─");
 
   // Houston, we have a ProBar
   let spinner = ProgressBar::no_length()
