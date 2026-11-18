@@ -16,6 +16,11 @@ functionality, under the "Removed" section.
 
 ## Unreleased
 
+### Added
+
+- Progress bar indicator when copying closure to remote.
+  ([#792](https://github.com/nix-community/nh/issues/792)).
+
 ### Fixed
 
 - `nh os info` displays generation build dates in the local timezone again,
