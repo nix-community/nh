@@ -31,3 +31,21 @@ pub fn spinner(message: impl Into<String>) -> Spinner {
 
   spinner
 }
+
+#[must_use]
+pub fn bar(message: impl Into<String>) -> Spinner {
+  #[expect(clippy::expect_used)]
+  let style = ProgressStyle::with_template(
+    "[{elapsed_precise}] {bar:40.cyan/blue}  {pos:>7}/{len:7} {msg}",
+  )
+  .expect("Static progressbar template is valid")
+  .progress_chars("##-");
+
+  // Houston, we have a ProBar
+  let spinner = ProgressBar::no_length()
+    .with_style(style)
+    .with_finish(ProgressFinish::AndClear);
+  spinner.set_message(message.into());
+
+  spinner
+}
