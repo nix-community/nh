@@ -1,7 +1,8 @@
-use nh_core::{args::CommonRebuildArgs, update::UpdateArgs};
 use nh_installable::InstallableArgs;
 use nh_remote::RemoteHost;
 use pound::Parse;
+
+use crate::common::{CommonRebuildArgs, UpdateArgs};
 
 /// Nix-darwin functionality
 ///
