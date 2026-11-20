@@ -8,7 +8,7 @@ license.workspace      = true
 publish                = true
 
 [dependencies]
-nh-clean.workspace  = true
+humantime.workspace = true
 nh-core.workspace   = true
 nh-darwin.workspace = true
 nh-home.workspace   = true
