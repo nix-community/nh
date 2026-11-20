@@ -1,5 +1,3 @@
-pub mod args;
-
 use std::{
   collections::{BTreeMap, HashMap},
   fmt,
@@ -78,8 +76,36 @@ where
   })
 }
 
-impl args::CleanMode {
-  /// Run the clean operation for the selected mode.
+/// Options shared by every clean target.
+#[derive(Debug, Clone)]
+pub struct CleanOptions {
+  pub keep:              u32,
+  pub keep_since:        humantime::Duration,
+  pub delete_current:    bool,
+  pub dry:               bool,
+  pub ask:               bool,
+  pub no_gc:             bool,
+  pub no_gcroots:        bool,
+  pub no_direnv:         bool,
+  pub optimise:          bool,
+  pub max:               Option<String>,
+  pub keep_one:          bool,
+  pub cross_filesystems: bool,
+}
+
+/// Which profiles to clean.
+#[derive(Debug, Clone)]
+pub enum CleanTarget {
+  /// All profiles
+  All,
+  /// The current user's profiles
+  User,
+  /// A specific profile
+  Profile(PathBuf),
+}
+
+impl CleanTarget {
+  /// Run the clean operation for the selected target.
   ///
   /// # Errors
   ///
@@ -89,7 +115,11 @@ impl args::CleanMode {
   ///
   /// Panics if the current user's UID cannot be resolved to a user. For
   /// example, if  `User::from_uid(uid)` returns `None`.
-  pub fn run(&self, elevate: ElevationStrategy) -> Result<()> {
+  pub fn run(
+    self,
+    options: &CleanOptions,
+    elevate: ElevationStrategy,
+  ) -> Result<()> {
     let mut profiles = Vec::new();
     let mut gcroots_tagged = Vec::new();
     let now = SystemTime::now();
@@ -97,13 +127,12 @@ impl args::CleanMode {
 
     // What profiles to clean depending on the call mode
     let uid = nix::unistd::Uid::effective();
-    let args = match self {
-      Self::Profile { args } => {
-        profiles.push(args.profile.clone());
+    match self {
+      Self::Profile(profile) => {
+        profiles.push(profile);
         is_profile_clean = true;
-        &args.common
       },
-      Self::All { args } => {
+      Self::All => {
         if !uid.is_root() {
           nh_core::util::self_elevate(elevate);
         }
@@ -162,9 +191,8 @@ impl args::CleanMode {
             }
           }
         }
-        args
       },
-      Self::User { args } => {
+      Self::User => {
         if uid.is_root() {
           bail!("nh clean user: don't run me as root!");
         }
@@ -187,10 +215,8 @@ impl args::CleanMode {
              Nothing to clean."
           );
         }
-
-        args
       },
-    };
+    }
 
     // Use mutation to raise errors as they come
     let mut profiles_tagged = ProfilesTagged::new();
@@ -199,18 +225,18 @@ impl args::CleanMode {
         p.clone(),
         cleanable_generations(
           &p,
-          args.keep,
-          args.keep_since,
-          args.delete_current,
+          options.keep,
+          options.keep_since,
+          options.delete_current,
         )?,
       );
     }
 
     // Query gcroots
-    let regexes = &[&*DIRENV_REGEX][..usize::from(!args.no_direnv)];
+    let regexes = &[&*DIRENV_REGEX][..usize::from(!options.no_direnv)];
     let mut orphan_gcroots: Vec<PathBuf> = Vec::new();
 
-    if !is_profile_clean && !args.no_gcroots {
+    if !is_profile_clean && !options.no_gcroots {
       let dirfd = nix::fcntl::open(
         ".",
         nix::fcntl::OFlag::O_DIRECTORY,
@@ -219,7 +245,7 @@ impl args::CleanMode {
 
       for entry in WalkDir::new("/nix/var/nix/gcroots")
         .follow_links(false)
-        .same_file_system(!args.cross_filesystems)
+        .same_file_system(!options.cross_filesystems)
         .into_iter()
         .filter_map(|e| {
           e.map_err(|err| {
@@ -270,7 +296,8 @@ impl args::CleanMode {
               continue;
             }
 
-            if args.keep_one && DIRENV_REGEX.is_match(&dst.to_string_lossy()) {
+            if options.keep_one && DIRENV_REGEX.is_match(&dst.to_string_lossy())
+            {
               gcroots_tagged.push(GcRootTagged {
                 src,
                 dst,
@@ -288,7 +315,7 @@ impl args::CleanMode {
                 Err(err) => {
                   warn!(?err, ?now, "Failed to compare time!");
                 },
-                Ok(val) if val <= args.keep_since.into() => {
+                Ok(val) if val <= options.keep_since.into() => {
                   gcroots_tagged.push(GcRootTagged {
                     src,
                     dst,
@@ -330,16 +357,16 @@ impl args::CleanMode {
     println!("{}", Paint::new("Welcome to nh clean").bold());
     println!(
       "Keeping {} generation(s)",
-      Paint::new(args.keep).fg(Color::Green)
+      Paint::new(options.keep).fg(Color::Green)
     );
     println!(
       "Keeping paths newer than {}",
-      Paint::new(args.keep_since).fg(Color::Green)
+      Paint::new(options.keep_since).fg(Color::Green)
     );
-    if args.keep_one {
+    if options.keep_one {
       println!("Keeping all active direnv gcroots");
     }
-    if args.no_direnv {
+    if options.no_direnv {
       println!("Skipping all direnv gcroots");
     }
     println!();
@@ -412,7 +439,7 @@ impl args::CleanMode {
     }
 
     // Clean the paths
-    if args.ask
+    if options.ask
       && !Confirm::new("Confirm the cleanup plan?")
         .with_default(false)
         .prompt()?
@@ -420,7 +447,7 @@ impl args::CleanMode {
       bail!("User rejected the cleanup plan");
     }
 
-    if !args.dry {
+    if !options.dry {
       for gcroot in &gcroots_tagged {
         if gcroot.tbr {
           remove_path_nofail(gcroot_path_to_remove(gcroot));
@@ -435,14 +462,14 @@ impl args::CleanMode {
         remove_tagged_generations(
           profile,
           generations_tagged,
-          args.delete_current,
+          options.delete_current,
         )?;
       }
     }
 
-    if !args.no_gc {
+    if !options.no_gc {
       let mut gc_args = vec!["gc"];
-      if let Some(ref max) = args.max {
+      if let Some(ref max) = options.max {
         gc_args.push("--max");
         gc_args.push(max.as_str());
       }
@@ -451,19 +478,19 @@ impl args::CleanMode {
         .into_parts();
       Command::new(binary)
         .args(command_args)
-        .dry(args.dry)
+        .dry(options.dry)
         .message("Performing garbage collection on the nix store")
         .show_output(true)
         .with_required_env()
         .run()?;
     }
 
-    if args.optimise {
+    if options.optimise {
       let (binary, command_args, _) =
         NixCommand::nix_store().arg("--optimise").into_parts();
       Command::new(binary)
         .args(command_args)
-        .dry(args.dry)
+        .dry(options.dry)
         .message("Optimising the nix store")
         .show_output(true)
         .with_required_env()
