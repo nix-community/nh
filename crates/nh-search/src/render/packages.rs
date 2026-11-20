@@ -2,7 +2,7 @@ use tracing::{debug, trace, warn};
 use yansi::{Color, Paint};
 
 use super::common;
-use crate::{args::PackageField, types::PackageSearchResult};
+use crate::{search::PackageField, types::PackageSearchResult};
 
 pub fn print(
   channel: &str,
