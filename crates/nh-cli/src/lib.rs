@@ -1,4 +1,5 @@
 pub mod clean;
+pub mod darwin;
 pub mod home;
 
 use nh_nixos;
@@ -66,7 +67,7 @@ pub enum NHCommand {
   /// Implements functionality mostly around but not exclusive to darwin-rebuild
   Darwin {
     #[pound(flatten)]
-    args: nh_darwin::args::DarwinArgs,
+    args: darwin::DarwinArgs,
   },
   /// Searches packages or NixOS/home-manager options via search.nixos.org,
   /// or a local SPAM database

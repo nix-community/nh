@@ -1223,7 +1223,6 @@ version = "4.5.0"
 dependencies = [
  "humantime",
  "nh-core",
- "nh-darwin",
  "nh-installable",
  "nh-nixos",
  "nh-remote",
@@ -1281,7 +1280,6 @@ dependencies = [
  "nh-installable",
  "nh-remote",
  "nix",
- "pound",
  "tempfile",
  "tracing",
 ]
