@@ -4,11 +4,11 @@ use serde::de::DeserializeOwned;
 use tracing::debug;
 
 use crate::{
-  args,
   backend::{self, SearchContexts},
   channel,
   query,
   render,
+  search,
   types::{
     OptionJsonOutput,
     OptionSearchResult,
@@ -21,7 +21,7 @@ pub fn run_packages(
   channel: &str,
   limit: u64,
   platforms: bool,
-  fields: Option<&[args::PackageField]>,
+  fields: Option<&[search::PackageField]>,
   json: bool,
   query: &[String],
 ) -> Result<()> {
@@ -32,7 +32,7 @@ pub fn run_options(
   channel: &str,
   limit: u64,
   json: bool,
-  scope: args::OptionScope,
+  scope: search::OptionScope,
   query: &[String],
 ) -> Result<()> {
   run_online(&Options { scope }, channel, limit, json, query)
@@ -95,7 +95,7 @@ trait OnlineMode {
 
 struct Packages<'a> {
   platforms: bool,
-  fields:    Option<&'a [args::PackageField]>,
+  fields:    Option<&'a [search::PackageField]>,
 }
 
 impl OnlineMode for Packages<'_> {
@@ -145,7 +145,7 @@ impl OnlineMode for Packages<'_> {
 }
 
 struct Options {
-  scope: args::OptionScope,
+  scope: search::OptionScope,
 }
 
 impl OnlineMode for Options {

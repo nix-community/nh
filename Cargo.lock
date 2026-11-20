@@ -1224,7 +1224,6 @@ dependencies = [
  "nh-core",
  "nh-installable",
  "nh-remote",
- "nh-search",
  "pound",
  "serial_test",
 ]
@@ -1362,7 +1361,6 @@ dependencies = [
  "jiff",
  "misstep",
  "nh-core",
- "pound",
  "regex",
  "reqwest",
  "secrecy",
