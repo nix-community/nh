@@ -15,7 +15,6 @@ humantime.workspace = true
 misstep.workspace   = true
 nh-core.workspace   = true
 nix.workspace       = true
-pound.workspace     = true
 regex.workspace     = true
 tracing.workspace   = true
 walkdir.workspace   = true

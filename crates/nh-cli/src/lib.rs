@@ -1,3 +1,5 @@
+pub mod clean;
+
 use nh_nixos;
 use pound::Parse;
 
@@ -74,7 +76,7 @@ pub enum NHCommand {
   /// Enhanced nix cleanup
   Clean {
     #[pound(flatten)]
-    args: nh_clean::args::CleanProxy,
+    args: clean::CleanProxy,
   },
 }
 
@@ -82,11 +84,10 @@ pub enum NHCommand {
 mod tests {
   use std::{env, ffi::OsString};
 
-  use nh_clean::args::CleanMode;
   use pound::{ErrorKind, Parse};
   use serial_test::serial;
 
-  use super::{Main, NHCommand};
+  use super::{Main, NHCommand, clean::CleanMode};
 
   struct EnvGuard(Option<OsString>);
 
