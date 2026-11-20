@@ -1,5 +1,3 @@
-pub mod args;
-
 mod backend;
 mod branches;
 mod channel;
@@ -10,6 +8,6 @@ mod online;
 mod prs;
 mod query;
 mod render;
-mod search;
+pub mod search;
 mod terminal;
 mod types;

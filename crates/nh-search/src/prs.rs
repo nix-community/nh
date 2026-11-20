@@ -4,7 +4,6 @@ use misstep::Result;
 use serde::Serialize;
 
 use crate::{
-  args,
   branches::BranchPlan,
   github::{
     self,
@@ -17,20 +16,21 @@ use crate::{
     parse_direct_pr_number,
   },
   render,
+  search,
   terminal::SearchProgress,
 };
 
 const DEFAULT_DAYS: u32 = 15;
 
-pub fn run(json: bool, args: &args::PrsArgs) -> Result<()> {
+pub fn run(json: bool, args: &search::PrsOptions) -> Result<()> {
   let query = args.query.join(" ");
   // `--title` searches titles for the number instead of fetching that PR.
-  let direct_pr_number = if args.title.only {
+  let direct_pr_number = if args.title_only {
     None
   } else {
     parse_direct_pr_number(&query)
   };
-  let days = args.days.value.unwrap_or(DEFAULT_DAYS);
+  let days = args.days.unwrap_or(DEFAULT_DAYS);
   let token = github::auth::token()?;
   let client = GitHubClient::new(token)?;
   let then = Instant::now();
@@ -46,7 +46,7 @@ pub fn run(json: bool, args: &args::PrsArgs) -> Result<()> {
   let prs = if let Some(number) = direct_pr_number {
     client.pull_request(number)?.into_iter().collect::<Vec<_>>()
   } else {
-    client.search_prs(&query, days, args.title.only)?
+    client.search_prs(&query, days, args.title_only)?
   };
 
   if prs.iter().any(|pr| {
@@ -76,7 +76,7 @@ pub fn run(json: bool, args: &args::PrsArgs) -> Result<()> {
   }
 
   if let Some(number) = direct_pr_number {
-    if args.days.value.is_some() {
+    if args.days.is_some() {
       eprintln!("Ignoring --days for direct PR lookup.");
     }
     if prs.is_empty() {

@@ -2,6 +2,7 @@ mod clean;
 mod darwin;
 mod home;
 mod os;
+mod search;
 
 use nh_cli::NHCommand;
 use nh_core::{
@@ -36,7 +37,7 @@ pub fn run(command: NHCommand, elevation: ElevationStrategy) -> Result<()> {
 
   match command {
     NHCommand::Os { args } => os::run(args, elevation),
-    NHCommand::Search { args } => args.run(),
+    NHCommand::Search { args } => search::run(&args),
     NHCommand::Clean { args } => clean::run(args, elevation),
     NHCommand::Home { args } => home::run(args),
     NHCommand::Darwin { args } => darwin::run(args, elevation),
