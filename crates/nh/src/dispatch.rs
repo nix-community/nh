@@ -1,4 +1,5 @@
 mod clean;
+mod home;
 
 use nh_cli::NHCommand;
 use nh_core::{
@@ -14,7 +15,7 @@ pub fn get_feature_requirements(
 ) -> Box<dyn FeatureRequirements> {
   match command {
     NHCommand::Os { args } => args.get_feature_requirements(),
-    NHCommand::Home { args } => args.get_feature_requirements(),
+    NHCommand::Home { args } => home::feature_requirements(args),
     NHCommand::Darwin { args } => args.get_feature_requirements(),
     NHCommand::Search { .. } | NHCommand::Clean { .. } => Box::new(NoFeatures),
   }
@@ -35,7 +36,7 @@ pub fn run(command: NHCommand, elevation: ElevationStrategy) -> Result<()> {
     NHCommand::Os { args } => args.run(elevation),
     NHCommand::Search { args } => args.run(),
     NHCommand::Clean { args } => clean::run(args, elevation),
-    NHCommand::Home { args } => args.run(),
+    NHCommand::Home { args } => home::run(args),
     NHCommand::Darwin { args } => args.run(elevation),
   }
 }
