@@ -18,6 +18,7 @@ nh-cli.workspace             = true
 nh-core.workspace            = true
 nh-darwin.workspace          = true
 nh-home.workspace            = true
+nh-installable.workspace     = true
 nh-nixos.workspace           = true
 nh-search.workspace          = true
 pound.workspace              = true
