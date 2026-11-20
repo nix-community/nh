@@ -1,7 +1,8 @@
-use nh_core::args::CommonRebuildArgs;
 use nh_installable::InstallableArgs;
 use nh_remote::RemoteHost;
 use pound::Parse;
+
+use crate::common::CommonRebuildArgs;
 
 #[derive(Debug, Parse)]
 pub enum HomeSubcommand {
@@ -37,7 +38,7 @@ pub struct HomeRebuildArgs {
   pub common: CommonRebuildArgs,
 
   #[pound(flatten)]
-  pub update_args: nh_core::update::UpdateArgs,
+  pub update_args: crate::common::UpdateArgs,
 
   /// Name of the flake homeConfigurations attribute, like username@hostname
   ///

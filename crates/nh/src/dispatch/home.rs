@@ -8,6 +8,7 @@ use nh_core::checks::{
 use nh_home::{HomeCommand, HomeRebuildOptions, HomeReplOptions};
 use nh_installable::CommandContext;
 
+use super::common;
 use crate::Result;
 
 pub(super) fn feature_requirements(
@@ -57,8 +58,8 @@ fn rebuild(args: HomeRebuildArgs) -> HomeRebuildOptions {
     build_host,
   } = args;
   HomeRebuildOptions {
-    common,
-    update_args,
+    common: common::common_rebuild(common),
+    update_args: common::update(update_args),
     configuration,
     specialisation,
     no_specialisation,

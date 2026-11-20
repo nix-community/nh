@@ -16,6 +16,7 @@ use nh_core::{
 use nh_darwin::{DarwinCommand, DarwinRebuildOptions, DarwinReplOptions};
 use nh_installable::CommandContext;
 
+use super::common;
 use crate::Result;
 
 pub(super) fn feature_requirements(
@@ -66,8 +67,8 @@ fn rebuild(args: DarwinRebuildArgs) -> DarwinRebuildOptions {
     build_host,
   } = args;
   DarwinRebuildOptions {
-    common,
-    update_args,
+    common: common::common_rebuild(common),
+    update_args: common::update(update_args),
     hostname,
     extra_args,
     bypass_root_check,
