@@ -191,14 +191,8 @@ impl HomeRebuildArgs {
       return Ok(());
     }
 
-    if self.common.ask {
-      let confirmation = inquire::Confirm::new("Apply the config?")
-        .with_default(false)
-        .prompt()?;
-
-      if !confirmation {
-        bail!("User rejected the new config");
-      }
+    if self.common.ask && !nh_core::util::confirm("Apply the config?", false)? {
+      bail!("User rejected the new config");
     }
 
     if let Some(ext) = &self.backup_extension {

@@ -484,14 +484,11 @@ impl OsRebuildActivateArgs {
       Test,
     };
 
-    if self.rebuild.common.ask && !matches!(variant, DryActivate) {
-      let confirmation = inquire::Confirm::new("Apply the config?")
-        .with_default(false)
-        .prompt()?;
-
-      if !confirmation {
-        bail!("User rejected the new config");
-      }
+    if self.rebuild.common.ask
+      && !matches!(variant, DryActivate)
+      && !nh_core::util::confirm("Apply the config?", false)?
+    {
+      bail!("User rejected the new config");
     }
 
     if self.rebuild.no_validate {
@@ -995,17 +992,13 @@ impl OsRollbackArgs {
       return Ok(());
     }
 
-    if self.ask {
-      let confirmation = inquire::Confirm::new(&format!(
-        "Roll back to generation {}?",
-        target_generation.number
-      ))
-      .with_default(false)
-      .prompt()?;
-
-      if !confirmation {
-        bail!("User rejected the rollback");
-      }
+    if self.ask
+      && !nh_core::util::confirm(
+        &format!("Roll back to generation {}?", target_generation.number),
+        false,
+      )?
+    {
+      bail!("User rejected the rollback");
     }
 
     let rollback = NixosRollback {

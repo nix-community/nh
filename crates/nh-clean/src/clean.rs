@@ -9,7 +9,6 @@ use std::{
   time::SystemTime,
 };
 
-use inquire::Confirm;
 use misstep::{OptionExt, Result, ResultExt, bail, report};
 use nh_core::command::{Command, CommandKind, ElevationStrategy, NixCommand};
 use nix::{
@@ -412,10 +411,7 @@ impl args::CleanMode {
     }
 
     // Clean the paths
-    if args.ask
-      && !Confirm::new("Confirm the cleanup plan?")
-        .with_default(false)
-        .prompt()?
+    if args.ask && !nh_core::util::confirm("Confirm the cleanup plan?", false)?
     {
       bail!("User rejected the cleanup plan");
     }
