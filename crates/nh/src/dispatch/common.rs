@@ -7,7 +7,7 @@ pub(super) fn common_rebuild(
   let cli::CommonRebuildArgs {
     dry,
     ask,
-    installable,
+    installable: installable_args,
     no_rom,
     no_nom,
     out_link,
@@ -17,13 +17,20 @@ pub(super) fn common_rebuild(
   args::CommonRebuildArgs {
     dry,
     ask,
-    installable,
+    installable: installable(installable_args),
     no_rom,
     no_nom,
     out_link,
     diff: diff(diff_args),
     passthrough: passthrough(passthrough_args),
   }
+}
+
+pub(super) fn installable(
+  installable: nh_cli::installable::InstallableArgs,
+) -> nh_installable::InstallableArgs {
+  let nh_cli::installable::InstallableArgs(installable) = installable;
+  installable
 }
 
 pub(super) const fn diff(diff: cli::Diff) -> args::Diff {

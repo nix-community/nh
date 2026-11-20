@@ -1,8 +1,7 @@
-use nh_installable::InstallableArgs;
 use nh_remote::RemoteHost;
 use pound::Parse;
 
-use crate::common::CommonRebuildArgs;
+use crate::{common::CommonRebuildArgs, installable::InstallableArgs};
 
 #[derive(Debug, Parse)]
 pub enum HomeSubcommand {

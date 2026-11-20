@@ -12,7 +12,6 @@ nix-installable.workspace = true
 
 misstep.workspace     = true
 nix-command.workspace = true
-pound.workspace       = true
 tracing.workspace     = true
 
 [dev-dependencies]

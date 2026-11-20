@@ -24,11 +24,16 @@ pub(super) fn feature_requirements(
 ) -> Box<dyn FeatureRequirements> {
   match &args.subcommand {
     DarwinSubcommand::Repl { args } => {
-      let is_flake = args.installable.uses_flakes(CommandContext::Darwin);
+      let is_flake = args.installable.0.uses_flakes(CommandContext::Darwin);
       Box::new(DarwinReplFeatures { is_flake })
     },
     DarwinSubcommand::Switch { args } | DarwinSubcommand::Build { args } => {
-      if args.common.installable.uses_flakes(CommandContext::Darwin) {
+      if args
+        .common
+        .installable
+        .0
+        .uses_flakes(CommandContext::Darwin)
+      {
         Box::new(FlakeFeatures)
       } else {
         Box::new(LegacyFeatures)
@@ -82,7 +87,7 @@ fn repl(args: DarwinReplArgs) -> DarwinReplOptions {
     hostname,
   } = args;
   DarwinReplOptions {
-    installable,
+    installable: common::installable(installable),
     hostname,
   }
 }

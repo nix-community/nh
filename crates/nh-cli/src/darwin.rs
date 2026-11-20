@@ -1,8 +1,10 @@
-use nh_installable::InstallableArgs;
 use nh_remote::RemoteHost;
 use pound::Parse;
 
-use crate::common::{CommonRebuildArgs, UpdateArgs};
+use crate::{
+  common::{CommonRebuildArgs, UpdateArgs},
+  installable::InstallableArgs,
+};
 
 /// Nix-darwin functionality
 ///
