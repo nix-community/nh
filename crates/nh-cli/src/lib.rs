@@ -1,4 +1,5 @@
 pub mod clean;
+pub mod common;
 pub mod darwin;
 pub mod home;
 pub mod os;

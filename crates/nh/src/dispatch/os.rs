@@ -36,6 +36,7 @@ use nh_nixos::{
   },
 };
 
+use super::common;
 use crate::Result;
 
 pub(super) fn feature_requirements(
@@ -138,8 +139,8 @@ fn rebuild(args: OsRebuildArgs) -> OsRebuildOptions {
     no_validate,
   } = args;
   OsRebuildOptions {
-    common,
-    update_args,
+    common: common::common_rebuild(common),
+    update_args: common::update(update_args),
     hostname,
     specialisation,
     no_specialisation,
@@ -248,7 +249,7 @@ fn rollback(args: OsRollbackArgs) -> OsRollbackOptions {
     no_specialisation,
     to,
     bypass_root_check,
-    diff,
+    diff: common::diff(diff),
     no_systemd_run,
   }
 }
