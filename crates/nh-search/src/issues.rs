@@ -4,17 +4,17 @@ use misstep::Result;
 use serde::Serialize;
 
 use crate::{
-  args,
   github::{self, GitHubClient, Issue},
   render,
+  search,
   terminal::SearchProgress,
 };
 
 const DEFAULT_DAYS: u32 = 15;
 
-pub fn run(json: bool, args: &args::IssuesArgs) -> Result<()> {
+pub fn run(json: bool, args: &search::IssuesOptions) -> Result<()> {
   let query = args.query.join(" ");
-  let days = args.days.value.unwrap_or(DEFAULT_DAYS);
+  let days = args.days.unwrap_or(DEFAULT_DAYS);
   let token = github::auth::token()?;
   let client = GitHubClient::new(token)?;
   let then = Instant::now();
@@ -23,7 +23,7 @@ pub fn run(json: bool, args: &args::IssuesArgs) -> Result<()> {
     json,
     format!("Searching NixOS/nixpkgs issues for {query}..."),
   );
-  let issues = client.search_issues(&query, days, args.title.only)?;
+  let issues = client.search_issues(&query, days, args.title_only)?;
   drop(progress);
 
   if json {
