@@ -1224,6 +1224,7 @@ dependencies = [
  "nh-core",
  "nh-installable",
  "nh-remote",
+ "nix-installable",
  "pound",
  "serial_test",
 ]
@@ -1310,7 +1311,6 @@ dependencies = [
  "misstep",
  "nix-command",
  "nix-installable",
- "pound",
  "serial_test",
  "tempfile",
  "tracing",

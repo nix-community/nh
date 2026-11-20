@@ -329,36 +329,6 @@ fn test_resolve_rejects_malformed_nh_attrp() {
 }
 
 #[test]
-fn test_cli_installable_rejects_empty_flake_reference() {
-  let err = InstallableArgs::try_parse_from([""])
-    .unwrap_err()
-    .to_string();
-
-  assert!(err.contains("installable argument is empty"));
-}
-
-#[test]
-fn test_cli_installable_rejects_attribute_without_reference() {
-  let err = InstallableArgs::try_parse_from(["#fallback"])
-    .unwrap_err()
-    .to_string();
-
-  assert!(
-    err.contains("installable argument missing reference part before `#`")
-  );
-}
-
-#[test]
-fn test_cli_file_rejects_malformed_attribute() {
-  let err =
-    InstallableArgs::try_parse_from(["--file", "file.nix", r#"foo."bar"#])
-      .unwrap_err()
-      .to_string();
-
-  assert!(err.contains("attribute path contains an unclosed quoted attribute"));
-}
-
-#[test]
 #[serial]
 fn test_uses_flakes_checks_cli_and_env_inputs() {
   let env_guard = EnvGuard::clear();

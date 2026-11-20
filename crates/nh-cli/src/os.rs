@@ -1,8 +1,10 @@
-use nh_installable::InstallableArgs;
 use nh_remote::RemoteHost;
 use pound::{Parse, ValueEnum};
 
-use crate::common::{CommonRebuildArgs, Diff};
+use crate::{
+  common::{CommonRebuildArgs, Diff},
+  installable::InstallableArgs,
+};
 
 #[derive(Parse, Debug)]
 /// `NixOS` functionality

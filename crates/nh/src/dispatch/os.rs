@@ -44,7 +44,7 @@ pub(super) fn feature_requirements(
 ) -> Box<dyn FeatureRequirements> {
   match &args.subcommand {
     OsSubcommand::Repl { args } => {
-      let is_flake = args.installable.uses_flakes(CommandContext::Os);
+      let is_flake = args.installable.0.uses_flakes(CommandContext::Os);
       Box::new(OsReplFeatures { is_flake })
     },
     OsSubcommand::Switch { args }
@@ -54,6 +54,7 @@ pub(super) fn feature_requirements(
         .rebuild
         .common
         .installable
+        .0
         .uses_flakes(CommandContext::Os)
       {
         Box::new(FlakeFeatures)
@@ -65,7 +66,7 @@ pub(super) fn feature_requirements(
     | OsSubcommand::DryActivate {
       args: OsDryActivateArgs { rebuild: args, .. },
     } => {
-      if args.common.installable.uses_flakes(CommandContext::Os) {
+      if args.common.installable.0.uses_flakes(CommandContext::Os) {
         Box::new(FlakeFeatures)
       } else {
         Box::new(LegacyFeatures)
@@ -76,6 +77,7 @@ pub(super) fn feature_requirements(
         .common
         .common
         .installable
+        .0
         .uses_flakes(CommandContext::Os)
       {
         Box::new(FlakeFeatures)
@@ -92,6 +94,7 @@ pub(super) fn feature_requirements(
         .common
         .common
         .installable
+        .0
         .uses_flakes(CommandContext::Os)
       {
         Box::new(FlakeFeatures)
@@ -213,7 +216,7 @@ fn repl(args: OsReplArgs) -> OsReplOptions {
     hostname,
   } = args;
   OsReplOptions {
-    installable,
+    installable: common::installable(installable),
     hostname,
   }
 }
