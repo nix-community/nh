@@ -10,7 +10,6 @@ publish                = true
 [dependencies]
 humantime.workspace      = true
 nh-core.workspace        = true
-nh-darwin.workspace      = true
 nh-installable.workspace = true
 nh-nixos.workspace       = true
 nh-remote.workspace      = true
