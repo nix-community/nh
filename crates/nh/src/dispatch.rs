@@ -1,4 +1,5 @@
 mod clean;
+mod darwin;
 mod home;
 
 use nh_cli::NHCommand;
@@ -16,7 +17,7 @@ pub fn get_feature_requirements(
   match command {
     NHCommand::Os { args } => args.get_feature_requirements(),
     NHCommand::Home { args } => home::feature_requirements(args),
-    NHCommand::Darwin { args } => args.get_feature_requirements(),
+    NHCommand::Darwin { args } => darwin::feature_requirements(args),
     NHCommand::Search { .. } | NHCommand::Clean { .. } => Box::new(NoFeatures),
   }
 }
@@ -37,6 +38,6 @@ pub fn run(command: NHCommand, elevation: ElevationStrategy) -> Result<()> {
     NHCommand::Search { args } => args.run(),
     NHCommand::Clean { args } => clean::run(args, elevation),
     NHCommand::Home { args } => home::run(args),
-    NHCommand::Darwin { args } => args.run(elevation),
+    NHCommand::Darwin { args } => darwin::run(args, elevation),
   }
 }
