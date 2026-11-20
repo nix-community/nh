@@ -1,12 +1,10 @@
-pub mod args;
-
 use std::{env, ffi::OsString, path::PathBuf};
 
-use args::{HomeRebuildArgs, HomeReplArgs, HomeSubcommand};
 use misstep::{Result, ResultExt, bail, report};
 use nh_core::{
+  args::CommonRebuildArgs,
   command::{self, Command, CommandKind, NixCommand},
-  update::update_with_args,
+  update::{UpdateArgs, update_with_args},
   util::{get_hostname, use_rom},
 };
 use nh_diff::print_diff;
@@ -15,7 +13,9 @@ use nh_installable::{
   ConfigurationInstallable,
   ConfigurationLayout,
   Installable,
+  InstallableArgs,
 };
+use nh_remote::RemoteHost;
 use tracing::{debug, info, warn};
 
 fn capture_nix_stdout(command: &NixCommand) -> Result<String> {
@@ -37,7 +37,39 @@ fn capture_nix_stdout(command: &NixCommand) -> Result<String> {
     .erase()
 }
 
-impl args::HomeArgs {
+/// Options for building or switching to a Home Manager configuration.
+#[derive(Debug)]
+pub struct HomeRebuildOptions {
+  pub common:            CommonRebuildArgs,
+  pub update_args:       UpdateArgs,
+  pub configuration:     Option<String>,
+  pub specialisation:    Option<String>,
+  pub no_specialisation: bool,
+  pub extra_args:        Vec<String>,
+  pub backup_extension:  Option<String>,
+  pub build_host:        Option<RemoteHost>,
+}
+
+/// Options for loading a Home Manager configuration in a Nix repl.
+#[derive(Debug)]
+pub struct HomeReplOptions {
+  pub installable:   InstallableArgs,
+  pub configuration: Option<String>,
+  pub extra_args:    Vec<String>,
+}
+
+/// A Home Manager operation.
+#[derive(Debug)]
+pub enum HomeCommand {
+  /// Build and activate a home-manager configuration
+  Switch(HomeRebuildOptions),
+  /// Build a home-manager configuration
+  Build(HomeRebuildOptions),
+  /// Load a home-manager configuration in a Nix repl
+  Repl(HomeReplOptions),
+}
+
+impl HomeCommand {
   /// Run the `home` subcommand.
   ///
   /// # Parameters
@@ -58,15 +90,15 @@ impl args::HomeArgs {
   /// - File system operations fail
   pub fn run(self) -> Result<()> {
     use HomeRebuildVariant::{Build, Switch};
-    match self.subcommand {
-      HomeSubcommand::Switch { args } => args.rebuild(&Switch),
-      HomeSubcommand::Build { args } => {
+    match self {
+      Self::Switch(args) => args.rebuild(&Switch),
+      Self::Build(args) => {
         if args.common.ask || args.common.dry {
           warn!("`--ask` and `--dry` have no effect for `nh home build`");
         }
         args.rebuild(&Build)
       },
-      HomeSubcommand::Repl { args } => args.run(),
+      Self::Repl(args) => args.run(),
     }
   }
 }
@@ -77,7 +109,7 @@ enum HomeRebuildVariant {
   Switch,
 }
 
-impl HomeRebuildArgs {
+impl HomeRebuildOptions {
   fn rebuild(self, variant: &HomeRebuildVariant) -> Result<()> {
     use HomeRebuildVariant::Build;
 
@@ -341,7 +373,7 @@ fn discover_home_configuration(
   )
 }
 
-impl HomeReplArgs {
+impl HomeReplOptions {
   fn run(self) -> Result<()> {
     let installable =
       self.installable.resolve_or_default(CommandContext::Home)?;

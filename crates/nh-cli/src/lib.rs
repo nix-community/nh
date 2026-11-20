@@ -1,4 +1,5 @@
 pub mod clean;
+pub mod home;
 
 use nh_nixos;
 use pound::Parse;
@@ -58,7 +59,7 @@ pub enum NHCommand {
   /// Home-manager functionality
   Home {
     #[pound(flatten)]
-    args: nh_home::args::HomeArgs,
+    args: home::HomeArgs,
   },
   /// Nix-darwin functionality
   ///
@@ -87,7 +88,7 @@ mod tests {
   use pound::{ErrorKind, Parse};
   use serial_test::serial;
 
-  use super::{Main, NHCommand, clean::CleanMode};
+  use super::{Main, NHCommand, clean::CleanMode, home};
 
   struct EnvGuard(Option<OsString>);
 
@@ -174,8 +175,8 @@ mod tests {
     assert!(matches!(
       parsed.command,
       NHCommand::Home {
-        args: nh_home::args::HomeArgs {
-          subcommand: nh_home::args::HomeSubcommand::Build { args },
+        args: home::HomeArgs {
+          subcommand: home::HomeSubcommand::Build { args },
         },
       } if args.extra_args == ["--json", "--option", "sandbox", "false"]
     ));
