@@ -6,7 +6,7 @@ publish           = false
 
 [dependencies]
 caress.workspace = true
-nh.workspace     = true
+nh-cli.workspace = true
 pound.workspace  = true
 
 [lints]

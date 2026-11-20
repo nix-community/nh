@@ -1,0 +1,23 @@
+[package]
+name                   = "nh-cli"
+description            = "This is an internal component crate of nh"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+publish                = true
+
+[dependencies]
+nh-clean.workspace  = true
+nh-core.workspace   = true
+nh-darwin.workspace = true
+nh-home.workspace   = true
+nh-nixos.workspace  = true
+nh-search.workspace = true
+pound.workspace     = true
+
+[dev-dependencies]
+serial_test.workspace = true
+
+[lints]
+workspace = true

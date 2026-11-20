@@ -1188,13 +1188,13 @@ dependencies = [
  "caress",
  "misstep",
  "nh-clean",
+ "nh-cli",
  "nh-core",
  "nh-darwin",
  "nh-home",
  "nh-nixos",
  "nh-search",
  "pound",
- "serial_test",
  "tracing",
  "tracing-subscriber",
  "yansi",
@@ -1214,6 +1214,20 @@ dependencies = [
  "tracing",
  "walkdir",
  "yansi",
+]
+
+[[package]]
+name = "nh-cli"
+version = "4.5.0"
+dependencies = [
+ "nh-clean",
+ "nh-core",
+ "nh-darwin",
+ "nh-home",
+ "nh-nixos",
+ "nh-search",
+ "pound",
+ "serial_test",
 ]
 
 [[package]]
@@ -2926,7 +2940,7 @@ name = "xtask"
 version = "4.5.0"
 dependencies = [
  "caress",
- "nh",
+ "nh-cli",
  "pound",
 ]
 

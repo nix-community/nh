@@ -1,11 +1,5 @@
-use nh_core::{
-  checks::{FeatureRequirements, NoFeatures},
-  command::ElevationStrategy,
-};
 use nh_nixos;
 use pound::Parse;
-
-use crate::Result;
 
 #[derive(Parse, Debug, Clone, Copy, Default)]
 pub struct Verbosity {
@@ -82,38 +76,6 @@ pub enum NHCommand {
     #[pound(flatten)]
     args: nh_clean::args::CleanProxy,
   },
-}
-
-impl NHCommand {
-  #[must_use]
-  pub fn get_feature_requirements(&self) -> Box<dyn FeatureRequirements> {
-    match self {
-      Self::Os { args } => args.get_feature_requirements(),
-      Self::Home { args } => args.get_feature_requirements(),
-      Self::Darwin { args } => args.get_feature_requirements(),
-      Self::Search { .. } | Self::Clean { .. } => Box::new(NoFeatures),
-    }
-  }
-
-  /// Run the selected subcommand.
-  ///
-  /// # Errors
-  ///
-  /// Returns an error if required Nix features are unavailable or if the
-  /// selected subcommand fails.
-  pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
-    // Check features specific to this command
-    let requirements = self.get_feature_requirements();
-    requirements.check_features()?;
-
-    match self {
-      Self::Os { args } => args.run(elevation),
-      Self::Search { args } => args.run(),
-      Self::Clean { args: proxy } => proxy.command.run(elevation),
-      Self::Home { args } => args.run(),
-      Self::Darwin { args } => args.run(elevation),
-    }
-  }
 }
 
 #[cfg(test)]

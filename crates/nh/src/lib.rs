@@ -6,7 +6,7 @@ use nh_core::{
   privileged::{PrivilegedOp, PrivilegedRequest},
 };
 
-pub mod interface;
+pub mod dispatch;
 pub mod logging;
 
 pub const NH_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -25,8 +25,8 @@ pub fn main() -> Result<()> {
     return run_privileged(request?);
   }
 
-  caress::handle(<crate::interface::Main as pound::Parse>::SPEC);
-  let mut args = <crate::interface::Main as pound::Parse>::parse();
+  caress::handle(<nh_cli::Main as pound::Parse>::SPEC);
+  let mut args = <nh_cli::Main as pound::Parse>::parse();
 
   // Backward compatibility: support NH_ELEVATION_PROGRAM env var if
   // NH_ELEVATION_STRATEGY is not set.
@@ -85,7 +85,7 @@ pub fn main() -> Result<()> {
         }
       });
 
-  args.command.run(elevation)
+  crate::dispatch::run(args.command, elevation)
 }
 
 fn run_privileged(request: PrivilegedRequest) -> Result<()> {
