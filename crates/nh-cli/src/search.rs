@@ -1,10 +1,8 @@
 use std::path::PathBuf;
 
-use misstep::{Result, bail};
 use pound::{Parse, ValueEnum};
 
 const DEFAULT_CHANNEL: &str = "nixos-unstable";
-const DEFAULT_LIMIT: u64 = 30;
 
 /// Searches packages or NixOS/home-manager options via search.nixos.org,
 /// or a local SPAM database
@@ -255,18 +253,6 @@ pub enum OfflineScope {
   Lib,
 }
 
-impl OfflineScope {
-  #[must_use]
-  pub(crate) fn includes(self, scope: spam_db::Scope) -> bool {
-    match self {
-      Self::All => true,
-      Self::Pkg => scope == spam_db::Scope::Pkg,
-      Self::Opt => scope == spam_db::Scope::Opt,
-      Self::Lib => scope == spam_db::Scope::Lib,
-    }
-  }
-}
-
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
 pub enum SearchDefault {
   /// Search packages (default)
@@ -274,135 +260,6 @@ pub enum SearchDefault {
   Packages,
   /// Search NixOS/home-manager options (scope defaults to `all`)
   Options,
-}
-
-pub enum ResolvedSearchMode<'a> {
-  Packages {
-    channel:   &'a str,
-    limit:     u64,
-    platforms: bool,
-    fields:    Option<&'a [PackageField]>,
-    query:     &'a [String],
-  },
-  Options {
-    channel: &'a str,
-    limit:   u64,
-    scope:   OptionScope,
-    query:   &'a [String],
-  },
-  Offline {
-    limit:     u64,
-    databases: &'a [PathBuf],
-    scope:     OfflineScope,
-    query:     &'a [String],
-  },
-  Prs(&'a PrsArgs),
-  Issues(&'a IssuesArgs),
-}
-
-impl SearchArgs {
-  /// Resolve explicit subcommands and shorthand query arguments into one mode.
-  ///
-  /// # Errors
-  ///
-  /// Returns an error when shorthand search is used without a query, or when
-  /// package-only flags are combined with a non-package mode.
-  pub fn resolved_mode(&self) -> Result<ResolvedSearchMode<'_>> {
-    self.reject_unused_flags()?;
-
-    match &self.mode {
-      Some(SearchMode::Packages { args }) => {
-        Ok(ResolvedSearchMode::Packages {
-          channel:   args.channel.as_deref().unwrap_or(&self.channel.value),
-          limit:     self.limit(),
-          platforms: args.platforms || self.platforms.value,
-          fields:    args.fields.as_deref().or(self.fields.as_deref()),
-          query:     &args.query,
-        })
-      },
-      Some(SearchMode::Options { args }) => {
-        Ok(ResolvedSearchMode::Options {
-          channel: args.channel.as_deref().unwrap_or(&self.channel.value),
-          limit:   self.limit(),
-          scope:   args.scope.unwrap_or(OptionScope::All),
-          query:   &args.query,
-        })
-      },
-      Some(SearchMode::Offline { args }) => {
-        Ok(ResolvedSearchMode::Offline {
-          limit:     self.limit(),
-          databases: &args.databases,
-          scope:     args.scope,
-          query:     &args.query,
-        })
-      },
-      Some(SearchMode::Prs { args }) => Ok(ResolvedSearchMode::Prs(args)),
-      Some(SearchMode::Issues { args }) => Ok(ResolvedSearchMode::Issues(args)),
-      None => self.resolved_shorthand_mode(),
-    }
-  }
-
-  fn limit(&self) -> u64 {
-    self.limit.value.unwrap_or(DEFAULT_LIMIT)
-  }
-
-  /// Reject top-level flags the selected subcommand would ignore.
-  ///
-  /// # Errors
-  ///
-  /// Returns an error when `--fields` is given outside package search, or
-  /// `--limit` with `prs` or `issues`.
-  fn reject_unused_flags(&self) -> Result<()> {
-    // Env-backed flags (--channel, --platforms) cannot be told apart from
-    // their env vars, so only flags without env are checked.
-    let packages =
-      matches!(self.mode, None | Some(SearchMode::Packages { .. }));
-    let github = matches!(
-      self.mode,
-      Some(SearchMode::Prs { .. } | SearchMode::Issues { .. })
-    );
-
-    if self.fields.is_some() && !packages {
-      bail!("--fields only applies to package search");
-    }
-    if self.limit.value.is_some() && github {
-      bail!("--limit does not apply to GitHub search");
-    }
-    Ok(())
-  }
-
-  fn resolved_shorthand_mode(&self) -> Result<ResolvedSearchMode<'_>> {
-    if self.query.is_empty() {
-      bail!(
-        "no query provided; try `nh search packages <query>`, `nh search \
-         options <query>`, or `nh search --help`"
-      );
-    }
-
-    match self.default_search {
-      SearchDefault::Packages => {
-        Ok(ResolvedSearchMode::Packages {
-          channel:   &self.channel.value,
-          limit:     self.limit(),
-          platforms: self.platforms.value,
-          fields:    self.fields.as_deref(),
-          query:     &self.query,
-        })
-      },
-      SearchDefault::Options => {
-        if self.platforms.value || self.fields.is_some() {
-          bail!("--platforms and --fields only apply to package search");
-        }
-
-        Ok(ResolvedSearchMode::Options {
-          channel: &self.channel.value,
-          limit:   self.limit(),
-          scope:   OptionScope::All,
-          query:   &self.query,
-        })
-      },
-    }
-  }
 }
 
 #[cfg(test)]
@@ -617,24 +474,6 @@ mod tests {
   }
 
   #[test]
-  fn offline_scope_selection_excludes_other_sections() {
-    use spam_db::Scope;
-
-    assert!(OfflineScope::All.includes(Scope::Pkg));
-    assert!(OfflineScope::All.includes(Scope::Opt));
-    assert!(OfflineScope::All.includes(Scope::Lib));
-    assert!(OfflineScope::Pkg.includes(Scope::Pkg));
-    assert!(!OfflineScope::Pkg.includes(Scope::Opt));
-    assert!(!OfflineScope::Pkg.includes(Scope::Lib));
-    assert!(OfflineScope::Opt.includes(Scope::Opt));
-    assert!(!OfflineScope::Opt.includes(Scope::Pkg));
-    assert!(!OfflineScope::Opt.includes(Scope::Lib));
-    assert!(OfflineScope::Lib.includes(Scope::Lib));
-    assert!(!OfflineScope::Lib.includes(Scope::Pkg));
-    assert!(!OfflineScope::Lib.includes(Scope::Opt));
-  }
-
-  #[test]
   fn prs_accepts_variadic_query_and_days_after_query()
   -> Result<(), Box<dyn std::error::Error>> {
     let args = parse_search(&["search", "prs", "foo", "bar", "--days", "30"])?;
@@ -668,14 +507,6 @@ mod tests {
   }
 
   #[test]
-  fn prs_rejects_limit() -> Result<(), Box<dyn std::error::Error>> {
-    let args = parse_search(&["search", "prs", "hello", "--limit", "5"])?;
-
-    assert!(args.resolved_mode().is_err());
-    Ok(())
-  }
-
-  #[test]
   fn prs_rejects_zero_days() -> Result<(), Box<dyn std::error::Error>> {
     let err = parse_search_error(&["search", "prs", "hello", "--days", "0"])?;
 
@@ -698,14 +529,6 @@ mod tests {
         return Err(format!("expected issues mode, got {other:?}").into());
       },
     }
-    Ok(())
-  }
-
-  #[test]
-  fn issues_rejects_limit() -> Result<(), Box<dyn std::error::Error>> {
-    let args = parse_search(&["search", "issues", "hello", "--limit", "5"])?;
-
-    assert!(args.resolved_mode().is_err());
     Ok(())
   }
 }

@@ -2,6 +2,7 @@ pub mod clean;
 pub mod darwin;
 pub mod home;
 pub mod os;
+pub mod search;
 
 use pound::Parse;
 
@@ -73,7 +74,7 @@ pub enum NHCommand {
   /// or a local SPAM database
   Search {
     #[pound(flatten)]
-    args: nh_search::args::SearchArgs,
+    args: search::SearchArgs,
   },
   /// Enhanced nix cleanup
   Clean {

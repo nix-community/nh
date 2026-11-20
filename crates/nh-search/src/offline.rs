@@ -9,7 +9,7 @@ use tracing::debug;
 use yansi::{Color, Paint};
 
 use crate::{
-  args::OfflineScope,
+  search::OfflineScope,
   types::{
     OfflineFunctionResult,
     OfflineJsonOutput,

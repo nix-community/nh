@@ -1,6 +1,6 @@
 use elasticsearch_dsl::{Operator, Query, Search, TextQueryType};
 
-use crate::args;
+use crate::search;
 
 const TYPE_OPTION: &str = "option";
 const TYPE_SERVICE: &str = "service";
@@ -53,7 +53,7 @@ pub fn packages(query: &str, limit: u64) -> Search {
   )
 }
 
-pub fn options(scope: args::OptionScope, query: &str, limit: u64) -> Search {
+pub fn options(scope: search::OptionScope, query: &str, limit: u64) -> Search {
   Search::new().from(0).size(limit).query(
     Query::bool()
       .filter(Query::terms("type", option_scope_types(scope)))
@@ -91,24 +91,24 @@ pub fn options(scope: args::OptionScope, query: &str, limit: u64) -> Search {
   )
 }
 
-pub const fn option_scope_label(scope: args::OptionScope) -> &'static str {
+pub const fn option_scope_label(scope: search::OptionScope) -> &'static str {
   match scope {
-    args::OptionScope::Nixpkgs => "nixpkgs",
-    args::OptionScope::HomeManager => "home-manager",
-    args::OptionScope::Darwin => "nix-darwin",
-    args::OptionScope::All => "all",
+    search::OptionScope::Nixpkgs => "nixpkgs",
+    search::OptionScope::HomeManager => "home-manager",
+    search::OptionScope::Darwin => "nix-darwin",
+    search::OptionScope::All => "all",
   }
 }
 
 /// Returns the ES document type strings for a given option scope.
 const fn option_scope_types(
-  scope: args::OptionScope,
+  scope: search::OptionScope,
 ) -> &'static [&'static str] {
   match scope {
-    args::OptionScope::Nixpkgs => NIXPKGS_SCOPE_TYPES,
-    args::OptionScope::HomeManager => HOME_MANAGER_SCOPE_TYPES,
-    args::OptionScope::Darwin => DARWIN_SCOPE_TYPES,
-    args::OptionScope::All => ALL_SCOPE_TYPES,
+    search::OptionScope::Nixpkgs => NIXPKGS_SCOPE_TYPES,
+    search::OptionScope::HomeManager => HOME_MANAGER_SCOPE_TYPES,
+    search::OptionScope::Darwin => DARWIN_SCOPE_TYPES,
+    search::OptionScope::All => ALL_SCOPE_TYPES,
   }
 }
 
@@ -118,16 +118,20 @@ mod tests {
 
   #[test]
   fn darwin_scope_maps_to_darwin_option_type() {
-    assert_eq!(option_scope_types(args::OptionScope::Darwin), &[
+    assert_eq!(option_scope_types(search::OptionScope::Darwin), &[
       TYPE_DARWIN_OPTION
     ]);
-    assert_eq!(option_scope_label(args::OptionScope::Darwin), "nix-darwin");
+    assert_eq!(
+      option_scope_label(search::OptionScope::Darwin),
+      "nix-darwin"
+    );
   }
 
   #[test]
   fn all_scope_includes_darwin_option_type() {
     assert!(
-      option_scope_types(args::OptionScope::All).contains(&TYPE_DARWIN_OPTION)
+      option_scope_types(search::OptionScope::All)
+        .contains(&TYPE_DARWIN_OPTION)
     );
   }
 }
