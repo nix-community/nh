@@ -1,18 +1,15 @@
 use misstep::{Result, bail};
 use nh_installable::Installable;
 use nix_command::{CommandKind, NixCommand};
-use pound::Parse;
 use tracing::{info, warn};
 
 use crate::args::NixBuildPassthroughArgs;
 
-#[derive(Debug, Parse)]
+#[derive(Debug)]
 pub struct UpdateArgs {
-  #[pound(short = 'u', long = "update", conflicts_with = update_input)]
   /// Update all flake inputs
   pub update_all: bool,
 
-  #[pound(short = 'U', long = "update-input", conflicts_with = update_all)]
   /// Update the specified flake input(s)
   pub update_input: Option<Vec<String>>,
 }

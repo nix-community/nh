@@ -1249,7 +1249,6 @@ dependencies = [
  "nh-installable",
  "nix",
  "nix-command",
- "pound",
  "proptest",
  "regex",
  "rom",

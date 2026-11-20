@@ -1,7 +1,8 @@
-use nh_core::args::{CommonRebuildArgs, Diff};
 use nh_installable::InstallableArgs;
 use nh_remote::RemoteHost;
 use pound::{Parse, ValueEnum};
+
+use crate::common::{CommonRebuildArgs, Diff};
 
 #[derive(Parse, Debug)]
 /// `NixOS` functionality
@@ -108,7 +109,7 @@ pub struct OsRebuildArgs {
   pub common: CommonRebuildArgs,
 
   #[pound(flatten)]
-  pub update_args: nh_core::update::UpdateArgs,
+  pub update_args: crate::common::UpdateArgs,
 
   /// When using a flake installable, select this hostname from
   /// nixosConfigurations
