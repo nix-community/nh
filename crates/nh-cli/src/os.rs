@@ -247,7 +247,7 @@ pub struct OsReplArgs {
 #[derive(Debug, Parse)]
 pub struct OsGenerationsArgs {
   /// Path to Nix' profiles directory
-  #[pound(long, short = 'P', default = "/nix/var/nix/profiles/system")]
+  #[pound(long, short = 'P', default = { nh_static::paths::SYSTEM_PROFILE })]
   pub profile: Option<String>,
 
   /// Comma-delimited list of field(s) to display

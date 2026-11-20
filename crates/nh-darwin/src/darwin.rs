@@ -17,10 +17,8 @@ use nh_installable::{
   InstallableArgs,
 };
 use nh_remote::RemoteHost;
+use nh_static::paths::{CURRENT_SYSTEM, SYSTEM_PROFILE};
 use tracing::{debug, warn};
-
-const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
-const CURRENT_PROFILE: &str = "/run/current-system";
 
 /// Options for building or switching to a nix-darwin configuration.
 #[derive(Debug)]
@@ -159,7 +157,7 @@ impl DarwinRebuildOptions {
     print_diff(
       &self.common.diff,
       None,
-      Path::new(CURRENT_PROFILE),
+      Path::new(CURRENT_SYSTEM),
       &target_profile,
     )?;
 

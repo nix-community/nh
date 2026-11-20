@@ -22,6 +22,7 @@ nh-installable = { path = "crates/nh-installable", version = "4.5.1" }
 nh-nixos       = { path = "crates/nh-nixos", version = "4.5.1" }
 nh-remote      = { path = "crates/nh-remote", version = "4.5.1" }
 nh-search      = { path = "crates/nh-search", version = "4.5.1" }
+nh-static      = { path = "crates/nh-static", version = "4.5.0" }
 
 
 caress = "0.3.0"

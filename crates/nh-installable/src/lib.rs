@@ -4,6 +4,7 @@ use std::{
 };
 
 use misstep::OptionExt;
+use nh_static::EnvVars;
 pub use nix_installable::Installable;
 use nix_installable::{parse_attribute, parse_flake_reference};
 use tracing::debug;
@@ -21,9 +22,9 @@ pub enum CommandContext {
 impl CommandContext {
   const fn specific_flake_env_var(self) -> &'static str {
     match self {
-      Self::Os => "NH_OS_FLAKE",
-      Self::Home => "NH_HOME_FLAKE",
-      Self::Darwin => "NH_DARWIN_FLAKE",
+      Self::Os => EnvVars::NH_OS_FLAKE,
+      Self::Home => EnvVars::NH_HOME_FLAKE,
+      Self::Darwin => EnvVars::NH_DARWIN_FLAKE,
     }
   }
 }
@@ -72,7 +73,7 @@ impl EnvInstallableSource {
       },
       Self::GenericFlake(value) => {
         debug!("Using NH_FLAKE: {value}");
-        flake_from_env_var("NH_FLAKE", &value)
+        flake_from_env_var(EnvVars::NH_FLAKE, &value)
       },
     }
   }
@@ -257,14 +258,14 @@ fn env_installable_source(
     });
   }
 
-  if let Ok(path) = env::var("NH_FILE") {
+  if let Ok(path) = env::var(EnvVars::NH_FILE) {
     return Some(EnvInstallableSource::File {
       path,
-      attribute: env::var("NH_ATTRP").unwrap_or_default(),
+      attribute: env::var(EnvVars::NH_ATTRP).unwrap_or_default(),
     });
   }
 
-  if let Ok(value) = env::var("NH_FLAKE") {
+  if let Ok(value) = env::var(EnvVars::NH_FLAKE) {
     return Some(EnvInstallableSource::GenericFlake(value));
   }
 

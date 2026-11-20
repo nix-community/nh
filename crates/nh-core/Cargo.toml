@@ -13,6 +13,7 @@ indicatif.workspace      = true
 inquire.workspace        = true
 misstep.workspace        = true
 nh-installable.workspace = true
+nh-static.workspace      = true
 nix.workspace            = true
 nix-command.workspace    = true
 regex.workspace          = true

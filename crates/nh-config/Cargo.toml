@@ -8,6 +8,7 @@ rust-version.workspace = true
 
 [dependencies]
 misstep.workspace   = true
+nh-static.workspace = true
 toml_edit.workspace = true
 
 [dev-dependencies]

@@ -1,15 +1,16 @@
 //! Running `switch-to-configuration` in a transient `systemd-run` unit.
 
+use nh_static::EnvVars;
 use tracing::debug;
 
 /// Arguments for the transient unit. Combine with [`output_args`].
 pub const UNIT_ARGS: &[&str] = &[
   "-E",
-  "LOCALE_ARCHIVE",
+  EnvVars::LOCALE_ARCHIVE,
   "-E",
-  "NIXOS_INSTALL_BOOTLOADER",
+  EnvVars::NIXOS_INSTALL_BOOTLOADER,
   "-E",
-  "NIXOS_NO_CHECK",
+  EnvVars::NIXOS_NO_CHECK,
   "--collect",
   "--no-ask-password",
   "--quiet",

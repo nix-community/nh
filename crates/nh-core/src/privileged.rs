@@ -5,6 +5,7 @@ use std::{
 };
 
 use misstep::{OptionExt, Result, ResultExt};
+use nh_static::EnvVars;
 use serde::{Deserialize, Serialize};
 use tracing::level_filters::LevelFilter;
 
@@ -77,7 +78,7 @@ impl PrivilegedOp {
     )
     .args([PRIVILEGED_SUBCOMMAND, &request])
     .elevate(Some(strategy))
-    .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
+    .preserve_envs([EnvVars::NIXOS_INSTALL_BOOTLOADER, EnvVars::NIXOS_NO_CHECK])
     .with_required_env()
     .show_output(true)
     .run()

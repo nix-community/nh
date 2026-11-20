@@ -9,6 +9,7 @@ use nh_core::{
   command::{CommandKind, NixCommand, exec_with_streaming},
   progress::{self, Spinner},
 };
+use nh_static::EnvVars;
 use subprocess::{Exec, Redirection};
 use tracing::{debug, error, info};
 
@@ -88,7 +89,7 @@ fn build_nix_copy_command<P: Into<OsString>>(
     .args(direction.args())
     .arg(path.into())
     .args(nix_args)
-    .env("NIX_SSHOPTS", get_nix_sshopts_env())
+    .env(EnvVars::NIX_SSHOPTS, get_nix_sshopts_env())
     .to_exec()
 }
 

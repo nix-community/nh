@@ -1,6 +1,7 @@
 use std::{io::Write, path::Path};
 
-use pound::Parse;
+use nh_static::{Documented, EnvVars, paths};
+use pound::{CommandSpec, Parse};
 
 type Entry = (&'static str, &'static str);
 
@@ -8,137 +9,6 @@ const EXIT_STATUSES: &[Entry] = &[
   ("0", "Successful program execution."),
   ("1", "Unsuccessful program execution."),
   ("101", "The program panicked."),
-];
-
-const ENVIRONMENT: &[Entry] = &[
-  (
-    "NH_NO_CHECKS",
-    "When set (any non-empty value), skips startup checks such as Nix version \
-     and experimental feature validation. Useful for generating completions \
-     or running in constrained build environments.",
-  ),
-  (
-    "NH_ASK",
-    "When set to 1, true, or yes, asks for confirmation before applying \
-     supported operations. 0, false, or no disable it. Other values are \
-     rejected. Equivalent to --ask.",
-  ),
-  (
-    "NH_FLAKE",
-    "Preferred path/reference to a directory containing your flake.nix used \
-     by NH when running flake-based commands. Historically FLAKE was used; NH \
-     will migrate FLAKE into NH_FLAKE if present.",
-  ),
-  (
-    "NH_OS_FLAKE",
-    "Command-specific flake reference for nh os commands. Takes precedence \
-     over NH_FLAKE.",
-  ),
-  (
-    "NH_HOME_FLAKE",
-    "Command-specific flake reference for nh home commands. Takes precedence \
-     over NH_FLAKE.",
-  ),
-  (
-    "NH_DARWIN_FLAKE",
-    "Command-specific flake reference for nh darwin commands. Takes \
-     precedence over NH_FLAKE.",
-  ),
-  (
-    "NH_FILE",
-    "Preferred path to a directory/file containing a Nix expression. Chosen \
-     after os/home/darwin-specific env vars, but before NH_FLAKE.",
-  ),
-  (
-    "NH_ATTRP",
-    "Nix attribute path for an expression specified with NH_FILE. For \
-     example, nixosConfigurations.<hostname>.",
-  ),
-  (
-    "NH_SUDO_ASKPASS",
-    "Path to a program used as SUDO_ASKPASS when NH self-elevates with sudo.",
-  ),
-  (
-    "NH_PRESERVE_ENV",
-    "Controls whether environment variables marked for preservation are \
-     passed to elevated commands. Set to \"0\" to disable, \"1\" to force. If \
-     unset, defaults to enabled.",
-  ),
-  (
-    "NH_LOG",
-    "Sets the tracing/log filter for NH. Uses tracing_subscriber format \
-     (e.g., nh=trace).",
-  ),
-  (
-    "NH_ROM",
-    "Controls whether rom shows build progress. Unset enables it only on a \
-     terminal. Set to 1, true, yes, or on to force it on; set to 0, false, \
-     no, or off to force it off. --no-rom takes precedence. NH_NOM is a \
-     deprecated alias that will be removed in 5.0.",
-  ),
-  (
-    "NH_ROM_LOG",
-    "Path to a file that records the Nix log stream of builds shown by rom, \
-     so it can be replayed through rom.",
-  ),
-  (
-    "NH_SSHOPTS",
-    "SSH options for remote operations. Takes precedence over NIX_SSHOPTS. \
-     Accepts the same format as NIX_SSHOPTS.",
-  ),
-  (
-    "NH_SUDOOPTS",
-    "Extra arguments inserted into the sudo invocation when NH elevates \
-     privileges. Takes precedence over NIX_SUDOOPTS.",
-  ),
-  (
-    "NIXOS_INSTALL_BOOTLOADER",
-    "Forwarded to switch-to-configuration. If true, forces bootloader \
-     installation. Also available via --install-bootloader.",
-  ),
-  (
-    "NIXOS_NO_CHECK",
-    "Forwarded to switch-to-configuration during activation. Inhibits certain \
-     NixOS service checks.",
-  ),
-  (
-    "NIX_SSHOPTS",
-    "SSH options passed to Nix commands for remote builds. NH_SSHOPTS takes \
-     precedence when both are set.",
-  ),
-  (
-    "NIX_SUDOOPTS",
-    "Extra arguments inserted into the sudo invocation. Supported for \
-     nixos-rebuild compatibility; NH_SUDOOPTS takes precedence.",
-  ),
-  (
-    "NIX_CONFIG",
-    "Nix configuration options passed to all Nix commands.",
-  ),
-  (
-    "NIX_REMOTE",
-    "Remote store configuration for Nix operations.",
-  ),
-  (
-    "NIX_SSL_CERT_FILE",
-    "SSL certificate file for Nix HTTPS operations.",
-  ),
-  ("NIX_USER_CONF_FILES", "User configuration files for Nix."),
-];
-
-const FILES: &[Entry] = &[
-  (
-    "/nix/var/nix/profiles/system",
-    "System profile directory containing system generations.",
-  ),
-  (
-    "/run/current-system",
-    "Symlink to the currently active system profile.",
-  ),
-  (
-    "/etc/specialisation",
-    "NixOS specialisation detection. Contains the active specialisation name.",
-  ),
 ];
 
 const EXAMPLES: &[Entry] = &[
@@ -203,9 +73,22 @@ pub fn generate(out_dir: &str) -> Result<(), String> {
       }
     }
   }
-  render_indented_section("EXIT STATUS", EXIT_STATUSES, &mut buffer)?;
-  render_indented_section("ENVIRONMENT", ENVIRONMENT, &mut buffer)?;
-  render_indented_section("FILES", FILES, &mut buffer)?;
+  check_env_documented(nh_cli::Main::SPEC)?;
+
+  let exit_statuses = EXIT_STATUSES
+    .iter()
+    .map(|&(label, description)| (label, vec![description.to_owned()]));
+  render_indented_section("EXIT STATUS", exit_statuses, &mut buffer)?;
+  render_indented_section(
+    "ENVIRONMENT",
+    EnvVars::DOCUMENTED.iter().map(documented_entry),
+    &mut buffer,
+  )?;
+  render_indented_section(
+    "FILES",
+    paths::DOCUMENTED.iter().map(documented_entry),
+    &mut buffer,
+  )?;
   render_examples(EXAMPLES, &mut buffer)?;
 
   std::fs::write(&man_path, buffer).map_err(|e| {
@@ -216,17 +99,50 @@ pub fn generate(out_dir: &str) -> Result<(), String> {
   Ok(())
 }
 
+/// Fail if the CLI reads an environment variable that the man page does not
+/// document.
+fn check_env_documented(spec: &CommandSpec) -> Result<(), String> {
+  let args = spec.args.iter();
+  let flattened = spec.flattened.iter().flat_map(|spec| spec.args);
+  for env in args.chain(flattened).filter_map(|arg| arg.env) {
+    if !EnvVars::DOCUMENTED.iter().any(|var| var.name == env) {
+      return Err(format!(
+        "`{env}` is read by the CLI but not documented in nh_static::EnvVars"
+      ));
+    }
+  }
+  for sub in spec.subs {
+    check_env_documented(sub.spec)?;
+  }
+  for flattened in spec.flattened {
+    for sub in flattened.subs {
+      check_env_documented(sub.spec)?;
+    }
+  }
+  Ok(())
+}
+
+/// A man page entry: the label and the paragraphs of its description, with
+/// Markdown code spans unwrapped.
+fn documented_entry(documented: &Documented) -> (&'static str, Vec<String>) {
+  let paragraphs = documented
+    .paragraphs()
+    .map(|paragraph| paragraph.replace('`', ""))
+    .collect();
+  (documented.name, paragraphs)
+}
+
 fn render_indented_section(
   title: &str,
-  entries: &[Entry],
+  entries: impl IntoIterator<Item = (&'static str, Vec<String>)>,
   buffer: &mut Vec<u8>,
 ) -> Result<(), String> {
-  let mut render = || -> std::io::Result<()> {
+  let render = || -> std::io::Result<()> {
     writeln!(buffer, ".Sh \"{title}\"")?;
     writeln!(buffer, ".Bl -tag -width Ds")?;
-    for &(label, description) in entries {
+    for (label, paragraphs) in entries {
       writeln!(buffer, ".It Sy \"{label}\"")?;
-      writeln!(buffer, "{description}")?;
+      writeln!(buffer, "{}", paragraphs.join("\n.Pp\n"))?;
     }
     writeln!(buffer, ".El")
   };

@@ -1,6 +1,7 @@
 use std::{cmp::Ordering, env};
 
 use misstep::Result;
+use nh_static::EnvVars;
 use semver::Version;
 use tracing::{debug, warn};
 
@@ -26,7 +27,7 @@ pub fn check_nix_version() -> Result<()> {
   const MIN_LIX_VERSION: &str = "2.93.3";
   const MIN_NIX_VERSION: &str = "2.31.2";
 
-  if env::var("NH_NO_CHECKS").is_ok() {
+  if env::var(EnvVars::NH_NO_CHECKS).is_ok() {
     return Ok(());
   }
 
@@ -98,23 +99,23 @@ pub fn check_nix_version() -> Result<()> {
 // errors in the future
 #[allow(clippy::unnecessary_wraps, clippy::missing_errors_doc)]
 pub fn verify_variables() -> Result<()> {
-  if let Ok(f) = std::env::var("FLAKE") {
+  if let Ok(f) = std::env::var(EnvVars::FLAKE) {
     // Set NH_FLAKE if it's not already set
-    if std::env::var("NH_FLAKE").is_err() {
+    if std::env::var(EnvVars::NH_FLAKE).is_err() {
       unsafe {
-        std::env::set_var("NH_FLAKE", f);
+        std::env::set_var(EnvVars::NH_FLAKE, f);
       }
 
       // Only warn if FLAKE is set and we're using it to set NH_FLAKE
       // AND none of the command-specific env vars are set
-      if std::env::var("NH_OS_FLAKE").is_err()
-        && std::env::var("NH_HOME_FLAKE").is_err()
-        && std::env::var("NH_DARWIN_FLAKE").is_err()
+      if std::env::var(EnvVars::NH_OS_FLAKE).is_err()
+        && std::env::var(EnvVars::NH_HOME_FLAKE).is_err()
+        && std::env::var(EnvVars::NH_DARWIN_FLAKE).is_err()
       {
         tracing::warn!(
           "nh {} now uses NH_FLAKE instead of FLAKE, please update your \
            configuration",
-          super::NH_VERSION
+          nh_static::NH_VERSION
         );
       }
     }
@@ -138,7 +139,7 @@ pub fn verify_variables() -> Result<()> {
 ///
 /// Returns an error if any required Nix environment checks fail.
 pub fn verify_nix_environment() -> Result<()> {
-  if env::var("NH_NO_CHECKS").is_ok() {
+  if env::var(EnvVars::NH_NO_CHECKS).is_ok() {
     return Ok(());
   }
 
@@ -198,7 +199,7 @@ pub trait FeatureRequirements {
   ///
   /// Returns an error if any required Nix features are not enabled.
   fn check_features(&self) -> Result<()> {
-    if env::var("NH_NO_CHECKS").is_ok() {
+    if env::var(EnvVars::NH_NO_CHECKS).is_ok() {
       return Ok(());
     }
 

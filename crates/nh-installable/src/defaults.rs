@@ -6,6 +6,7 @@ use std::{
 };
 
 use misstep::{OptionExt, Result, ResultExt, bail, report};
+use nh_static::EnvVars;
 use nix_command::NixCommand;
 use tracing::{debug, warn};
 
@@ -24,7 +25,7 @@ pub fn installable_for(context: CommandContext) -> Result<Installable> {
       flake_installable(
         Path::new("/etc/nix-darwin"),
         "darwin",
-        "NH_DARWIN_FLAKE",
+        EnvVars::NH_DARWIN_FLAKE,
       )
     },
   }
@@ -43,12 +44,12 @@ pub fn resolve_file(context: CommandContext, path: PathBuf) -> PathBuf {
 }
 
 fn home_installable() -> Result<Installable> {
-  let home = env::var("HOME")
+  let home = env::var(EnvVars::HOME)
     .map_err(|_| report!("HOME environment variable not set"))?;
   flake_installable(
     &PathBuf::from(home).join(".config/home-manager"),
     "home",
-    "NH_HOME_FLAKE",
+    EnvVars::NH_HOME_FLAKE,
   )
 }
 
@@ -122,7 +123,8 @@ fn os_installable_at(
   system_directory: &Path,
   find_system: impl FnOnce() -> Result<Option<PathBuf>>,
 ) -> Result<Installable> {
-  if let Some(installable) = find_flake(system_directory, "os", "NH_OS_FLAKE")?
+  if let Some(installable) =
+    find_flake(system_directory, "os", EnvVars::NH_OS_FLAKE)?
   {
     return Ok(installable);
   }

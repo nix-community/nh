@@ -10,6 +10,7 @@ use std::{
 };
 
 use misstep::{OptionExt, Result, ResultExt};
+use nh_static::EnvVars;
 use rom::{
   EngineConfig,
   FilesystemResolver,
@@ -137,11 +138,11 @@ impl Monitor {
       .set_resolver(FilesystemResolver::default());
     stream.engine_mut().load_history(&history);
 
-    let dumb = env::var("TERM").as_deref() == Ok("dumb");
+    let dumb = env::var(EnvVars::TERM).as_deref() == Ok("dumb");
     let render = RenderConfig {
       ansi: io::stderr().is_terminal()
         && !dumb
-        && env::var_os("NO_COLOR").is_none(),
+        && env::var_os(EnvVars::NO_COLOR).is_none(),
       ..RenderConfig::default()
     };
 
@@ -279,7 +280,7 @@ struct RecordedLine<'line> {
 
 impl Recorder {
   fn from_env() -> Result<Option<Self>> {
-    let Some(path) = env::var_os("NH_ROM_LOG") else {
+    let Some(path) = env::var_os(EnvVars::NH_ROM_LOG) else {
       return Ok(None);
     };
     let file = File::create(&path).with_context(|| {

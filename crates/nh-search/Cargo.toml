@@ -13,6 +13,7 @@ inquire.workspace             = true
 jiff.workspace                = true
 misstep.workspace             = true
 nh-core.workspace             = true
+nh-static.workspace           = true
 regex.workspace               = true
 reqwest.workspace             = true
 secrecy.workspace             = true

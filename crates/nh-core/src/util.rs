@@ -9,6 +9,7 @@ use std::{
 };
 
 use misstep::{OptionExt, Result, ResultExt, bail, report};
+use nh_static::EnvVars;
 use nix_command::{CommandKind, NixCommand};
 use regex::Regex;
 use serde::Deserialize;
@@ -237,7 +238,7 @@ pub fn get_nix_version() -> Result<String> {
 /// case without erroring.
 pub fn ensure_ssh_key_login() -> Result<()> {
   // No usable agent socket means ssh-add has nothing to talk to.
-  let agent_available = env::var_os("SSH_AUTH_SOCK")
+  let agent_available = env::var_os(EnvVars::SSH_AUTH_SOCK)
     .is_some_and(|s| std::path::Path::new(&s).exists());
   if !agent_available {
     debug!("SSH agent socket not available, skipping ssh-add check");
@@ -336,8 +337,8 @@ pub fn use_rom(no_rom: bool, no_nom: bool) -> bool {
     return false;
   }
 
-  let value = env::var("NH_ROM").ok().or_else(|| {
-    let value = env::var("NH_NOM").ok()?;
+  let value = env::var(EnvVars::NH_ROM).ok().or_else(|| {
+    let value = env::var(EnvVars::NH_NOM).ok()?;
     warn!("`NH_NOM` is deprecated and will be removed in 5.0, use `NH_ROM`");
     Some(value)
   });
