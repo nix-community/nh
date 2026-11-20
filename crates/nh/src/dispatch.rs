@@ -1,3 +1,5 @@
+mod clean;
+
 use nh_cli::NHCommand;
 use nh_core::{
   checks::{FeatureRequirements, NoFeatures},
@@ -32,7 +34,7 @@ pub fn run(command: NHCommand, elevation: ElevationStrategy) -> Result<()> {
   match command {
     NHCommand::Os { args } => args.run(elevation),
     NHCommand::Search { args } => args.run(),
-    NHCommand::Clean { args: proxy } => proxy.command.run(elevation),
+    NHCommand::Clean { args } => clean::run(args, elevation),
     NHCommand::Home { args } => args.run(),
     NHCommand::Darwin { args } => args.run(elevation),
   }

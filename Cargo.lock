@@ -1208,7 +1208,6 @@ dependencies = [
  "misstep",
  "nh-core",
  "nix",
- "pound",
  "regex",
  "tempfile",
  "tracing",
@@ -1220,7 +1219,7 @@ dependencies = [
 name = "nh-cli"
 version = "4.5.0"
 dependencies = [
- "nh-clean",
+ "humantime",
  "nh-core",
  "nh-darwin",
  "nh-home",
