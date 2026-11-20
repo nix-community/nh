@@ -1,13 +1,11 @@
-pub mod args;
-
 use std::path::{Path, PathBuf};
 
-use args::{DarwinArgs, DarwinRebuildArgs, DarwinReplArgs, DarwinSubcommand};
 use misstep::{Result, ResultExt, bail};
 use nh_core::{
+  args::CommonRebuildArgs,
   command::{Command, CommandKind, ElevationStrategy, NixCommand},
   privileged::{DarwinActivation, PrivilegedOp},
-  update::update_with_args,
+  update::{UpdateArgs, update_with_args},
   util::{get_hostname, use_rom},
 };
 use nh_diff::print_diff;
@@ -16,13 +14,44 @@ use nh_installable::{
   ConfigurationInstallable,
   ConfigurationLayout,
   Installable,
+  InstallableArgs,
 };
+use nh_remote::RemoteHost;
 use tracing::{debug, warn};
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
 const CURRENT_PROFILE: &str = "/run/current-system";
 
-impl DarwinArgs {
+/// Options for building or switching to a nix-darwin configuration.
+#[derive(Debug)]
+pub struct DarwinRebuildOptions {
+  pub common:            CommonRebuildArgs,
+  pub update_args:       UpdateArgs,
+  pub hostname:          Option<String>,
+  pub extra_args:        Vec<String>,
+  pub bypass_root_check: bool,
+  pub build_host:        Option<RemoteHost>,
+}
+
+/// Options for loading a nix-darwin configuration in a Nix repl.
+#[derive(Debug)]
+pub struct DarwinReplOptions {
+  pub installable: InstallableArgs,
+  pub hostname:    Option<String>,
+}
+
+/// A nix-darwin operation.
+#[derive(Debug)]
+pub enum DarwinCommand {
+  /// Build and activate a nix-darwin configuration
+  Switch(DarwinRebuildOptions),
+  /// Build a nix-darwin configuration
+  Build(DarwinRebuildOptions),
+  /// Load a nix-darwin configuration in a Nix repl
+  Repl(DarwinReplOptions),
+}
+
+impl DarwinCommand {
   /// Run the `darwin` subcommand.
   ///
   /// # Parameters
@@ -44,15 +73,15 @@ impl DarwinArgs {
   /// - File system operations fail
   pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
     use DarwinRebuildVariant::{Build, Switch};
-    match self.subcommand {
-      DarwinSubcommand::Switch { args } => args.rebuild(&Switch, elevation),
-      DarwinSubcommand::Build { args } => {
+    match self {
+      Self::Switch(args) => args.rebuild(&Switch, elevation),
+      Self::Build(args) => {
         if args.common.ask || args.common.dry {
           warn!("`--ask` and `--dry` have no effect for `nh darwin build`");
         }
         args.rebuild(&Build, elevation)
       },
-      DarwinSubcommand::Repl { args } => args.run(),
+      Self::Repl(args) => args.run(),
     }
   }
 }
@@ -62,7 +91,7 @@ enum DarwinRebuildVariant {
   Build,
 }
 
-impl DarwinRebuildArgs {
+impl DarwinRebuildOptions {
   fn rebuild(
     self,
     variant: &DarwinRebuildVariant,
@@ -216,7 +245,7 @@ fn run_activate(system: &Path, dry: bool) -> Result<()> {
     .context("Darwin activation failed")
 }
 
-impl DarwinReplArgs {
+impl DarwinReplOptions {
   fn run(self) -> Result<()> {
     let mut target_installable = self
       .installable

@@ -1,14 +1,5 @@
-use nh_core::{
-  args::CommonRebuildArgs,
-  checks::{
-    DarwinReplFeatures,
-    FeatureRequirements,
-    FlakeFeatures,
-    LegacyFeatures,
-  },
-  update::UpdateArgs,
-};
-use nh_installable::{CommandContext, InstallableArgs};
+use nh_core::{args::CommonRebuildArgs, update::UpdateArgs};
+use nh_installable::InstallableArgs;
 use nh_remote::RemoteHost;
 use pound::Parse;
 
@@ -19,25 +10,6 @@ use pound::Parse;
 pub struct DarwinArgs {
   #[pound(subcommand)]
   pub subcommand: DarwinSubcommand,
-}
-
-impl DarwinArgs {
-  #[must_use]
-  pub fn get_feature_requirements(&self) -> Box<dyn FeatureRequirements> {
-    match &self.subcommand {
-      DarwinSubcommand::Repl { args } => {
-        let is_flake = args.uses_flakes();
-        Box::new(DarwinReplFeatures { is_flake })
-      },
-      DarwinSubcommand::Switch { args } | DarwinSubcommand::Build { args } => {
-        if args.uses_flakes() {
-          Box::new(FlakeFeatures)
-        } else {
-          Box::new(LegacyFeatures)
-        }
-      },
-    }
-  }
 }
 
 #[derive(Debug, Parse)]
@@ -94,13 +66,6 @@ pub struct DarwinRebuildArgs {
   pub build_host: Option<RemoteHost>,
 }
 
-impl DarwinRebuildArgs {
-  #[must_use]
-  pub fn uses_flakes(&self) -> bool {
-    self.common.installable.uses_flakes(CommandContext::Darwin)
-  }
-}
-
 #[derive(Debug, Parse)]
 pub struct DarwinReplArgs {
   #[pound(flatten)]
@@ -110,11 +75,4 @@ pub struct DarwinReplArgs {
   /// darwinConfigurations
   #[pound(long, short = 'H', global)]
   pub hostname: Option<String>,
-}
-
-impl DarwinReplArgs {
-  #[must_use]
-  pub fn uses_flakes(&self) -> bool {
-    self.installable.uses_flakes(CommandContext::Darwin)
-  }
 }
