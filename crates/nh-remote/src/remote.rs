@@ -13,6 +13,7 @@ use nh_core::{
   systemd_run,
   util::{NixVariant, parse_nix_variant},
 };
+use nh_static::{EnvVars, paths::SYSTEM_PROFILE};
 use secrecy::{ExposeSecret, SecretString};
 use subprocess::{Exec, Redirection};
 use tracing::{debug, error, info, warn};
@@ -165,7 +166,7 @@ fn nixos_activation_command(
     parts.push("NIXOS_INSTALL_BOOTLOADER=1".to_string());
   }
 
-  if let Ok(no_check) = env::var("NIXOS_NO_CHECK") {
+  if let Ok(no_check) = env::var(EnvVars::NIXOS_NO_CHECK) {
     parts.push(format!("NIXOS_NO_CHECK={}", shell_quote(&no_check)));
   }
 
@@ -379,7 +380,7 @@ fn get_ssh_control_dir() -> &'static PathBuf {
     // Try to use XDG_RUNTIME_DIR first (usually /run/user/<uid>), fall back to
     // /tmp
     // XXX: I do not want to use the dirs crate just for this.
-    let base = env::var("XDG_RUNTIME_DIR")
+    let base = env::var(EnvVars::XDG_RUNTIME_DIR)
       .map_or_else(|_| PathBuf::from("/tmp"), PathBuf::from);
 
     let control_dir = base.join(format!("nh-ssh-{}", std::process::id()));
@@ -671,12 +672,12 @@ pub fn get_ssh_opts() -> Vec<String> {
   let mut opts: Vec<String> = Vec::new();
 
   // NH_SSHOPTS takes precedence; NIX_SSHOPTS is the compatibility fallback.
-  let (sshopts_var, sshopts_val) = env::var("NH_SSHOPTS").map_or_else(
+  let (sshopts_var, sshopts_val) = env::var(EnvVars::NH_SSHOPTS).map_or_else(
     |_| {
-      env::var("NIX_SSHOPTS")
-        .map_or_else(|_| ("", String::new()), |v| ("NIX_SSHOPTS", v))
+      env::var(EnvVars::NIX_SSHOPTS)
+        .map_or_else(|_| ("", String::new()), |v| (EnvVars::NIX_SSHOPTS, v))
     },
-    |v| ("NH_SSHOPTS", v),
+    |v| (EnvVars::NH_SSHOPTS, v),
   );
 
   if !sshopts_val.is_empty() {
@@ -712,8 +713,8 @@ pub fn get_ssh_opts() -> Vec<String> {
 /// `~/.ssh/config` instead.
 fn get_nix_sshopts_env() -> String {
   // NH_SSHOPTS takes precedence; NIX_SSHOPTS is the compatibility fallback.
-  let user_opts = env::var("NH_SSHOPTS")
-    .or_else(|_| env::var("NIX_SSHOPTS"))
+  let user_opts = env::var(EnvVars::NH_SSHOPTS)
+    .or_else(|_| env::var(EnvVars::NIX_SSHOPTS))
     .unwrap_or_default();
   let default_opts = get_default_ssh_opts();
 
@@ -1070,7 +1071,7 @@ fn activate_nixos_remote(
       step(
         "Setting system profile",
         &format!(
-          "nix-env --profile {NIXOS_SYSTEM_PROFILE} --set {}",
+          "nix-env --profile {SYSTEM_PROFILE} --set {}",
           shell_quote(system_profile_str)
         ),
       )?;
@@ -1296,10 +1297,6 @@ fn run_remote_step(
   Ok(())
 }
 
-/// System profile path for NixOS.
-/// Used by remote activation functions.
-const NIXOS_SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
-
 fn clear_out_link(link: &Path) -> Result<()> {
   let Some(metadata) = std::fs::symlink_metadata(link)
     .map(Some)
@@ -1443,7 +1440,7 @@ pub fn build(
   let out_path = build
     .extra_args(["--store", &build_store_uri(build_host, passthrough)?])
     .extra_args(["--eval-store", "auto", "--no-link"])
-    .env("NIX_SSHOPTS", get_nix_sshopts_env())
+    .env(EnvVars::NIX_SSHOPTS, get_nix_sshopts_env())
     .run()?;
 
   // Clear an old link even when the new result remains on a remote host.

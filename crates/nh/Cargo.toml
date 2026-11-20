@@ -21,6 +21,7 @@ nh-home.workspace            = true
 nh-installable.workspace     = true
 nh-nixos.workspace           = true
 nh-search.workspace          = true
+nh-static.workspace          = true
 pound.workspace              = true
 tracing.workspace            = true
 tracing-subscriber.workspace = true

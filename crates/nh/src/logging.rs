@@ -1,4 +1,5 @@
 use nh_cli::Verbosity;
+use nh_static::EnvVars;
 use tracing::{Event, Level, Subscriber};
 use tracing_subscriber::{
   EnvFilter,
@@ -97,7 +98,7 @@ pub fn setup_logging_at(fallback_level: LevelFilter) -> Result<()> {
     .with_ansi_sanitization(false)
     .event_format(InfoFormatter)
     .with_filter(
-      EnvFilter::from_env("NH_LOG")
+      EnvFilter::from_env(EnvVars::NH_LOG)
         .add_directive(fallback_level.into())
         .add_directive("dix=WARN".parse()?),
     );

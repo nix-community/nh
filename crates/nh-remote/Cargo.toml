@@ -15,6 +15,7 @@ dix.workspace         = true
 inquire.workspace     = true
 misstep.workspace     = true
 nh-core.workspace     = true
+nh-static.workspace   = true
 nix-command.workspace = true
 secrecy.workspace     = true
 shlex.workspace       = true

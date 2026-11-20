@@ -5,12 +5,10 @@ use nh_core::{
   command::{ElevationStrategy, ElevationStrategyArg},
   privileged::{PrivilegedOp, PrivilegedRequest},
 };
+use nh_static::{EnvVars, NH_REV, NH_VERSION};
 
 pub mod dispatch;
 pub mod logging;
-
-pub const NH_VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const NH_REV: Option<&str> = option_env!("NH_REV");
 
 /// Run nh with arguments parsed from the process environment.
 ///
@@ -32,7 +30,7 @@ pub fn main() -> Result<()> {
   // NH_ELEVATION_STRATEGY is not set.
   // TODO: Remove this fallback in a future version
   if args.elevation_strategy.is_none()
-    && let Some(old_value) = std::env::var("NH_ELEVATION_PROGRAM")
+    && let Some(old_value) = std::env::var(EnvVars::NH_ELEVATION_PROGRAM)
       .ok()
       .filter(|v| !v.is_empty())
   {

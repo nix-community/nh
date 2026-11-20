@@ -11,6 +11,7 @@ use std::{
 use flub::Error;
 use misstep::{OptionExt, Result, ResultExt, bail, report};
 use nh_installable::Installable;
+use nh_static::EnvVars;
 pub use nix_command::{CommandKind, NixCommand};
 use subprocess::{Exec, ExitStatus, Redirection};
 use tracing::{debug, info, warn};
@@ -20,8 +21,8 @@ use crate::args::NixBuildPassthroughArgs;
 
 #[must_use]
 pub fn get_sudo_opts() -> Vec<String> {
-  let sudoopts = env::var("NH_SUDOOPTS")
-    .or_else(|_| env::var("NIX_SUDOOPTS"))
+  let sudoopts = env::var(EnvVars::NH_SUDOOPTS)
+    .or_else(|_| env::var(EnvVars::NIX_SUDOOPTS))
     .ok()
     .filter(|s| !s.is_empty());
 
@@ -476,48 +477,49 @@ impl Command {
     // This is not a part of Nix's environment, but it might be necessary.
     // nixos-rebuild preserves it, so we do too.
     const PRESERVE_ENV: &[&str] = &[
-      "LOCALE_ARCHIVE",
+      EnvVars::LOCALE_ARCHIVE,
       // PATH needs to be preserved so that NH can invoke CLI utilities.
-      "PATH",
+      EnvVars::PATH,
       // Make sure NIX_SSHOPTS applies to nix commands that invoke ssh, such as
       // `nix copy`
-      "NIX_SSHOPTS",
+      EnvVars::NIX_SSHOPTS,
       // This is relevant for Home-Manager systems
-      "HOME_MANAGER_BACKUP_EXT",
+      EnvVars::HOME_MANAGER_BACKUP_EXT,
       // Preserve other Nix-related environment variables
       // TODO: is this everything we need? Previously we only preserved *some*
       // variables and nh continued to work, but any missing vars might
       // break functionality completely unexpectedly. This list could
       // change at any moment. This better be enough. Ugh.
-      "NIX_CONFIG",
-      "NIX_PATH",
-      "NIX_REMOTE",
-      "NIX_SSL_CERT_FILE",
-      "NIX_USER_CONF_FILES",
+      EnvVars::NIX_CONFIG,
+      EnvVars::NIX_PATH,
+      EnvVars::NIX_REMOTE,
+      EnvVars::NIX_SSL_CERT_FILE,
+      EnvVars::NIX_USER_CONF_FILES,
     ];
 
     // Always explicitly set USER if present
-    if let Ok(user) = env::var("USER") {
+    if let Ok(user) = env::var(EnvVars::USER) {
       self
         .env_vars
-        .insert("USER".to_string(), EnvAction::Set(user));
+        .insert(EnvVars::USER.to_string(), EnvAction::Set(user));
     }
 
     // Only propagate HOME for non-elevated commands
     if self.elevate.is_none()
-      && let Ok(home) = env::var("HOME")
+      && let Ok(home) = env::var(EnvVars::HOME)
     {
       self
         .env_vars
-        .insert("HOME".to_string(), EnvAction::Set(home));
+        .insert(EnvVars::HOME.to_string(), EnvAction::Set(home));
     }
 
     // INFO: Set HOME to proper root-owned directory for macos
     // ref: https://github.com/NixOS/nix/blob/d5d7ca01b3dcf48f43819012c580cfb57cb08e47/src/libutil/unix/users.cc#L52
     if self.elevate.is_some() && cfg!(target_os = "macos") {
-      self
-        .env_vars
-        .insert("HOME".to_string(), EnvAction::Set("/var/root".to_string()));
+      self.env_vars.insert(
+        EnvVars::HOME.to_string(),
+        EnvAction::Set("/var/root".to_string()),
+      );
     }
 
     // Preserve all variables in PRESERVE_ENV if present
@@ -599,9 +601,9 @@ impl Command {
       .context("Failed to determine elevation program name")?;
     if program_name == "sudo"
       && !matches!(elevation_strategy, ElevationStrategy::Passwordless)
-      && let Ok(askpass) = env::var("NH_SUDO_ASKPASS")
+      && let Ok(askpass) = env::var(EnvVars::NH_SUDO_ASKPASS)
     {
-      cmd = cmd.env("SUDO_ASKPASS", askpass).arg("-A");
+      cmd = cmd.env(EnvVars::SUDO_ASKPASS, askpass).arg("-A");
     }
     // Request allocation of a pseudo TTY for the run0 session. Without this,
     // running `run0` changes the user of `/dev/pts/<current-terminal>
@@ -617,7 +619,7 @@ impl Command {
 
     // NH_PRESERVE_ENV: set to "0" to disable preserving environment variables,
     // "1" to force, unset defaults to force
-    let preserve_env = env::var("NH_PRESERVE_ENV")
+    let preserve_env = env::var(EnvVars::NH_PRESERVE_ENV)
       .as_deref()
       .map_or(true, |x| !matches!(x, "0"));
 
@@ -654,7 +656,7 @@ impl Command {
       .and_then(|name| name.to_str())
       .context("Failed to determine elevation program name")?;
     if program_name == "sudo"
-      && let Ok(_askpass) = env::var("NH_SUDO_ASKPASS")
+      && let Ok(_askpass) = env::var(EnvVars::NH_SUDO_ASKPASS)
     {
       parts.push("-A".to_string());
     }
@@ -670,7 +672,7 @@ impl Command {
       parts.extend(get_sudo_opts());
     }
 
-    let preserve_env = env::var("NH_PRESERVE_ENV")
+    let preserve_env = env::var(EnvVars::NH_PRESERVE_ENV)
       .as_deref()
       .map_or(true, |x| !matches!(x, "0"));
 
@@ -722,9 +724,9 @@ impl Command {
 
     // check if using SUDO_ASKPASS
     if sudo_parts[1] == "-A"
-      && let Ok(askpass) = env::var("NH_SUDO_ASKPASS")
+      && let Ok(askpass) = env::var(EnvVars::NH_SUDO_ASKPASS)
     {
-      std_cmd.env("SUDO_ASKPASS", askpass);
+      std_cmd.env(EnvVars::SUDO_ASKPASS, askpass);
     }
     Ok(std_cmd)
   }

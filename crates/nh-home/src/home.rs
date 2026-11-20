@@ -16,6 +16,7 @@ use nh_installable::{
   InstallableArgs,
 };
 use nh_remote::RemoteHost;
+use nh_static::EnvVars;
 use tracing::{debug, info, warn};
 
 fn capture_nix_stdout(command: &NixCommand) -> Result<String> {
@@ -165,12 +166,12 @@ impl HomeRebuildOptions {
     .context("Failed to build Home-Manager configuration")?;
 
     let username =
-      env::var("USER").map_err(|_| report!("Couldn't get username"))?;
-    let home_dir =
-      env::var("HOME").map_err(|_| report!("Couldn't get home directory"))?;
-    let state_home = env::var("XDG_STATE_HOME")
+      env::var(EnvVars::USER).map_err(|_| report!("Couldn't get username"))?;
+    let home_dir = env::var(EnvVars::HOME)
+      .map_err(|_| report!("Couldn't get home directory"))?;
+    let state_home = env::var(EnvVars::XDG_STATE_HOME)
       .unwrap_or_else(|_| format!("{home_dir}/.local/state"));
-    let data_home = env::var("XDG_DATA_HOME")
+    let data_home = env::var(EnvVars::XDG_DATA_HOME)
       .unwrap_or_else(|_| format!("{home_dir}/.local/share"));
 
     // Match Home Manager's profile discovery: prefer $XDG_STATE_HOME if set,
@@ -230,7 +231,7 @@ impl HomeRebuildOptions {
     if let Some(ext) = &self.backup_extension {
       info!("Using {} as the backup extension", ext);
       unsafe {
-        env::set_var("HOME_MANAGER_BACKUP_EXT", ext);
+        env::set_var(EnvVars::HOME_MANAGER_BACKUP_EXT, ext);
       }
     }
 
@@ -349,8 +350,8 @@ fn discover_home_configuration(
     bail!("Explicitly specified home-manager configuration not found: {name}");
   }
 
-  let username =
-    std::env::var("USER").map_err(|_| report!("Couldn't get username"))?;
+  let username = std::env::var(EnvVars::USER)
+    .map_err(|_| report!("Couldn't get username"))?;
   let hostname = get_hostname(None)?;
   let candidates = [format!("{username}@{hostname}"), username];
 

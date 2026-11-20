@@ -6,14 +6,13 @@ use std::{
 
 use elasticsearch_dsl::{Search, SearchResponse};
 use misstep::{Report, Result, ResultExt, bail};
+use nh_static::NH_VERSION;
 use reqwest::{
   StatusCode,
   blocking::{Client, Response},
 };
 use serde::{Deserialize, de::DeserializeOwned};
 use tracing::{debug, trace, warn};
-
-const NH_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // Hardcoded upstream
 // https://github.com/NixOS/nixos-search/blob/744ec58e082a3fcdd741b2c9b0654a0f7fda4603/frontend/src/index.js

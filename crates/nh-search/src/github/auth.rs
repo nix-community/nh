@@ -7,13 +7,14 @@ use std::{
 };
 
 use misstep::{OptionExt, Result, ResultExt, bail};
+use nh_static::EnvVars;
 use secrecy::{ExposeSecret, SecretString};
 use yansi::Paint;
 
 const TOKEN_CREATION_URL: &str =
   "https://github.com/settings/personal-access-tokens/new";
-const TOKEN_ENV: &str = "GH_TOKEN";
-const TOKEN_FILE_ENV: &str = "NH_GITHUB_TOKEN_FILE";
+const TOKEN_ENV: &str = EnvVars::GH_TOKEN;
+const TOKEN_FILE_ENV: &str = EnvVars::NH_GITHUB_TOKEN_FILE;
 const TOKEN_FILE: &str = "github-token";
 
 pub fn token() -> Result<SecretString> {
@@ -78,11 +79,11 @@ fn token_store_path() -> Result<PathBuf> {
     return Ok(path);
   }
 
-  if let Some(state_home) = get_env("XDG_STATE_HOME")? {
+  if let Some(state_home) = get_env(EnvVars::XDG_STATE_HOME)? {
     return Ok(state_home.join("nh").join(TOKEN_FILE));
   }
 
-  if let Some(home) = get_env("HOME")? {
+  if let Some(home) = get_env(EnvVars::HOME)? {
     return Ok(
       home
         .join(".local")

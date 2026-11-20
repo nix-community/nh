@@ -1230,6 +1230,7 @@ dependencies = [
  "nh-installable",
  "nh-nixos",
  "nh-search",
+ "nh-static",
  "pound",
  "tracing",
  "tracing-subscriber",
@@ -1243,6 +1244,7 @@ dependencies = [
  "humantime",
  "misstep",
  "nh-core",
+ "nh-static",
  "nix",
  "regex",
  "tempfile",
@@ -1259,6 +1261,7 @@ dependencies = [
  "nh-core",
  "nh-installable",
  "nh-remote",
+ "nh-static",
  "nix-installable",
  "pound",
  "serial_test",
@@ -1269,6 +1272,7 @@ name = "nh-config"
 version = "0.1.0"
 dependencies = [
  "misstep",
+ "nh-static",
  "serial_test",
  "tempfile",
  "toml_edit",
@@ -1283,6 +1287,7 @@ dependencies = [
  "inquire",
  "misstep",
  "nh-installable",
+ "nh-static",
  "nix",
  "nix-command",
  "proptest",
@@ -1309,6 +1314,7 @@ dependencies = [
  "nh-diff",
  "nh-installable",
  "nh-remote",
+ "nh-static",
  "nix",
  "tempfile",
  "tracing",
@@ -1335,6 +1341,7 @@ dependencies = [
  "nh-diff",
  "nh-installable",
  "nh-remote",
+ "nh-static",
  "tempfile",
  "tracing",
 ]
@@ -1344,6 +1351,7 @@ name = "nh-installable"
 version = "4.5.1"
 dependencies = [
  "misstep",
+ "nh-static",
  "nix-command",
  "nix-installable",
  "serial_test",
@@ -1361,6 +1369,7 @@ dependencies = [
  "nh-diff",
  "nh-installable",
  "nh-remote",
+ "nh-static",
  "nix",
  "serde",
  "serde_json",
@@ -1376,6 +1385,7 @@ dependencies = [
  "inquire",
  "misstep",
  "nh-core",
+ "nh-static",
  "nix-command",
  "proptest",
  "secrecy",
@@ -1394,6 +1404,7 @@ dependencies = [
  "jiff 1.0.3",
  "misstep",
  "nh-core",
+ "nh-static",
  "regex",
  "reqwest",
  "secrecy",
@@ -1407,6 +1418,10 @@ dependencies = [
  "tracing",
  "yansi",
 ]
+
+[[package]]
+name = "nh-static"
+version = "4.5.1"
 
 [[package]]
 name = "nix"
@@ -2968,6 +2983,7 @@ version = "4.5.1"
 dependencies = [
  "caress",
  "nh-cli",
+ "nh-static",
  "pound",
 ]
 

@@ -7,9 +7,10 @@ use std::{
 };
 
 use misstep::{Report, Result, ResultExt, bail};
+use nh_static::EnvVars;
 use toml_edit::DocumentMut;
 
-const CONFIG_ENV: &str = "NH_CONFIG";
+const CONFIG_ENV: &str = EnvVars::NH_CONFIG;
 const CONFIG_FILE: &str = "config.toml";
 
 #[derive(Debug)]
@@ -92,11 +93,11 @@ pub fn default_config_path() -> Result<PathBuf> {
     return Ok(PathBuf::from(path));
   }
 
-  if let Some(config_home) = non_empty_var("XDG_CONFIG_HOME") {
+  if let Some(config_home) = non_empty_var(EnvVars::XDG_CONFIG_HOME) {
     return Ok(PathBuf::from(config_home).join("nh").join(CONFIG_FILE));
   }
 
-  if let Some(home) = non_empty_var("HOME") {
+  if let Some(home) = non_empty_var(EnvVars::HOME) {
     return Ok(
       PathBuf::from(home)
         .join(".config")

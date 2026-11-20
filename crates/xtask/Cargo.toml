@@ -5,9 +5,10 @@ edition.workspace = true
 publish           = false
 
 [dependencies]
-caress.workspace = true
-nh-cli.workspace = true
-pound.workspace  = true
+caress.workspace    = true
+nh-cli.workspace    = true
+nh-static.workspace = true
+pound.workspace     = true
 
 [lints]
 workspace = true

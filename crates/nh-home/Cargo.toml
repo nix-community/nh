@@ -16,6 +16,7 @@ nh-core.workspace        = true
 nh-diff.workspace        = true
 nh-installable.workspace = true
 nh-remote.workspace      = true
+nh-static.workspace      = true
 tempfile.workspace       = true
 tracing.workspace        = true
 

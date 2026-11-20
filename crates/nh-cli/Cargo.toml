@@ -12,6 +12,7 @@ humantime.workspace       = true
 nh-core.workspace         = true
 nh-installable.workspace  = true
 nh-remote.workspace       = true
+nh-static.workspace       = true
 nix-installable.workspace = true
 pound.workspace           = true
 

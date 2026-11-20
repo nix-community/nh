@@ -32,14 +32,13 @@ use nh_installable::{
   InstallableArgs,
 };
 use nh_remote::{self, RemoteHost};
+use nh_static::{
+  EnvVars,
+  paths::{CURRENT_SYSTEM, SPECIALISATION, SYSTEM_PROFILE},
+};
 use tracing::{debug, info, warn};
 
 use crate::generations::{self, Field};
-
-const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
-const CURRENT_PROFILE: &str = "/run/current-system";
-
-const SPEC_LOCATION: &str = "/etc/specialisation";
 
 /// Essential files that must exist in a valid NixOS system closure. Each tuple
 /// contains the file path relative to the system profile and its description.
@@ -265,7 +264,7 @@ pub fn run_activation_commands(activation: &NixosActivation) -> Result<()> {
     } else {
       "Activating configuration"
     })
-    .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
+    .preserve_envs([EnvVars::NIXOS_INSTALL_BOOTLOADER, EnvVars::NIXOS_NO_CHECK])
     .with_required_env()
     .show_output(true)
     .run()
@@ -299,10 +298,13 @@ pub fn run_activation_commands(activation: &NixosActivation) -> Result<()> {
       activation.systemd_run,
     )
     .message("Adding configuration to bootloader")
-    .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"]);
+    .preserve_envs([
+      EnvVars::NIXOS_INSTALL_BOOTLOADER,
+      EnvVars::NIXOS_NO_CHECK,
+    ]);
 
     if activation.install_bootloader {
-      cmd = cmd.set_env("NIXOS_INSTALL_BOOTLOADER", "1");
+      cmd = cmd.set_env(EnvVars::NIXOS_INSTALL_BOOTLOADER, "1");
     }
 
     cmd
@@ -365,7 +367,7 @@ pub fn run_rollback_commands(rollback: &NixosRollback) -> Result<()> {
     "switch",
     rollback.systemd_run,
   )
-  .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
+  .preserve_envs([EnvVars::NIXOS_INSTALL_BOOTLOADER, EnvVars::NIXOS_NO_CHECK])
   .with_required_env()
   .show_output(true)
   .run()
@@ -518,7 +520,7 @@ impl OsRebuildActivateOptions {
     print_diff(
       &self.rebuild.common.diff,
       self.rebuild.target_host.as_ref(),
-      Path::new(CURRENT_PROFILE),
+      Path::new(CURRENT_SYSTEM),
       &target_profile,
     )?;
 
@@ -843,7 +845,7 @@ impl OsRebuildOptions {
     // Did the user name a specialisation with `--specialisation`, or did we
     // infer it from the running system? A named one that we can't build is a
     // user error. An inferred one that we can't build should fall back instead.
-    let booted_specialisation = std::fs::read_to_string(SPEC_LOCATION)
+    let booted_specialisation = std::fs::read_to_string(SPECIALISATION)
       .ok()
       .map(|s| s.trim().to_owned());
     let Some(spec) = self.specialisation.clone().or(booted_specialisation)
@@ -969,7 +971,7 @@ impl OsRebuildOptions {
     print_diff(
       &self.common.diff,
       self.target_host.as_ref(),
-      Path::new(CURRENT_PROFILE),
+      Path::new(CURRENT_SYSTEM),
       &target_profile,
     )?;
 
@@ -1019,7 +1021,7 @@ impl OsRollbackOptions {
       profile_dir.join(format!("system-{}-link", target_generation.number));
 
     // Handle specialisations
-    let current_specialisation = fs::read_to_string(SPEC_LOCATION)
+    let current_specialisation = fs::read_to_string(SPECIALISATION)
       .ok()
       .map(|s| s.trim().to_owned());
 
@@ -1062,7 +1064,7 @@ impl OsRollbackOptions {
     print_diff(
       &self.diff,
       None,
-      Path::new(CURRENT_PROFILE),
+      Path::new(CURRENT_SYSTEM),
       &generation_link,
     )?;
 

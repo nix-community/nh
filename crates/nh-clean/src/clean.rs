@@ -9,6 +9,7 @@ use std::{
 
 use misstep::{OptionExt, Result, ResultExt, bail, report};
 use nh_core::command::{Command, CommandKind, ElevationStrategy, NixCommand};
+use nh_static::{EnvVars, paths};
 use nix::{
   errno::Errno,
   fcntl::AtFlags,
@@ -37,8 +38,6 @@ static RESULT_LINK_REGEX: LazyLock<Regex> = LazyLock::new(|| {
   #[allow(clippy::expect_used)]
   Regex::new(r"^result(-.*)?$").expect("Failed to compile result link regex")
 });
-
-const AUTO_GCROOTS_DIR: &str = "/nix/var/nix/gcroots/auto";
 
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 struct Generation {
@@ -197,7 +196,7 @@ impl CleanTarget {
         }
         let user = nix::unistd::User::from_uid(uid)?
           .with_context(|| format!("User not found for uid {uid}"))?;
-        let home_dir = PathBuf::from(std::env::var("HOME")?);
+        let home_dir = PathBuf::from(std::env::var(EnvVars::HOME)?);
 
         let paths_to_check = [
           home_dir.join(".local/state/nix/profiles"),
@@ -689,7 +688,7 @@ fn gcroot_matches_filter(src: &Path, dst: &Path, regexes: &[&Regex]) -> bool {
 }
 
 fn is_auto_gcroot_entry(path: &Path) -> bool {
-  path.starts_with(AUTO_GCROOTS_DIR)
+  path.starts_with(paths::AUTO_GCROOTS)
 }
 
 /// Whether `path`'s basename looks like an ephemeral `nix build` result

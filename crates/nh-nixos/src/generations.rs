@@ -8,6 +8,7 @@ use std::{
 use jiff::{Timestamp, tz::TimeZone};
 use misstep::Result;
 use nh_core::command::{CommandKind, NixCommand};
+use nh_static::paths::CURRENT_SYSTEM;
 use serde::Serialize;
 use tracing::{debug, warn};
 
@@ -337,7 +338,7 @@ pub fn describe(
   };
 
   // Check if this generation is the current one
-  let Some(run_current_target) = fs::read_link("/run/current-system")
+  let Some(run_current_target) = fs::read_link(CURRENT_SYSTEM)
     .ok()
     .and_then(|p| fs::canonicalize(p).ok())
   else {
