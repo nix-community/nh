@@ -183,7 +183,7 @@ pub fn generate(out_dir: &str) -> Result<(), String> {
   let man_path = gen_dir.join("nh.1");
   let mut buffer: Vec<u8> = Vec::new();
 
-  for page in caress::man::pages(nh::interface::Main::SPEC, "") {
+  for page in caress::man::pages(nh_cli::Main::SPEC, "") {
     let content = page
       .content
       .split(".Sh SEE ALSO")

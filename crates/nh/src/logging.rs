@@ -1,3 +1,4 @@
+use nh_cli::Verbosity;
 use tracing::{Event, Level, Subscriber};
 use tracing_subscriber::{
   EnvFilter,
@@ -8,7 +9,7 @@ use tracing_subscriber::{
 };
 use yansi::{Color, Paint};
 
-use crate::{Result, interface::Verbosity};
+use crate::Result;
 
 struct InfoFormatter;
 
