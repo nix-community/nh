@@ -1,17 +1,7 @@
-use nh_core::{
-  args::{CommonRebuildArgs, Diff},
-  checks::{
-    FeatureRequirements,
-    FlakeFeatures,
-    LegacyFeatures,
-    OsReplFeatures,
-  },
-};
-use nh_installable::{CommandContext, InstallableArgs};
+use nh_core::args::{CommonRebuildArgs, Diff};
+use nh_installable::InstallableArgs;
 use nh_remote::RemoteHost;
-use pound::Parse;
-
-use crate::generations::Field;
+use pound::{Parse, ValueEnum};
 
 #[derive(Parse, Debug)]
 /// `NixOS` functionality
@@ -20,55 +10,6 @@ use crate::generations::Field;
 pub struct OsArgs {
   #[pound(subcommand)]
   pub subcommand: OsSubcommand,
-}
-
-impl OsArgs {
-  #[must_use]
-  pub fn get_feature_requirements(&self) -> Box<dyn FeatureRequirements> {
-    match &self.subcommand {
-      OsSubcommand::Repl { args } => {
-        let is_flake = args.uses_flakes();
-        Box::new(OsReplFeatures { is_flake })
-      },
-      OsSubcommand::Switch { args }
-      | OsSubcommand::Boot { args }
-      | OsSubcommand::Test { args } => {
-        if args.rebuild.uses_flakes() {
-          Box::new(FlakeFeatures)
-        } else {
-          Box::new(LegacyFeatures)
-        }
-      },
-      OsSubcommand::Build { args }
-      | OsSubcommand::DryActivate {
-        args: OsDryActivateArgs { rebuild: args, .. },
-      } => {
-        if args.uses_flakes() {
-          Box::new(FlakeFeatures)
-        } else {
-          Box::new(LegacyFeatures)
-        }
-      },
-      OsSubcommand::BuildVm { args } => {
-        if args.common.uses_flakes() {
-          Box::new(FlakeFeatures)
-        } else {
-          Box::new(LegacyFeatures)
-        }
-      },
-      OsSubcommand::Info { .. } | OsSubcommand::Rollback { .. } => {
-        Box::new(LegacyFeatures)
-      },
-
-      OsSubcommand::BuildImage { args } => {
-        if args.common.uses_flakes() {
-          Box::new(FlakeFeatures)
-        } else {
-          Box::new(LegacyFeatures)
-        }
-      },
-    }
-  }
 }
 
 #[derive(Debug, Parse)]
@@ -252,13 +193,6 @@ pub struct OsRebuildActivateArgs {
   pub no_systemd_run: bool,
 }
 
-impl OsRebuildArgs {
-  #[must_use]
-  pub fn uses_flakes(&self) -> bool {
-    self.common.installable.uses_flakes(CommandContext::Os)
-  }
-}
-
 #[derive(Debug, Parse)]
 pub struct OsRollbackArgs {
   /// Only print actions, without performing them
@@ -307,13 +241,6 @@ pub struct OsReplArgs {
   pub hostname: Option<String>,
 }
 
-impl OsReplArgs {
-  #[must_use]
-  pub fn uses_flakes(&self) -> bool {
-    self.installable.uses_flakes(CommandContext::Os)
-  }
-}
-
 #[derive(Debug, Parse)]
 pub struct OsGenerationsArgs {
   /// Path to Nix' profiles directory
@@ -327,4 +254,29 @@ pub struct OsGenerationsArgs {
   /// Print generation status and metadata as JSON
   #[pound(long, conflicts_with = "fields")]
   pub json: bool,
+}
+
+#[derive(ValueEnum, Clone, Debug)]
+pub enum Field {
+  /// Generation Id
+  Id,
+
+  /// Build Date
+  Date,
+
+  /// Nixos Version
+  Nver,
+
+  /// Kernel Version
+  Kernel,
+
+  /// Configuration Revision
+  #[pound(name = "confRev")]
+  Confrev,
+
+  /// Specialisations
+  Spec,
+
+  /// Closure Size
+  Size,
 }

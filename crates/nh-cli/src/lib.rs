@@ -1,8 +1,8 @@
 pub mod clean;
 pub mod darwin;
 pub mod home;
+pub mod os;
 
-use nh_nixos;
 use pound::Parse;
 
 #[derive(Parse, Debug, Clone, Copy, Default)]
@@ -55,7 +55,7 @@ pub enum NHCommand {
   /// Implements functionality mostly around but not exclusive to nixos-rebuild
   Os {
     #[pound(flatten)]
-    args: nh_nixos::args::OsArgs,
+    args: os::OsArgs,
   },
   /// Home-manager functionality
   Home {
@@ -89,7 +89,7 @@ mod tests {
   use pound::{ErrorKind, Parse};
   use serial_test::serial;
 
-  use super::{Main, NHCommand, clean::CleanMode, home};
+  use super::{Main, NHCommand, clean::CleanMode, home, os};
 
   struct EnvGuard(Option<OsString>);
 
@@ -194,8 +194,8 @@ mod tests {
     assert!(matches!(
       parsed.command,
       NHCommand::Os {
-        args: nh_nixos::args::OsArgs {
-          subcommand: nh_nixos::args::OsSubcommand::Build { args },
+        args: os::OsArgs {
+          subcommand: os::OsSubcommand::Build { args },
         },
       } if args.common.passthrough.option == ["sandbox", "false"]
         && args.extra_args == ["--cores", "8"]
