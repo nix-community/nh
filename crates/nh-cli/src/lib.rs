@@ -2,6 +2,7 @@ pub mod clean;
 pub mod common;
 pub mod darwin;
 pub mod home;
+pub mod installable;
 pub mod os;
 pub mod search;
 
