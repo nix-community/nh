@@ -5,6 +5,7 @@ use std::{
 
 use misstep::{OptionExt, Report, Result, ResultExt, bail, report};
 use nh_core::{
+  args::{CommonRebuildArgs, Diff},
   command::{self, Command, CommandKind, ElevationStrategy, NixCommand},
   privileged::{
     NixosActivation,
@@ -13,7 +14,7 @@ use nh_core::{
     PrivilegedOp,
   },
   systemd_run,
-  update::update_with_args,
+  update::{UpdateArgs, update_with_args},
   util::{
     ensure_ssh_key_login,
     get_build_image_variants_flake_with_args,
@@ -33,20 +34,7 @@ use nh_installable::{
 use nh_remote::{self, RemoteHost};
 use tracing::{debug, info, warn};
 
-use crate::{
-  args::{
-    self,
-    OsBuildImageArgs,
-    OsBuildVmArgs,
-    OsGenerationsArgs,
-    OsRebuildActivateArgs,
-    OsRebuildArgs,
-    OsReplArgs,
-    OsRollbackArgs,
-    OsSubcommand::{self},
-  },
-  generations,
-};
+use crate::generations::{self, Field};
 
 const SYSTEM_PROFILE: &str = "/nix/var/nix/profiles/system";
 const CURRENT_PROFILE: &str = "/run/current-system";
@@ -86,7 +74,107 @@ fn activation_command(path: &Path, action: &str, systemd_run: bool) -> Command {
   command.arg(action)
 }
 
-impl args::OsArgs {
+/// Options for building a NixOS configuration.
+#[derive(Debug)]
+pub struct OsRebuildOptions {
+  pub common:            CommonRebuildArgs,
+  pub update_args:       UpdateArgs,
+  pub hostname:          Option<String>,
+  pub specialisation:    Option<String>,
+  pub no_specialisation: bool,
+  pub extra_args:        Vec<String>,
+  pub bypass_root_check: bool,
+  pub target_host:       Option<RemoteHost>,
+  pub build_host:        Option<RemoteHost>,
+  pub no_validate:       bool,
+}
+
+/// Options for building and activating a NixOS configuration.
+#[derive(Debug)]
+pub struct OsRebuildActivateOptions {
+  pub rebuild:                        OsRebuildOptions,
+  pub install_bootloader:             bool,
+  pub continue_on_activation_failure: bool,
+  pub no_systemd_run:                 bool,
+}
+
+/// Options for building and previewing the activation of a NixOS
+/// configuration.
+#[derive(Debug)]
+pub struct OsDryActivateOptions {
+  pub rebuild:        OsRebuildOptions,
+  pub no_systemd_run: bool,
+}
+
+/// Options for building a NixOS VM image.
+#[derive(Debug)]
+pub struct OsBuildVmOptions {
+  pub common:          OsRebuildOptions,
+  pub with_bootloader: bool,
+  pub run:             bool,
+}
+
+/// Options for building a NixOS disk-image variant.
+#[derive(Debug)]
+pub struct OsBuildImageOptions {
+  pub common:        OsRebuildOptions,
+  pub image_variant: Option<String>,
+}
+
+/// Options for loading a NixOS configuration in a Nix repl.
+#[derive(Debug)]
+pub struct OsReplOptions {
+  pub installable: InstallableArgs,
+  pub hostname:    Option<String>,
+}
+
+/// Options for listing NixOS generations.
+#[derive(Debug)]
+pub struct OsGenerationsOptions {
+  pub profile: Option<String>,
+  pub fields:  Option<Vec<Field>>,
+  pub json:    bool,
+}
+
+/// Options for rolling back to a previous NixOS generation.
+#[derive(Debug)]
+pub struct OsRollbackOptions {
+  pub dry:               bool,
+  pub ask:               bool,
+  pub specialisation:    Option<String>,
+  pub no_specialisation: bool,
+  pub to:                Option<u64>,
+  pub bypass_root_check: bool,
+  pub diff:              Diff,
+  pub no_systemd_run:    bool,
+}
+
+/// A NixOS operation.
+#[derive(Debug)]
+pub enum OsCommand {
+  /// Build and activate the new configuration, and make it the boot default
+  Switch(OsRebuildActivateOptions),
+  /// Build the new configuration and make it the boot default
+  Boot(OsRebuildActivateOptions),
+  /// Build and activate the new configuration
+  Test(OsRebuildActivateOptions),
+  /// Build and preview activation without applying it
+  DryActivate(OsDryActivateOptions),
+  /// Build the new configuration
+  Build(OsRebuildOptions),
+  /// Load system in a repl
+  Repl(OsReplOptions),
+  /// List available generations from profile path
+  Info(OsGenerationsOptions),
+  /// Rollback to a previous generation
+  Rollback(OsRollbackOptions),
+  /// Build a NixOS VM image
+  BuildVm(OsBuildVmOptions),
+  /// Build a NixOS disk-image variant
+  BuildImage(OsBuildImageOptions),
+}
+
+impl OsCommand {
   /// Executes the NixOS subcommand.
   ///
   /// # Parameters
@@ -108,28 +196,20 @@ impl args::OsArgs {
   /// - File system operations fail
   pub fn run(self, elevation: ElevationStrategy) -> Result<()> {
     use OsRebuildVariant::{Boot, Build, DryActivate, Switch, Test};
-    match self.subcommand {
-      OsSubcommand::Boot { args } => {
-        args.rebuild_and_activate(&Boot, None, elevation)
-      },
-      OsSubcommand::Test { args } => {
-        args.rebuild_and_activate(&Test, None, elevation)
-      },
-      OsSubcommand::Switch { args } => {
-        args.rebuild_and_activate(&Switch, None, elevation)
-      },
-      OsSubcommand::DryActivate { args } => {
-        #[expect(deprecated, reason = "the struct still carries the flag")]
-        let activate = OsRebuildActivateArgs {
+    match self {
+      Self::Boot(args) => args.rebuild_and_activate(&Boot, None, elevation),
+      Self::Test(args) => args.rebuild_and_activate(&Test, None, elevation),
+      Self::Switch(args) => args.rebuild_and_activate(&Switch, None, elevation),
+      Self::DryActivate(args) => {
+        let activate = OsRebuildActivateOptions {
           rebuild:                        args.rebuild,
           install_bootloader:             false,
-          show_activation_logs:           false,
           continue_on_activation_failure: false,
           no_systemd_run:                 args.no_systemd_run,
         };
         activate.rebuild_and_activate(&DryActivate, None, elevation)
       },
-      OsSubcommand::Build { args } => {
+      Self::Build(args) => {
         if args.common.ask {
           warn!("`--ask` has no effect for `nh os build`");
         }
@@ -140,11 +220,11 @@ impl args::OsArgs {
           args.build_only(&Build, None, &elevation)
         }
       },
-      OsSubcommand::BuildVm { args } => args.build_vm(&elevation),
-      OsSubcommand::Repl { args } => args.run(),
-      OsSubcommand::Info { args } => args.info(),
-      OsSubcommand::Rollback { args } => args.rollback(elevation),
-      OsSubcommand::BuildImage { args } => args.build_image(&elevation),
+      Self::BuildVm(args) => args.build_vm(&elevation),
+      Self::Repl(args) => args.run(),
+      Self::Info(args) => args.info(),
+      Self::Rollback(args) => args.rollback(elevation),
+      Self::BuildImage(args) => args.build_image(&elevation),
     }
   }
 }
@@ -312,7 +392,7 @@ pub fn run_rollback_commands(rollback: &NixosRollback) -> Result<()> {
   Ok(())
 }
 
-impl OsBuildVmArgs {
+impl OsBuildVmOptions {
   fn build_vm(self, elevation: &ElevationStrategy) -> Result<()> {
     let attr = if self.with_bootloader {
       "vmWithBootLoader"
@@ -358,7 +438,7 @@ impl OsBuildVmArgs {
   }
 }
 
-impl OsRebuildActivateArgs {
+impl OsRebuildActivateOptions {
   // final_attr is the attribute of config.system.build.X to evaluate.
   fn rebuild_and_activate(
     self,
@@ -602,7 +682,7 @@ impl OsRebuildActivateArgs {
   }
 }
 
-impl OsRebuildArgs {
+impl OsRebuildOptions {
   /// Performs initial setup and gathers context for an OS rebuild operation.
   ///
   /// This includes:
@@ -901,7 +981,7 @@ impl OsRebuildArgs {
   }
 }
 
-impl OsRollbackArgs {
+impl OsRollbackOptions {
   #[expect(clippy::too_many_lines)]
   fn rollback(&self, elevation: ElevationStrategy) -> Result<()> {
     let elevate = has_elevation_status(self.bypass_root_check, &elevation)?;
@@ -1032,7 +1112,7 @@ impl OsRollbackArgs {
   }
 }
 
-impl OsBuildImageArgs {
+impl OsBuildImageOptions {
   fn build_image(self, elevation: &ElevationStrategy) -> Result<()> {
     let (_, target_hostname) = self.common.setup_build_context(elevation)?;
     let display_variant = self.image_variant.as_deref().unwrap_or("isoImage");
@@ -1474,7 +1554,7 @@ pub fn toplevel_for<S: AsRef<str>>(
   Ok(res)
 }
 
-impl OsReplArgs {
+impl OsReplOptions {
   fn run(self) -> Result<()> {
     let mut target_installable =
       self.installable.resolve_or_default(CommandContext::Os)?;
@@ -1506,7 +1586,7 @@ impl OsReplArgs {
   }
 }
 
-impl OsGenerationsArgs {
+impl OsGenerationsOptions {
   fn info(&self) -> Result<()> {
     let profile = match self.profile {
       Some(ref p) => PathBuf::from(p),
