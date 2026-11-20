@@ -526,16 +526,25 @@ run `nix develop`. We also provide a `.envrc` for Direnv users, who may use
 
 [cargo-xtask]: https://github.com/matklad/cargo-xtask
 
-NH is written in the Rust programming language, and consists of two modules. The
-core of NH is found in the `src` directory, and is separated into different
-modules. Some of the critical modules that you may want to be aware of are
-`nh::commands` for command interfaces, `nh::checks` for pre-startup checks and
-`nh::util` to store shared logic. Platform-specific logic is placed in the
-appropriate platform module, such as `nh::nixos` or `nh::darwin` with generic
-helpers placed in `nh::util`.
+NH is written in the Rust programming language, and is split into several crates
+under the `crates` directory:
 
-The `xtask` directory contains the [cargo-xtask] tasks used by NH, used to
-generate manpages and possibly more in the future.
+- `nh` is the binary. It parses the command line, turns the parsed arguments
+  into the options each command expects (`nh::dispatch`), and runs the selected
+  command.
+- `nh-cli` holds every command-line argument definition, and nothing else. A new
+  flag is added here, then mapped to an option in `nh::dispatch`.
+- `nh-nixos`, `nh-home`, `nh-darwin`, `nh-clean` and `nh-search` implement the
+  subcommands. They take plain option types and do not know about the argument
+  parser.
+- `nh-core` stores shared logic, such as pre-startup checks (`nh_core::checks`),
+  command execution and privilege elevation (`nh_core::command`) and general
+  helpers (`nh_core::util`).
+- `nh-installable`, `nh-remote`, `nh-diff` and `nh-config` cover installable
+  resolution, remote builds over SSH, closure diffs and the configuration file.
+
+The `crates/xtask` directory contains the [cargo-xtask] tasks used by NH, used
+to generate manpages and shell completions.
 
 ### Submitting Changes
 
