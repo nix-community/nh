@@ -8,7 +8,6 @@ use std::{
 use jiff::{Timestamp, tz::TimeZone};
 use misstep::Result;
 use nh_core::command::{CommandKind, NixCommand};
-use pound::ValueEnum;
 use serde::Serialize;
 use tracing::{debug, warn};
 
@@ -42,7 +41,7 @@ pub struct GenerationInfo {
   pub closure_size: String,
 }
 
-#[derive(ValueEnum, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub enum Field {
   /// Generation Id
   Id,
@@ -57,7 +56,6 @@ pub enum Field {
   Kernel,
 
   /// Configuration Revision
-  #[pound(name = "confRev")]
   Confrev,
 
   /// Specialisations
