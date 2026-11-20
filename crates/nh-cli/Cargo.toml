@@ -8,13 +8,14 @@ license.workspace      = true
 publish                = true
 
 [dependencies]
-humantime.workspace = true
-nh-core.workspace   = true
-nh-darwin.workspace = true
-nh-home.workspace   = true
-nh-nixos.workspace  = true
-nh-search.workspace = true
-pound.workspace     = true
+humantime.workspace      = true
+nh-core.workspace        = true
+nh-darwin.workspace      = true
+nh-installable.workspace = true
+nh-nixos.workspace       = true
+nh-remote.workspace      = true
+nh-search.workspace      = true
+pound.workspace          = true
 
 [dev-dependencies]
 serial_test.workspace = true

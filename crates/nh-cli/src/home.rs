@@ -1,13 +1,5 @@
-use nh_core::{
-  args::CommonRebuildArgs,
-  checks::{
-    FeatureRequirements,
-    FlakeFeatures,
-    HomeReplFeatures,
-    LegacyFeatures,
-  },
-};
-use nh_installable::{CommandContext, InstallableArgs};
+use nh_core::args::CommonRebuildArgs;
+use nh_installable::InstallableArgs;
 use nh_remote::RemoteHost;
 use pound::Parse;
 
@@ -37,25 +29,6 @@ pub enum HomeSubcommand {
 pub struct HomeArgs {
   #[pound(subcommand)]
   pub subcommand: HomeSubcommand,
-}
-
-impl HomeArgs {
-  #[must_use]
-  pub fn get_feature_requirements(&self) -> Box<dyn FeatureRequirements> {
-    match &self.subcommand {
-      HomeSubcommand::Repl { args } => {
-        let is_flake = args.uses_flakes();
-        Box::new(HomeReplFeatures { is_flake })
-      },
-      HomeSubcommand::Switch { args } | HomeSubcommand::Build { args } => {
-        if args.uses_flakes() {
-          Box::new(FlakeFeatures)
-        } else {
-          Box::new(LegacyFeatures)
-        }
-      },
-    }
-  }
 }
 
 #[derive(Debug, Parse)]
@@ -102,13 +75,6 @@ pub struct HomeRebuildArgs {
   pub build_host: Option<RemoteHost>,
 }
 
-impl HomeRebuildArgs {
-  #[must_use]
-  pub fn uses_flakes(&self) -> bool {
-    self.common.installable.uses_flakes(CommandContext::Home)
-  }
-}
-
 #[derive(Debug, Parse)]
 pub struct HomeReplArgs {
   #[pound(flatten)]
@@ -123,11 +89,4 @@ pub struct HomeReplArgs {
   /// Extra arguments passed to nix repl
   #[pound(last)]
   pub extra_args: Vec<String>,
-}
-
-impl HomeReplArgs {
-  #[must_use]
-  pub fn uses_flakes(&self) -> bool {
-    self.installable.uses_flakes(CommandContext::Home)
-  }
 }
