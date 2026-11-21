@@ -134,14 +134,12 @@ impl DarwinRebuildArgs {
       &target_profile,
     )?;
 
-    if self.common.ask && !self.common.dry && !matches!(variant, Build) {
-      let confirmation = inquire::Confirm::new("Apply the config?")
-        .with_default(false)
-        .prompt()?;
-
-      if !confirmation {
-        bail!("User rejected the new config");
-      }
+    if self.common.ask
+      && !self.common.dry
+      && !matches!(variant, Build)
+      && !nh_core::util::confirm("Apply the config?", false)?
+    {
+      bail!("User rejected the new config");
     }
 
     if matches!(variant, Switch) {

@@ -25,6 +25,8 @@ functionality, under the "Removed" section.
   nh now checks the `systemd-run` version and falls back to `--pipe` when
   `--output=cat` is unsupported
   ([#874](https://github.com/nix-community/nh/issues/874)).
+- `--ask` confirmations work on limited terminals such as Emacs Comint
+  ([#885](https://github.com/nix-community/nh/issues/885)).
 
 ## 4.5.0
 

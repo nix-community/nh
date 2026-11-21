@@ -1205,7 +1205,6 @@ name = "nh-clean"
 version = "4.5.0"
 dependencies = [
  "humantime",
- "inquire",
  "misstep",
  "nh-core",
  "nix",
@@ -1259,7 +1258,6 @@ dependencies = [
 name = "nh-darwin"
 version = "4.5.0"
 dependencies = [
- "inquire",
  "misstep",
  "nh-core",
  "nh-diff",
@@ -1287,7 +1285,6 @@ dependencies = [
 name = "nh-home"
 version = "4.5.0"
 dependencies = [
- "inquire",
  "misstep",
  "nh-core",
  "nh-diff",
@@ -1315,7 +1312,6 @@ dependencies = [
 name = "nh-nixos"
 version = "4.5.0"
 dependencies = [
- "inquire",
  "jiff",
  "misstep",
  "nh-core",

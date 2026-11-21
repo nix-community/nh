@@ -12,7 +12,6 @@ path = "src/clean.rs"
 
 [dependencies]
 humantime.workspace = true
-inquire.workspace   = true
 misstep.workspace   = true
 nh-core.workspace   = true
 nix.workspace       = true

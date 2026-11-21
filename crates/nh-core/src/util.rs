@@ -1,6 +1,8 @@
 use std::{
   collections::HashSet,
+  env,
   ffi::OsString,
+  io::{self, IsTerminal},
   os::unix::process::CommandExt,
   process::{Command as StdCommand, Stdio},
   sync::{LazyLock, OnceLock},
@@ -235,7 +237,7 @@ pub fn get_nix_version() -> Result<String> {
 /// case without erroring.
 pub fn ensure_ssh_key_login() -> Result<()> {
   // No usable agent socket means ssh-add has nothing to talk to.
-  let agent_available = std::env::var_os("SSH_AUTH_SOCK")
+  let agent_available = env::var_os("SSH_AUTH_SOCK")
     .is_some_and(|s| std::path::Path::new(&s).exists());
   if !agent_available {
     debug!("SSH agent socket not available, skipping ssh-add check");
@@ -325,8 +327,6 @@ pub fn get_hostname(supplied_hostname: Option<String>) -> Result<String> {
 /// `--no-rom` and `NH_ROM` until 5.0, but warn.
 #[must_use]
 pub fn use_rom(no_rom: bool, no_nom: bool) -> bool {
-  use std::io::IsTerminal;
-
   if no_nom {
     warn!(
       "`--no-nom` is deprecated and will be removed in 5.0, use `--no-rom`"
@@ -336,8 +336,8 @@ pub fn use_rom(no_rom: bool, no_nom: bool) -> bool {
     return false;
   }
 
-  let value = std::env::var("NH_ROM").ok().or_else(|| {
-    let value = std::env::var("NH_NOM").ok()?;
+  let value = env::var("NH_ROM").ok().or_else(|| {
+    let value = env::var("NH_NOM").ok()?;
     warn!("`NH_NOM` is deprecated and will be removed in 5.0, use `NH_ROM`");
     Some(value)
   });
@@ -347,7 +347,61 @@ pub fn use_rom(no_rom: bool, no_nom: bool) -> bool {
     _ => {},
   }
 
-  std::io::stdout().is_terminal()
+  io::stdout().is_terminal()
+}
+
+/// Whether the terminal cannot handle interactive TUI prompts.
+///
+/// True for `TERM=dumb` (e.g., Emacs Comint) or when stdin/stderr is not a
+/// TTY.
+#[must_use]
+fn is_limited_terminal() -> bool {
+  env::var("TERM").as_deref() == Ok("dumb")
+    || !io::stdin().is_terminal()
+    || !io::stderr().is_terminal()
+}
+
+/// Ask the user a yes/no question.
+///
+/// Uses an interactive prompt on capable terminals and falls back to a plain,
+/// line-oriented prompt on limited ones.
+///
+/// # Errors
+///
+/// Returns an error if the prompt cannot be shown or the answer cannot be
+/// read.
+pub fn confirm(prompt: &str, default: bool) -> Result<bool> {
+  if !is_limited_terminal() {
+    return Ok(
+      inquire::Confirm::new(prompt)
+        .with_default(default)
+        .prompt()
+        .context("Failed to read confirmation")?,
+    );
+  }
+
+  let hint = if default { "[Y/n]" } else { "[y/N]" };
+  loop {
+    // stderr is unbuffered, so the prompt shows before we block on stdin
+    eprint!("{prompt} {hint} ");
+
+    let mut line = String::new();
+    let read = io::stdin()
+      .read_line(&mut line)
+      .context("Failed to read confirmation")?;
+    if read == 0 {
+      // no answer is coming, take the default instead of looping
+      eprintln!();
+      return Ok(default);
+    }
+
+    match line.trim().to_lowercase().as_str() {
+      "" => return Ok(default),
+      "y" | "yes" => return Ok(true),
+      "n" | "no" => return Ok(false),
+      _ => eprintln!("Please answer y or n."),
+    }
+  }
 }
 
 /// Retrieves all enabled experimental features in Nix (cached).
