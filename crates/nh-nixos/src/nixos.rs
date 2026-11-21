@@ -227,6 +227,7 @@ pub fn run_activation_commands(activation: &NixosActivation) -> Result<()> {
 
     cmd
       .with_required_env()
+      .show_output(true)
       .run()
       .context("Bootloader activation failed")?;
   }
@@ -286,6 +287,7 @@ pub fn run_rollback_commands(rollback: &NixosRollback) -> Result<()> {
   )
   .preserve_envs(["NIXOS_INSTALL_BOOTLOADER", "NIXOS_NO_CHECK"])
   .with_required_env()
+  .show_output(true)
   .run()
   {
     // If activation fails, rollback the profile

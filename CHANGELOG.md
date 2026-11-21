@@ -27,6 +27,8 @@ functionality, under the "Removed" section.
   ([#874](https://github.com/nix-community/nh/issues/874)).
 - `--ask` confirmations work on limited terminals such as Emacs Comint
   ([#885](https://github.com/nix-community/nh/issues/885)).
+- `nh os {boot,switch}` now show the output of the bootloader step in
+  activation, and `nh os rollback` shows the output of activation.
 
 ## 4.5.0
 
