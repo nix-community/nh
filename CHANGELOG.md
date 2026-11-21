@@ -16,6 +16,15 @@ functionality, under the "Removed" section.
 
 ## Unreleased
 
+### Added
+
+- `nh clean` accepts `--no-profiles` to skip the discovery and pruning of
+  profile generations, independently of GC-root cleanup and store GC
+  [#821](https://github.com/nix-community/nh/issues/821)).
+- `nh clean` now removes eligible retained build directories under
+  `/nix/var/nix/builds`. The new `--no-builds` flag skips this step
+  [#782](https://github.com/nix-community/nh/issues/782)).
+
 ### Fixed
 
 - `nh os info` displays generation build dates in the local timezone again,
