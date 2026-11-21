@@ -14,6 +14,9 @@ use tracing::{debug, error, info};
 
 use super::{RemoteHost, get_flake_flags, get_nix_sshopts_env};
 
+static STDOUT_STREAM_NAME: &str = "stdout";
+static STDERR_STREAM_NAME: &str = "stderr";
+
 #[derive(Debug, Clone, Copy)]
 enum CopyDirection<'a> {
   FromRemote(&'a RemoteHost),
@@ -159,6 +162,9 @@ where
     let mut line = Vec::new();
     let mut output = String::new();
 
+    let mut lines_read = 0;
+    let mut total_line_count_set = false;
+
     loop {
       line.clear();
       let bytes_read = reader
@@ -172,6 +178,42 @@ where
       let message = String::from_utf8_lossy(&line)
         .trim_end_matches(['\r', '\n'])
         .to_string();
+
+      if STDERR_STREAM_NAME == stream_name {
+        // extract total number from first line, if possible
+        // otherwise the progress bar is not actually drawn
+        if !total_line_count_set {
+          match message
+            .strip_prefix("copying ")
+            .and_then(|prefix| prefix.split_whitespace().next())
+            .and_then(|number_string| number_string.parse::<u64>().ok())
+          {
+            Some(count) => {
+              tracing::trace!(
+                "Setting total package count that needs copying to {count}"
+              );
+              spinner.set_length(count);
+              total_line_count_set = true;
+            },
+            None => {
+              tracing::trace!(
+                "Unable to extract total package count from message \
+                 \"{message}\""
+              )
+            },
+          }
+        } else {
+          if message.starts_with("copying path") {
+            lines_read += 1;
+            spinner.set_position(lines_read);
+          } else {
+            tracing::trace!(
+              "Not counting message \"{message}\" towards total package count."
+            )
+          }
+        }
+      }
+
       spinner.println(message);
       output.push_str(&String::from_utf8_lossy(&line));
     }
@@ -207,10 +249,16 @@ fn exec_with_spinner_streaming(
   let stdout_pipe = job.stdout.take().context("Failed to capture stdout")?;
   let stderr_pipe = job.stderr.take().context("Failed to capture stderr")?;
 
-  let stdout_thread =
-    spawn_spinner_stream_thread(stdout_pipe, spinner.clone(), "stdout");
-  let stderr_thread =
-    spawn_spinner_stream_thread(stderr_pipe, spinner.clone(), "stderr");
+  let stdout_thread = spawn_spinner_stream_thread(
+    stdout_pipe,
+    spinner.clone(),
+    STDOUT_STREAM_NAME,
+  );
+  let stderr_thread = spawn_spinner_stream_thread(
+    stderr_pipe,
+    spinner.clone(),
+    STDERR_STREAM_NAME,
+  );
 
   let exit_status = job
     .wait()
@@ -288,7 +336,7 @@ pub fn copy_to_remote_with_args(
   debug!(?cmd, "nix copy --to");
 
   let spinner =
-    progress::spinner(format!("Copying closure to remote host '{host}'..."));
+    progress::bar(format!("Copying closure to remote host '{host}'..."));
 
   let copy_result = exec_with_spinner_streaming(cmd, &spinner);
 
