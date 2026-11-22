@@ -735,10 +735,6 @@ impl Command {
   ///
   /// Returns an error if the command fails to execute or returns a non-zero
   /// exit status.
-  ///
-  /// # Panics
-  ///
-  /// Panics if the command result is unexpectedly None.
   pub fn run(&self) -> Result<()> {
     let cmd = if self.elevate.is_some() {
       self.build_sudo_cmd()?.arg(&self.command).args(&self.args)
