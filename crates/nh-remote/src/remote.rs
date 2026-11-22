@@ -1,20 +1,15 @@
 use std::{
+  collections::HashMap,
   env,
   io::Write,
   path::{Path, PathBuf},
-  sync::OnceLock,
+  sync::{Mutex, OnceLock},
 };
 
 use misstep::{OptionExt, Report, Result, ResultExt, bail, ensure, report};
 use nh_core::{
   args::NixBuildPassthroughArgs,
-  command::{
-    Build,
-    ElevationStrategy,
-    cache_password,
-    get_cached_password,
-    get_sudo_opts,
-  },
+  command::{Build, ElevationStrategy, get_sudo_opts},
   systemd_run,
   util::{NixVariant, parse_nix_variant},
 };
@@ -1097,6 +1092,38 @@ fn activate_nixos_remote(
 /// How often a rejected elevation password is asked for again, as `sudo`
 /// does.
 const PASSWORD_ATTEMPTS: usize = 3;
+
+/// Elevation passwords accepted on each host, keyed by SSH host, for the
+/// lifetime of the program.
+static PASSWORD_CACHE: OnceLock<Mutex<HashMap<String, SecretString>>> =
+  OnceLock::new();
+
+/// The cached elevation password for `host`, if one was accepted before.
+///
+/// # Errors
+///
+/// Returns an error if the password cache lock is poisoned.
+fn get_cached_password(host: &str) -> Result<Option<SecretString>> {
+  let cache = PASSWORD_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+  let guard = cache
+    .lock()
+    .map_err(|_| report!("Password cache lock poisoned"))?;
+  Ok(guard.get(host).cloned())
+}
+
+/// Caches `password` as the accepted elevation password for `host`.
+///
+/// # Errors
+///
+/// Returns an error if the password cache lock is poisoned.
+fn cache_password(host: &str, password: SecretString) -> Result<()> {
+  PASSWORD_CACHE
+    .get_or_init(|| Mutex::new(HashMap::new()))
+    .lock()
+    .map_err(|_| report!("Password cache lock poisoned"))?
+    .insert(host.to_string(), password);
+  Ok(())
+}
 
 /// The elevation password for `host`, if `elevation` needs one there.
 ///
