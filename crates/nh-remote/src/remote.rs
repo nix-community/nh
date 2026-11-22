@@ -1240,9 +1240,8 @@ fn remote_login(host: &RemoteHost) -> String {
 /// Runs the remote activation step called `name`:
 /// `base_cmd` on `host` over SSH, elevated with `elevation`.
 ///
-/// stdin carries the elevation `password` if there is one, which
-/// [`remote_sudo_password`] has already checked. Its output goes straight to
-/// nh's stdout and stderr.
+/// stdin carries the elevation `password` from [`remote_sudo_password`] if
+/// there is one. Its output goes straight to nh's stdout and stderr.
 ///
 /// # Errors
 ///
