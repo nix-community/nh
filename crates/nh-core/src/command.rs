@@ -6,14 +6,12 @@ use std::{
   io::{Read, Write},
   path::PathBuf,
   str::FromStr,
-  sync::{Mutex, OnceLock},
 };
 
 use flub::Error;
 use misstep::{OptionExt, Result, ResultExt, bail, report};
 use nh_installable::Installable;
 pub use nix_command::{CommandKind, NixCommand};
-use secrecy::SecretString;
 use subprocess::{Exec, ExitStatus, Redirection};
 use tracing::{debug, info, warn};
 use which::which;
@@ -145,59 +143,6 @@ pub fn exec_with_streaming(
     .unwrap_or_default();
 
   Ok((exit_status, stdout_output, stderr_output))
-}
-
-static PASSWORD_CACHE: OnceLock<Mutex<HashMap<String, SecretString>>> =
-  OnceLock::new();
-
-/// Retrieves a cached password for the specified host.
-///
-/// # Arguments
-///
-/// * `host` - The host identifier (e.g., "user@hostname" or "hostname") to look
-///   up in the cache
-///
-/// # Returns
-///
-/// * `Some(SecretString)` - If a password for the host exists in the cache
-/// * `None` - If no password has been cached for this host
-///
-/// # Errors
-///
-/// Returns an error if the password cache lock is poisoned.
-pub fn get_cached_password(host: &str) -> Result<Option<SecretString>> {
-  let cache = PASSWORD_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-  let guard = cache
-    .lock()
-    .map_err(|_| report!("Password cache lock poisoned"))?;
-  Ok(guard.get(host).cloned())
-}
-
-/// Stores a password in the cache for the specified host.
-///
-/// The password is stored as a `SecretString` to ensure secure memory
-/// handling. Cached passwords persist for the lifetime of the program and can
-/// be retrieved using [`get_cached_password`].
-///
-/// # Arguments
-///
-/// * `host` - The host identifier (e.g., "user@hostname" or "hostname") to
-///   associate with the password
-/// * `password` - The password to cache, wrapped in a `SecretString` for secure
-///   handling
-///
-/// # Errors
-///
-/// Returns an error if the password cache lock is poisoned.
-pub fn cache_password(host: &str, password: SecretString) -> Result<()> {
-  let cache = PASSWORD_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-
-  cache
-    .lock()
-    .map_err(|_| report!("Password cache lock poisoned"))?
-    .insert(host.to_string(), password);
-
-  Ok(())
 }
 
 #[allow(dead_code)] // shut up

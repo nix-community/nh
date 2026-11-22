@@ -1241,7 +1241,6 @@ dependencies = [
  "proptest",
  "regex",
  "rom",
- "secrecy",
  "semver",
  "serde",
  "serde_json",
