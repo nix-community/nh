@@ -1,5 +1,5 @@
 use nh_core::{
-  args::CommonRebuildArgs,
+  args::{CommonRebuildArgs, DiffType},
   checks::{
     DarwinReplFeatures,
     FeatureRequirements,
@@ -36,6 +36,7 @@ impl DarwinArgs {
           Box::new(LegacyFeatures)
         }
       },
+      DarwinSubcommand::Rollback { .. } => Box::new(LegacyFeatures),
     }
   }
 }
@@ -52,11 +53,43 @@ pub enum DarwinSubcommand {
     #[pound(flatten)]
     args: DarwinRebuildArgs,
   },
+  /// Activate a previous nix-darwin generation without rebuilding
+  Rollback {
+    #[pound(flatten)]
+    args: DarwinRollbackArgs,
+  },
   /// Load a nix-darwin configuration in a Nix REPL
   Repl {
     #[pound(flatten)]
     args: DarwinReplArgs,
   },
+}
+
+#[derive(Debug, Parse)]
+pub struct DarwinRollbackArgs {
+  /// Only print actions, without performing them
+  #[pound(long, short = 'n')]
+  pub dry: bool,
+
+  /// Ask for confirmation
+  #[pound(long, short, env = "NH_ASK")]
+  pub ask: bool,
+
+  /// Select a generation number (defaults to the previous generation)
+  #[pound(long, short)]
+  pub to: Option<u64>,
+
+  /// Whether to display a package diff
+  #[pound(long, short, default = DiffType::Auto)]
+  pub diff: DiffType,
+
+  /// Don't panic if calling nh as root
+  #[pound(short = 'R', long, env = "NH_BYPASS_ROOT_CHECK")]
+  pub bypass_root_check: bool,
+
+  /// Show activation logs
+  #[pound(long, env = "NH_SHOW_ACTIVATION_LOGS")]
+  pub show_activation_logs: bool,
 }
 
 #[derive(Debug, Parse)]
