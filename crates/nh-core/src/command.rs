@@ -18,7 +18,7 @@ use subprocess::{Exec, ExitStatus, Redirection};
 use tracing::{debug, info, warn};
 use which::which;
 
-use crate::args::NixBuildPassthroughArgs;
+use crate::args::{NixBuildPassthroughArgs, StatusMode};
 
 #[must_use]
 pub fn get_sudo_opts() -> Vec<String> {
@@ -988,6 +988,7 @@ pub struct Build {
   extra_args:  Vec<OsString>,
   envs:        Vec<(OsString, OsString)>,
   rom:         bool,
+  status:      StatusMode,
 }
 
 impl Build {
@@ -999,6 +1000,7 @@ impl Build {
       extra_args: vec![],
       envs: vec![],
       rom: false,
+      status: StatusMode::Auto,
     }
   }
 
@@ -1029,6 +1031,13 @@ impl Build {
   #[must_use]
   pub const fn rom(mut self, yes: bool) -> Self {
     self.rom = yes;
+    self
+  }
+
+  /// Select how the monitored build publishes terminal status.
+  #[must_use]
+  pub const fn status(mut self, status: StatusMode) -> Self {
+    self.status = status;
     self
   }
 
@@ -1109,7 +1118,8 @@ impl Build {
       cmd = cmd.env(key, value);
     }
 
-    let (exit_status, out_paths) = crate::monitor::run(cmd, self.rom)?;
+    let (exit_status, out_paths) =
+      crate::monitor::run(cmd, self.rom, self.status)?;
     if !exit_status.success() {
       bail!(ExitError(exit_status));
     }

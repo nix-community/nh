@@ -108,7 +108,8 @@ impl DarwinRebuildArgs {
       .extra_args(&self.extra_args)
       .passthrough(&self.common.passthrough)
       .message("Building Darwin configuration")
-      .rom(use_rom(self.common.no_rom, self.common.no_nom));
+      .rom(use_rom(self.common.no_rom, self.common.no_nom))
+      .status(self.common.term_status);
 
     // Initialize SSH control - guard will cleanup connections on drop
     let _ssh_guard =

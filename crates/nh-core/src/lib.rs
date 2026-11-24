@@ -4,6 +4,7 @@ pub mod command;
 mod monitor;
 pub mod privileged;
 pub mod progress;
+mod status;
 pub mod systemd_run;
 pub mod update;
 pub mod util;
