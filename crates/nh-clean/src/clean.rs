@@ -4,6 +4,7 @@ use std::{
   collections::{BTreeMap, HashMap},
   fmt,
   io::{self, ErrorKind},
+  os::unix::fs::MetadataExt,
   path::{Path, PathBuf},
   sync::LazyLock,
   time::SystemTime,
@@ -98,7 +99,9 @@ impl args::CleanMode {
     let uid = nix::unistd::Uid::effective();
     let args = match self {
       Self::Profile { args } => {
-        profiles.push(args.profile.clone());
+        if !args.common.no_profiles {
+          profiles.push(args.profile.clone());
+        }
         is_profile_clean = true;
         &args.common
       },
@@ -107,57 +110,60 @@ impl args::CleanMode {
           nh_core::util::self_elevate(elevate);
         }
 
-        let paths_to_check = [
-          PathBuf::from("/nix/var/nix/profiles"),
-          PathBuf::from("/nix/var/nix/profiles/per-user"),
-        ];
+        if !args.no_profiles {
+          let paths_to_check = [
+            PathBuf::from("/nix/var/nix/profiles"),
+            PathBuf::from("/nix/var/nix/profiles/per-user"),
+          ];
 
-        profiles.extend(filter_existing_dirs(paths_to_check).flat_map(
-          |path| {
-            if path.ends_with("per-user") {
-              path
-                .read_dir()
-                .map(|read_dir| {
-                  read_dir
-                    .filter_map(std::result::Result::ok)
-                    .map(|entry| entry.path())
-                    .filter(|path| path.is_dir())
-                    .flat_map(profiles_in_dir)
-                    .collect::<Vec<_>>()
-                })
-                .unwrap_or_default()
-            } else {
-              profiles_in_dir(path)
-            }
-          },
-        ));
+          profiles.extend(filter_existing_dirs(paths_to_check).flat_map(
+            |path| {
+              if path.ends_with("per-user") {
+                path
+                  .read_dir()
+                  .map(|read_dir| {
+                    read_dir
+                      .filter_map(std::result::Result::ok)
+                      .map(|entry| entry.path())
+                      .filter(|path| path.is_dir())
+                      .flat_map(profiles_in_dir)
+                      .collect::<Vec<_>>()
+                  })
+                  .unwrap_or_default()
+              } else {
+                profiles_in_dir(path)
+              }
+            },
+          ));
 
-        // Most unix systems start regular users at uid 1000+, but macos is
-        // special at 501+ https://en.wikipedia.org/wiki/User_identifier
-        let uid_min = if cfg!(target_os = "macos") { 501 } else { 1000 };
-        let uid_max = uid_min + 100;
-        debug!("Scanning XDG profiles for users 0, {uid_min}-{uid_max}");
+          // Most unix systems start regular users at uid 1000+, but macos is
+          // special at 501+ https://en.wikipedia.org/wiki/User_identifier
+          let uid_min = if cfg!(target_os = "macos") { 501 } else { 1000 };
+          let uid_max = uid_min + 100;
+          debug!("Scanning XDG profiles for users 0, {uid_min}-{uid_max}");
 
-        // Check root user (uid 0)
-        if let Some(user) =
-          nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(0))?
-        {
-          debug!(?user, "Adding XDG profiles for root user");
-          let user_profiles_path = user.dir.join(".local/state/nix/profiles");
-          if user_profiles_path.is_dir() {
-            profiles.extend(profiles_in_dir(user_profiles_path));
-          }
-        }
-
-        // Check regular users in the expected range
-        for uid in uid_min..uid_max {
+          // Check root user (uid 0)
           if let Some(user) =
-            nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(uid))?
+            nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(0))?
           {
-            debug!(?user, "Adding XDG profiles for user");
+            debug!(?user, "Adding XDG profiles for root user");
             let user_profiles_path = user.dir.join(".local/state/nix/profiles");
             if user_profiles_path.is_dir() {
               profiles.extend(profiles_in_dir(user_profiles_path));
+            }
+          }
+
+          // Check regular users in the expected range
+          for uid in uid_min..uid_max {
+            if let Some(user) =
+              nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(uid))?
+            {
+              debug!(?user, "Adding XDG profiles for user");
+              let user_profiles_path =
+                user.dir.join(".local/state/nix/profiles");
+              if user_profiles_path.is_dir() {
+                profiles.extend(profiles_in_dir(user_profiles_path));
+              }
             }
           }
         }
@@ -167,28 +173,40 @@ impl args::CleanMode {
         if uid.is_root() {
           bail!("nh clean user: don't run me as root!");
         }
-        let user = nix::unistd::User::from_uid(uid)?
-          .with_context(|| format!("User not found for uid {uid}"))?;
-        let home_dir = PathBuf::from(std::env::var("HOME")?);
+        if !args.no_profiles {
+          let user = nix::unistd::User::from_uid(uid)?
+            .with_context(|| format!("User not found for uid {uid}"))?;
+          let home_dir = PathBuf::from(std::env::var("HOME")?);
 
-        let paths_to_check = [
-          home_dir.join(".local/state/nix/profiles"),
-          PathBuf::from("/nix/var/nix/profiles/per-user").join(&user.name),
-        ];
+          let paths_to_check = [
+            home_dir.join(".local/state/nix/profiles"),
+            PathBuf::from("/nix/var/nix/profiles/per-user").join(&user.name),
+          ];
 
-        profiles.extend(
-          filter_existing_dirs(paths_to_check).flat_map(profiles_in_dir),
-        );
-
-        if profiles.is_empty() {
-          warn!(
-            "No active profile directories found for the current user. \
-             Nothing to clean."
+          profiles.extend(
+            filter_existing_dirs(paths_to_check).flat_map(profiles_in_dir),
           );
+
+          if profiles.is_empty() {
+            warn!(
+              "No active profile directories found for the current user. \
+               Skipping profile cleanup."
+            );
+          }
         }
 
         args
       },
+    };
+
+    let build_dirs = if !is_profile_clean && !args.no_builds {
+      cleanable_build_dirs(
+        Path::new("/nix/var/nix/builds"),
+        args.keep_since.into(),
+        uid,
+      )?
+    } else {
+      Vec::new()
     };
 
     // Use mutation to raise errors as they come
@@ -327,10 +345,14 @@ impl args::CleanMode {
     // Present the user the information about the paths to clean
     println!();
     println!("{}", Paint::new("Welcome to nh clean").bold());
-    println!(
-      "Keeping {} generation(s)",
-      Paint::new(args.keep).fg(Color::Green)
-    );
+    if args.no_profiles {
+      println!("Skipping all profile generations");
+    } else {
+      println!(
+        "Keeping {} generation(s)",
+        Paint::new(args.keep).fg(Color::Green)
+      );
+    }
     println!(
       "Keeping paths newer than {}",
       Paint::new(args.keep_since).fg(Color::Green)
@@ -340,6 +362,9 @@ impl args::CleanMode {
     }
     if args.no_direnv {
       println!("Skipping all direnv gcroots");
+    }
+    if args.no_builds {
+      println!("Skipping retained build directories");
     }
     println!();
     println!("legend:");
@@ -387,6 +412,23 @@ impl args::CleanMode {
       }
       println!();
     }
+    if !build_dirs.is_empty() {
+      println!(
+        "{}",
+        Paint::new("retained build directories")
+          .fg(Color::Blue)
+          .bold()
+      );
+      for (path, tbr) in &build_dirs {
+        let status = if *tbr {
+          Paint::new("DEL").fg(Color::Red)
+        } else {
+          Paint::new("OK ").fg(Color::Green)
+        };
+        println!("- {} {}", status, path.display());
+      }
+      println!();
+    }
     for (profile, generations_tagged) in &profiles_tagged {
       println!(
         "{}",
@@ -417,6 +459,12 @@ impl args::CleanMode {
     }
 
     if !args.dry {
+      for (path, tbr) in &build_dirs {
+        if *tbr {
+          remove_build_dir_nofail(path);
+        }
+      }
+
       for gcroot in &gcroots_tagged {
         if gcroot.tbr {
           remove_path_nofail(gcroot_path_to_remove(gcroot));
@@ -681,6 +729,72 @@ fn gcroot_path_to_remove(gcroot: &GcRootTagged) -> &Path {
   &gcroot.src
 }
 
+#[instrument(err, level = "debug")]
+fn cleanable_build_dirs(
+  dir: &Path,
+  keep_since: std::time::Duration,
+  uid: nix::unistd::Uid,
+) -> Result<Vec<(PathBuf, ToBeRemoved)>> {
+  let entries = match dir.read_dir() {
+    Ok(entries) => entries,
+    Err(err) if err.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+    Err(err) => {
+      return Err(report!(err).context("Reading retained build directories"));
+    },
+  };
+  let now = SystemTime::now();
+  let mut paths = Vec::new();
+  for entry in entries {
+    let entry = entry.context("Reading build directory entry")?;
+    if !entry.file_name().as_encoded_bytes().starts_with(b"nix-") {
+      continue;
+    }
+    let path = entry.path();
+    let metadata = match path.symlink_metadata() {
+      Ok(metadata) => metadata,
+      Err(err) if err.kind() == ErrorKind::NotFound => continue,
+      Err(err) => {
+        return Err(report!(err).context(format_args!(
+          "Reading build directory metadata for {}",
+          path.display()
+        )));
+      },
+    };
+    // Nix creates active build directories with mode 0700 and changes them
+    // to 0755 only when preserving a failed build with --keep-failed.
+    if !metadata.is_dir()
+      || metadata.mode() & 0o7777 != 0o755
+      || (!uid.is_root() && metadata.uid() != uid.as_raw())
+    {
+      debug!(?path, "Not a retained build owned by this user, skipping");
+      continue;
+    }
+    let tbr = match now.duration_since(
+      metadata
+        .modified()
+        .context("Reading build directory modified time")?,
+    ) {
+      Err(err) => {
+        warn!(?err, ?now, ?path, "Failed to compare time!");
+        false
+      },
+      Ok(age) => age > keep_since,
+    };
+    debug!(?path, tbr, "Tagged retained build directory");
+    paths.push((path, tbr));
+  }
+  Ok(paths)
+}
+
+fn remove_build_dir_nofail(path: &Path) {
+  info!("Removing {}", path.to_string_lossy());
+  if let Err(err) = std::fs::remove_dir_all(path)
+    && err.kind() != ErrorKind::NotFound
+  {
+    warn!(?path, ?err, "Failed to remove build directory");
+  }
+}
+
 fn remove_path_nofail(path: &Path) {
   info!("Removing {}", path.to_string_lossy());
   if let Err(err) = std::fs::remove_file(path) {
@@ -694,6 +808,61 @@ mod tests {
   use std::{fs, os::unix::fs::symlink, time::Duration};
 
   use super::*;
+
+  #[test]
+  fn build_cleanup_selects_only_old_retained_directories() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    for (name, mode, old) in [
+      ("nix-retained", 0o755, true),
+      ("nix-active", 0o700, true),
+      ("nix-recent", 0o755, false),
+      ("nix-future", 0o755, false),
+      ("unrelated", 0o755, true),
+    ] {
+      let path = dir.path().join(name);
+      fs::create_dir(&path).expect("build directory");
+      fs::set_permissions(&path, fs::Permissions::from_mode(mode))
+        .expect("permissions");
+      if old {
+        fs::File::open(&path)
+          .expect("open directory")
+          .set_times(fs::FileTimes::new().set_modified(SystemTime::UNIX_EPOCH))
+          .expect("set build age");
+      }
+    }
+    fs::File::open(dir.path().join("nix-future"))
+      .expect("open future build")
+      .set_times(
+        fs::FileTimes::new()
+          .set_modified(SystemTime::now() + Duration::from_secs(86400)),
+      )
+      .expect("set future build age");
+    let outside = tempfile::tempdir().expect("outside directory");
+    symlink(outside.path(), dir.path().join("nix-symlink")).expect("symlink");
+    fs::write(dir.path().join("nix-file"), "keep").expect("regular file");
+
+    let uid = nix::unistd::Uid::effective();
+    let selected =
+      cleanable_build_dirs(dir.path(), Duration::from_secs(3600), uid)
+        .expect("select retained builds");
+    let selected: HashMap<_, _> = selected.into_iter().collect();
+    assert_eq!(
+      selected,
+      HashMap::from([
+        (dir.path().join("nix-retained"), true),
+        (dir.path().join("nix-recent"), false),
+        (dir.path().join("nix-future"), false),
+      ])
+    );
+    let other_uid = nix::unistd::Uid::from_raw(uid.as_raw() + 1);
+    assert!(
+      cleanable_build_dirs(dir.path(), Duration::ZERO, other_uid)
+        .expect("select another user's builds")
+        .is_empty()
+    );
+  }
 
   #[test]
   fn cleaning_rolled_back_profile_requires_opt_in_to_delete_selected() {
