@@ -46,7 +46,7 @@ jiff = { default-features = false, features = [
   "std",
   "tz-system",
   "tzdb-zoneinfo",
-], version = "0.2.38" }
+], version = "1.0.0" }
 nix = { default-features = false, features = [ "fs", "user", "hostname" ], version = "0.32.0" }
 nix-command = "0.2.4"
 nix-installable = "0.1.0"
