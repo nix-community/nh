@@ -392,6 +392,7 @@ impl HomeReplOptions {
 }
 
 #[cfg(test)]
+#[allow(clippy::panic)]
 mod tests {
   use nh_installable::Installable;
 
