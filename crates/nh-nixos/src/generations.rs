@@ -466,7 +466,7 @@ pub fn print_info(
       .date
       .parse()
       .unwrap_or(Timestamp::UNIX_EPOCH)
-      .to_zoned(TimeZone::system());
+      .to_zoned_datetime(TimeZone::system());
     parsed_dates.insert(
       generation.date.clone(),
       date.strftime("%Y-%m-%d %H:%M:%S").to_string(),
