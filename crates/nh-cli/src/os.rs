@@ -42,7 +42,7 @@ pub enum OsSubcommand {
   /// Build the new configuration
   Build {
     #[pound(flatten)]
-    args: OsRebuildArgs,
+    args: OsBuildArgs,
   },
 
   /// Load system in a repl
@@ -161,6 +161,16 @@ pub struct OsDryActivateArgs {
   /// unit
   #[pound(long, env = "NH_NO_SYSTEMD_RUN")]
   pub no_systemd_run: bool,
+}
+
+#[derive(Debug, Parse)]
+pub struct OsBuildArgs {
+  #[pound(flatten)]
+  pub rebuild: OsRebuildArgs,
+
+  /// Don't create an out-link
+  #[pound(long, group = "link")]
+  pub no_link: bool,
 }
 
 #[derive(Debug, Parse)]

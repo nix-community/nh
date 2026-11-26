@@ -199,9 +199,34 @@ mod tests {
         args: os::OsArgs {
           subcommand: os::OsSubcommand::Build { args },
         },
-      } if args.common.passthrough.option == ["sandbox", "false"]
-        && args.extra_args == ["--cores", "8"]
+      } if args.rebuild.common.passthrough.option == ["sandbox", "false"]
+        && args.rebuild.extra_args == ["--cores", "8"]
     ));
+    Ok(())
+  }
+
+  #[test]
+  #[serial]
+  fn no_link_parses_for_os_build() -> Result<(), pound::Error> {
+    let parsed = Main::try_parse_from(["os", "build", "--no-link"])?;
+    assert!(matches!(parsed.command, NHCommand::Os {
+      args: os::OsArgs {
+        subcommand: os::OsSubcommand::Build {
+          args: os::OsBuildArgs { no_link: true, .. },
+        },
+      },
+    }));
+    Ok(())
+  }
+
+  #[test]
+  #[serial]
+  fn no_link_conflicts_with_out_link() -> Result<(), pound::Error> {
+    let parsed =
+      Main::try_parse_from(["os", "build", "--out-link", "temp", "--no-link"]);
+    assert!(matches!(
+      parsed,
+      Err(error) if matches!(error.kind, ErrorKind::Conflict{ .. })));
     Ok(())
   }
 

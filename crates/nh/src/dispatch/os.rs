@@ -1,6 +1,7 @@
 use nh_cli::os::{
   Field,
   OsArgs,
+  OsBuildArgs,
   OsBuildImageArgs,
   OsBuildVmArgs,
   OsDryActivateArgs,
@@ -25,6 +26,7 @@ use nh_nixos::{
   generations,
   nixos::{
     OsBuildImageOptions,
+    OsBuildOptions,
     OsBuildVmOptions,
     OsCommand,
     OsDryActivateOptions,
@@ -61,7 +63,9 @@ pub(super) fn feature_requirements(
         Box::new(LegacyFeatures)
       }
     },
-    OsSubcommand::Build { args }
+    OsSubcommand::Build {
+      args: OsBuildArgs { rebuild: args, .. },
+    }
     | OsSubcommand::DryActivate {
       args: OsDryActivateArgs { rebuild: args, .. },
     } => {
@@ -114,7 +118,7 @@ fn command(subcommand: OsSubcommand) -> OsCommand {
     OsSubcommand::DryActivate { args } => {
       OsCommand::DryActivate(dry_activate(args))
     },
-    OsSubcommand::Build { args } => OsCommand::Build(rebuild(args)),
+    OsSubcommand::Build { args } => OsCommand::Build(build(args)),
     OsSubcommand::Repl { args } => OsCommand::Repl(repl(args)),
     OsSubcommand::Info { args } => OsCommand::Info(generations_options(args)),
     OsSubcommand::Rollback { args } => OsCommand::Rollback(rollback(args)),
@@ -180,6 +184,17 @@ fn dry_activate(args: OsDryActivateArgs) -> OsDryActivateOptions {
   OsDryActivateOptions {
     rebuild: rebuild(rebuild_args),
     no_systemd_run,
+  }
+}
+
+fn build(args: OsBuildArgs) -> OsBuildOptions {
+  let OsBuildArgs {
+    rebuild: rebuild_args,
+    no_link,
+  } = args;
+  OsBuildOptions {
+    rebuild: rebuild(rebuild_args),
+    no_link,
   }
 }
 
