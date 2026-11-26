@@ -1,7 +1,7 @@
 use std::{
   collections::HashMap,
   env,
-  io::Write,
+  io::{BufRead, BufReader, Write},
   path::{Path, PathBuf},
   sync::{Mutex, OnceLock},
 };
@@ -14,7 +14,7 @@ use nh_core::{
   util::{NixVariant, parse_nix_variant},
 };
 use secrecy::{ExposeSecret, SecretString};
-use subprocess::{Exec, Redirection};
+use subprocess::{Exec, Job, Redirection};
 use tracing::{debug, error, info, warn};
 
 mod copy;
@@ -190,92 +190,22 @@ fn nixos_activation_command(
   parts.join(" ")
 }
 
-/// Guard that cleans up SSH `ControlMaster` sockets on drop.
-///
-/// This ensures SSH control connections are properly closed when remote
-/// operations complete, preventing lingering SSH processes.
+/// Guard that closes an SSH `ControlMaster` connection opened by
+/// [`open_ssh_control_master`] on drop.
 #[must_use]
-pub struct SshControlGuard {
-  control_dir: PathBuf,
-}
+pub struct SshControlGuard(Option<Job>);
 
 impl Drop for SshControlGuard {
   fn drop(&mut self) {
-    cleanup_ssh_control_sockets(&self.control_dir);
-  }
-}
-
-/// Clean up SSH `ControlMaster` sockets in the control directory.
-///
-/// Iterates through all ssh-* control sockets and sends the "exit" command
-/// to close the master connection. Errors are logged but not propagated.
-fn cleanup_ssh_control_sockets(control_dir: &std::path::Path) {
-  debug!(
-    "Cleaning up SSH control sockets in {}",
-    control_dir.display()
-  );
-
-  // Read directory entries
-  let entries = match std::fs::read_dir(control_dir) {
-    Ok(entries) => entries,
-    Err(e) => {
-      // Directory might not exist if no SSH connections were made
-      debug!(
-        "Could not read SSH control directory {}: {}",
-        control_dir.display(),
-        e
-      );
-      return;
-    },
-  };
-
-  for entry in entries.flatten() {
-    let path = entry.path();
-
-    // Only process files starting with "ssh-"
-    if let Some(filename) = path.file_name().and_then(|n| n.to_str())
-      && filename.starts_with("ssh-")
-    {
-      debug!("Closing SSH control socket: {}", path.display());
-
-      // Run: ssh -o ControlPath=<socket> -O exit dummyhost
-      let result = Exec::cmd("ssh")
-        .args(["-o", &format!("ControlPath={}", path.display())])
-        .args(["-O", "exit", "dummyhost"])
-        .stdout(Redirection::Pipe)
-        .stderr(Redirection::Pipe)
-        .capture();
-
-      match result {
-        Ok(capture) => {
-          if !capture.exit_status.success() {
-            // This is normal if the connection was already closed
-            debug!(
-              "SSH control socket cleanup exited with status {:?} for {}",
-              capture.exit_status,
-              path.display()
-            );
-          }
-        },
-        Err(e) => {
-          tracing::warn!(
-            "Failed to close SSH control socket at {}: {}",
-            path.display(),
-            e
-          );
-        },
+    if let Some(master) = self.0.take() {
+      if let Err(e) = master.terminate() {
+        debug!("Failed to close SSH control master: {e}");
       }
+      master.wait().ok();
     }
+    // Fails while other masters still have sockets in it.
+    std::fs::remove_dir(get_ssh_control_dir()).ok();
   }
-}
-
-/// Initialize SSH control socket management.
-///
-/// Returns a guard that will clean up SSH `ControlMaster` connections when
-/// dropped. The guard should be held for the duration of remote operations.
-pub fn init_ssh_control() -> SshControlGuard {
-  let control_dir = get_ssh_control_dir().clone();
-  SshControlGuard { control_dir }
 }
 
 /// `ssh` to `host` with nh's options and without a terminal, forwarding the
@@ -287,9 +217,11 @@ pub fn init_ssh_control() -> SshControlGuard {
 fn ssh(host: &RemoteHost, forward_ssh_agent: bool) -> Exec {
   let mut cmd = Exec::cmd("ssh");
   if forward_ssh_agent {
-    let control_path = get_ssh_control_dir().join("ssh-agent-%n");
+    let control_path = get_ssh_control_dir().join("ssh-agent-%C");
+    // No master is opened for this socket up front, so let it prompt.
     cmd = cmd
       .arg("-A")
+      .args(["-o", "BatchMode=no"])
       .arg("-o")
       .arg(format!("ControlPath={}", control_path.display()));
   }
@@ -298,38 +230,53 @@ fn ssh(host: &RemoteHost, forward_ssh_agent: bool) -> Exec {
 
 /// Pre-establish a `ControlMaster` SSH connection to `host`.
 ///
-/// This runs `ssh -T <opts> <host> true` using nh's own SSH argument
-/// construction (options strictly before the hostname),  and thus creating a
-/// multiplexed master connection in the control socket directory.
-///
-/// Subsequent SSH invocations that delegate to Nix internals (e.g. `nix copy`
-/// with an SSH store URI) will reuse this already-authenticated socket via
-/// `ControlMaster=auto`, even if those internals would otherwise pass SSH flags
-/// in the wrong order.
-///
-/// Must be called after [`init_ssh_control`] so that the control directory
-/// exists.
+/// The master runs as a child of nh until the returned guard closes it, so it
+/// cannot time out during a long build. It is opened before any spinner starts,
+/// so SSH can prompt for authentication. All later SSH connections, including
+/// those of Nix, multiplex on it and run with `BatchMode=yes`.
 ///
 /// # Errors
 ///
 /// Returns an error if the SSH connection cannot be established.
-pub fn open_ssh_control_master(host: &RemoteHost) -> Result<()> {
-  debug!("Establishing SSH ControlMaster to '{host}'");
-
-  let capture = ssh(host, false)
-    .arg("true")
-    .capture()
-    .with_context(|| format!("Failed to connect to remote host '{host}'"))?;
-
-  if !capture.exit_status.success() {
-    bail!(
-      "SSH connection to '{}' failed:\n{}",
-      host,
-      capture.stderr_str().trim()
-    );
+pub fn open_ssh_control_master(host: &RemoteHost) -> Result<SshControlGuard> {
+  let check = Exec::cmd("ssh")
+    .args(["-O", "check"])
+    .args(get_ssh_opts())
+    .arg(host.ssh_host())
+    .stdout(Redirection::Null)
+    .stderr(Redirection::Null)
+    .join();
+  if check.is_ok_and(|status| status.success()) {
+    return Ok(SshControlGuard(None));
   }
 
-  Ok(())
+  debug!("Establishing SSH ControlMaster to '{host}'");
+
+  // LocalCommand runs once the connection is authenticated, which tells us
+  // that the master is ready.
+  let job = Exec::cmd("ssh")
+    .args(["-M", "-N"])
+    .args(["-o", "BatchMode=no"])
+    .args(["-o", "PermitLocalCommand=yes"])
+    .args(["-o", "LocalCommand=echo started"])
+    .args(get_ssh_opts())
+    .arg(host.ssh_host())
+    .stdin(Redirection::Null)
+    .stdout(Redirection::Pipe)
+    .start()
+    .with_context(|| format!("Failed to connect to remote host '{host}'"))?;
+
+  let mut line = String::new();
+  if let Some(stdout) = job.stdout.as_ref() {
+    BufReader::new(stdout).read_line(&mut line).ok();
+  }
+  if line.trim() != "started" {
+    job.terminate().ok();
+    let status = job.join().ok();
+    bail!("SSH connection to '{host}' failed (exit status: {status:?})");
+  }
+
+  Ok(SshControlGuard(Some(job)))
 }
 
 /// Probe the effective uid on the remote host after SSH login.
@@ -627,9 +574,16 @@ impl std::fmt::Display for RemoteHost {
 
 /// Get the default SSH options for connection multiplexing.
 /// Includes a `ControlPath` pointing to our control socket directory.
+///
+/// Masters are opened by [`open_ssh_control_master`] and live until nh is done.
+/// `BatchMode=yes` makes a connection fail rather than prompt behind a spinner
+/// if its master is gone.
 fn get_default_ssh_opts() -> Vec<String> {
   let control_dir = get_ssh_control_dir();
-  let control_path = control_dir.join("ssh-%n");
+  // SSH expands `%C` to a hash of the local hostname, remote hostname, port,
+  // user and `ProxyJump`. Each destination gets its own socket, and the
+  // fixed-length name keeps the path within the socket path length limit.
+  let control_path = control_dir.join("ssh-%C");
 
   vec![
     "-o".to_string(),
@@ -637,7 +591,9 @@ fn get_default_ssh_opts() -> Vec<String> {
     "-o".to_string(),
     format!("ControlPath={}", control_path.display()),
     "-o".to_string(),
-    "ControlPersist=60".to_string(),
+    "ControlPersist=no".to_string(),
+    "-o".to_string(),
+    "BatchMode=yes".to_string(),
   ]
 }
 
@@ -1913,7 +1869,7 @@ mod tests {
     let host = RemoteHost::parse("user@host.example").expect("should parse");
     let cmdline = ssh(&host, true).to_cmdline_lossy();
     assert!(cmdline.starts_with("ssh -A -o "), "{cmdline}");
-    assert!(cmdline.contains("ssh-agent-%n"), "{cmdline}");
+    assert!(cmdline.contains("ssh-agent-%C"), "{cmdline}");
     let cmdline = ssh(&host, false).to_cmdline_lossy();
     assert!(cmdline.ends_with(" -T 'user@host.example'"), "{cmdline}");
   }
@@ -1927,7 +1883,7 @@ mod tests {
     let opts = get_ssh_opts();
     assert!(opts.contains(&"-o".to_string()));
     assert!(opts.contains(&"ControlMaster=auto".to_string()));
-    assert!(opts.contains(&"ControlPersist=60".to_string()));
+    assert!(opts.contains(&"ControlPersist=no".to_string()));
     // Check that ControlPath is present (the exact path varies)
     assert!(opts.iter().any(|o| o.starts_with("ControlPath=")));
   }
@@ -2100,7 +2056,7 @@ mod tests {
     // Should contain our defaults as space-separated values
     assert!(result.contains("-o"));
     assert!(result.contains("ControlMaster=auto"));
-    assert!(result.contains("ControlPersist=60"));
+    assert!(result.contains("ControlPersist=no"));
     // Should contain ControlPath (exact path varies)
     assert!(result.contains("ControlPath="));
   }
@@ -2228,26 +2184,5 @@ mod tests {
       dir_str.contains("nh-ssh-"),
       "Control dir should contain 'nh-ssh-': {dir_str}"
     );
-  }
-
-  #[test]
-  fn test_init_ssh_control_returns_guard() {
-    // Verify that init_ssh_control() returns a guard
-    // and that the guard holds the correct control directory
-    let guard = init_ssh_control();
-    let expected_dir = get_ssh_control_dir();
-
-    // Verify the guard holds the same directory
-    assert_eq!(guard.control_dir, *expected_dir);
-  }
-
-  #[test]
-  fn test_ssh_control_guard_drop() {
-    // Verify that dropping the guard doesn't panic
-    // We can't easily test the actual cleanup without creating real SSH
-    // connections, but we can at least verify the Drop implementation runs
-    let guard = init_ssh_control();
-    drop(guard);
-    // If this completes without panic, the Drop impl is at least safe
   }
 }

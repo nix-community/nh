@@ -126,16 +126,14 @@ running as `root`.
 
 ```plaintext
 ControlMaster=auto
-ControlPath=<runtime-dir>/nh-ssh-%n
-ControlPersist=60
+ControlPath=<runtime-dir>/nh-ssh-<pid>/ssh-%C
+ControlPersist=no
+BatchMode=yes
 ```
 
-This reduces overhead when multiple SSH operations are performed. The first SSH
-connection to a host creates a master connection, and subsequent operations to
-the same host reuse it, avoiding repeated authentication.
-
-SSH control connections are automatically cleaned up when `nh` completes,
-ensuring no lingering SSH processes remain.
+Before building, `nh` opens a connection to each remote host, prompting for
+authentication if needed. It stays open until `nh` exits, and all later SSH
+operations to the same host reuse it.
 
 ### Custom SSH Options
 

@@ -139,9 +139,14 @@ impl DarwinRebuildOptions {
       .message("Building Darwin configuration")
       .rom(use_rom(self.common.no_rom, self.common.no_nom));
 
-    // Initialize SSH control - guard will cleanup connections on drop
-    let _ssh_guard =
-      self.build_host.is_some().then(nh_remote::init_ssh_control);
+    // Open the SSH connection before any spinner can hide its prompt. The
+    // guard closes it on drop.
+    let _ssh_guard = self
+      .build_host
+      .as_ref()
+      .map(nh_remote::open_ssh_control_master)
+      .transpose()
+      .context("Failed to establish SSH connection to build host")?;
 
     nh_remote::build(
       build,
