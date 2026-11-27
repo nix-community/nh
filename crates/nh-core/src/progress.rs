@@ -31,3 +31,29 @@ pub fn spinner(message: impl Into<String>) -> Spinner {
 
   spinner
 }
+
+/// Returns a spinner with a blue progress bar and message.
+///
+/// The spinner is cleared when it is dropped, so early returns do not leave it
+/// behind.
+///
+/// # Panics
+///
+/// Panics if the hardcoded progressbar template is invalid.
+#[must_use]
+pub fn bar(message: impl Into<String>) -> Spinner {
+  #[expect(clippy::expect_used)]
+  let style = ProgressStyle::with_template(
+    "[{elapsed_precise}]   {bar:28.yellow/white.dim}  {pos:>5}/{len:5} {msg}",
+  )
+  .expect("Static progressbar template is valid")
+  .progress_chars("━╸─");
+
+  let bar = ProgressBar::no_length()
+    .with_style(style)
+    .with_finish(ProgressFinish::AndClear);
+  bar.set_message(message.into());
+  bar.enable_steady_tick(DEFAULT_SPINNER_TICK);
+
+  bar
+}
