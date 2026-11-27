@@ -1218,7 +1218,7 @@ dependencies = [
 
 [[package]]
 name = "nh"
-version = "4.5.0"
+version = "4.5.1"
 dependencies = [
  "caress",
  "misstep",
@@ -1238,7 +1238,7 @@ dependencies = [
 
 [[package]]
 name = "nh-clean"
-version = "4.5.0"
+version = "4.5.1"
 dependencies = [
  "humantime",
  "misstep",
@@ -1253,7 +1253,7 @@ dependencies = [
 
 [[package]]
 name = "nh-cli"
-version = "4.5.0"
+version = "4.5.1"
 dependencies = [
  "humantime",
  "nh-core",
@@ -1276,7 +1276,7 @@ dependencies = [
 
 [[package]]
 name = "nh-core"
-version = "4.5.0"
+version = "4.5.1"
 dependencies = [
  "flub",
  "indicatif",
@@ -1302,7 +1302,7 @@ dependencies = [
 
 [[package]]
 name = "nh-darwin"
-version = "4.5.0"
+version = "4.5.1"
 dependencies = [
  "misstep",
  "nh-core",
@@ -1316,7 +1316,7 @@ dependencies = [
 
 [[package]]
 name = "nh-diff"
-version = "4.5.0"
+version = "4.5.1"
 dependencies = [
  "dix",
  "misstep",
@@ -1328,7 +1328,7 @@ dependencies = [
 
 [[package]]
 name = "nh-home"
-version = "4.5.0"
+version = "4.5.1"
 dependencies = [
  "misstep",
  "nh-core",
@@ -1341,7 +1341,7 @@ dependencies = [
 
 [[package]]
 name = "nh-installable"
-version = "4.5.0"
+version = "4.5.1"
 dependencies = [
  "misstep",
  "nix-command",
@@ -1353,7 +1353,7 @@ dependencies = [
 
 [[package]]
 name = "nh-nixos"
-version = "4.5.0"
+version = "4.5.1"
 dependencies = [
  "jiff 1.0.3",
  "misstep",
@@ -1370,7 +1370,7 @@ dependencies = [
 
 [[package]]
 name = "nh-remote"
-version = "4.5.0"
+version = "4.5.1"
 dependencies = [
  "dix",
  "inquire",
@@ -1387,7 +1387,7 @@ dependencies = [
 
 [[package]]
 name = "nh-search"
-version = "4.5.0"
+version = "4.5.1"
 dependencies = [
  "elasticsearch-dsl",
  "inquire",
@@ -2964,7 +2964,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "xtask"
-version = "4.5.0"
+version = "4.5.1"
 dependencies = [
  "caress",
  "nh-cli",
