@@ -16,6 +16,8 @@ functionality, under the "Removed" section.
 
 ## Unreleased
 
+## 4.5.1
+
 ### Fixed
 
 - `nh os info` displays generation build dates in the local timezone again,
