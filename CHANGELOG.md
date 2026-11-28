@@ -21,6 +21,8 @@ functionality, under the "Removed" section.
 - `nh os build` now accepts `--no-link`, building and diff'ing without affecting
   `./result` ([#899](https://github.com/nix-community/nh/issues/899)).
 
+## 4.5.1
+
 ### Fixed
 
 - `nh os info` displays generation build dates in the local timezone again,

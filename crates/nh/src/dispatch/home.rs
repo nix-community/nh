@@ -16,11 +16,11 @@ pub(super) fn feature_requirements(
 ) -> Box<dyn FeatureRequirements> {
   match &args.subcommand {
     HomeSubcommand::Repl { args } => {
-      let is_flake = args.installable.uses_flakes(CommandContext::Home);
+      let is_flake = args.installable.0.uses_flakes(CommandContext::Home);
       Box::new(HomeReplFeatures { is_flake })
     },
     HomeSubcommand::Switch { args } | HomeSubcommand::Build { args } => {
-      if args.common.installable.uses_flakes(CommandContext::Home) {
+      if args.common.installable.0.uses_flakes(CommandContext::Home) {
         Box::new(FlakeFeatures)
       } else {
         Box::new(LegacyFeatures)
@@ -76,7 +76,7 @@ fn repl(args: HomeReplArgs) -> HomeReplOptions {
     extra_args,
   } = args;
   HomeReplOptions {
-    installable,
+    installable: common::installable(installable),
     configuration,
     extra_args,
   }

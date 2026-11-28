@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 
 use nh_core::args::{self, DiffType};
-use nh_installable::InstallableArgs;
 use pound::{Choice, FromArg, Parse, ValueEnum, ValueError};
+
+use crate::installable::InstallableArgs;
 
 #[derive(Debug, Parse)]
 pub struct CommonRebuildArgs {
