@@ -48,6 +48,10 @@ jobs:
             echo "Tag $nh_version already exists, skipping"
             exit 0
           fi
+          if grep -n '^[[:space:]]*#\[since(next)\]' crates/nh-static/src/env_vars.rs; then
+            echo "::error::Replace #[since(next)] with ${nh_version#v} before releasing"
+            exit 1
+          fi
           git tag "$nh_version"
           git push "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" --tags
 

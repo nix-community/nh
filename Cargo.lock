@@ -2985,6 +2985,7 @@ dependencies = [
  "nh-cli",
  "nh-static",
  "pound",
+ "semver",
 ]
 
 [[package]]

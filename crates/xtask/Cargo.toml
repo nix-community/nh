@@ -9,6 +9,7 @@ caress.workspace    = true
 nh-cli.workspace    = true
 nh-static.workspace = true
 pound.workspace     = true
+semver.workspace    = true
 
 [lints]
 workspace = true

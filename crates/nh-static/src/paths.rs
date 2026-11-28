@@ -18,16 +18,19 @@ pub const AUTO_GCROOTS: &str = "/nix/var/nix/gcroots/auto";
 /// Paths documented in nh's man page, in order.
 pub const DOCUMENTED: &[Documented] = &[
   Documented {
-    name: SYSTEM_PROFILE,
-    doc:  "System profile directory containing system generations.",
+    name:  SYSTEM_PROFILE,
+    doc:   "System profile, holding the system generations of NixOS and \
+            nix-darwin.",
+    since: None,
   },
   Documented {
-    name: CURRENT_SYSTEM,
-    doc:  "Symlink to the currently active system profile.",
+    name:  CURRENT_SYSTEM,
+    doc:   "Symlink to the currently active system.",
+    since: None,
   },
   Documented {
-    name: SPECIALISATION,
-    doc:  "NixOS specialisation detection. Contains the active specialisation \
-           name.",
+    name:  SPECIALISATION,
+    doc:   "Contains the name of the active NixOS specialisation, if any.",
+    since: None,
   },
 ];

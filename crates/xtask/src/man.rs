@@ -1,7 +1,8 @@
 use std::{io::Write, path::Path};
 
-use nh_static::{Documented, EnvVars, paths};
+use nh_static::{Documented, EnvVars, NH_VERSION, Since, paths};
 use pound::{CommandSpec, Parse};
+use semver::Version;
 
 type Entry = (&'static str, &'static str);
 
@@ -74,16 +75,13 @@ pub fn generate(out_dir: &str) -> Result<(), String> {
     }
   }
   check_env_documented(nh_cli::Main::SPEC)?;
+  check_since_versions()?;
 
   let exit_statuses = EXIT_STATUSES
     .iter()
     .map(|&(label, description)| (label, vec![description.to_owned()]));
   render_indented_section("EXIT STATUS", exit_statuses, &mut buffer)?;
-  render_indented_section(
-    "ENVIRONMENT",
-    EnvVars::DOCUMENTED.iter().map(documented_entry),
-    &mut buffer,
-  )?;
+  render_environment(&mut buffer)?;
   render_indented_section(
     "FILES",
     paths::DOCUMENTED.iter().map(documented_entry),
@@ -102,9 +100,7 @@ pub fn generate(out_dir: &str) -> Result<(), String> {
 /// Fail if the CLI reads an environment variable that the man page does not
 /// document.
 fn check_env_documented(spec: &CommandSpec) -> Result<(), String> {
-  let args = spec.args.iter();
-  let flattened = spec.flattened.iter().flat_map(|spec| spec.args);
-  for env in args.chain(flattened).filter_map(|arg| arg.env) {
+  for env in spec.args.iter().filter_map(|arg| arg.env) {
     if !EnvVars::DOCUMENTED.iter().any(|var| var.name == env) {
       return Err(format!(
         "`{env}` is read by the CLI but not documented in nh_static::EnvVars"
@@ -115,21 +111,67 @@ fn check_env_documented(spec: &CommandSpec) -> Result<(), String> {
     check_env_documented(sub.spec)?;
   }
   for flattened in spec.flattened {
-    for sub in flattened.subs {
-      check_env_documented(sub.spec)?;
+    check_env_documented(flattened)?;
+  }
+  Ok(())
+}
+
+/// Fail if a `#[since("x.y.z")]` is not valid semver or is newer than nh
+/// itself, which means it should be `#[since(next)]`.
+fn check_since_versions() -> Result<(), String> {
+  let current = Version::parse(NH_VERSION)
+    .map_err(|e| format!("invalid nh version `{NH_VERSION}`: {e}"))?;
+  for var in EnvVars::DOCUMENTED {
+    let Some(Since::Version(since)) = var.since else {
+      continue;
+    };
+    let name = var.name;
+    let version = Version::parse(since)
+      .map_err(|e| format!("`{name}`: invalid #[since(\"{since}\")]: {e}"))?;
+    if version > current {
+      return Err(format!(
+        "`{name}`: #[since(\"{since}\")] is newer than nh {current}; use \
+         #[since(next)]"
+      ));
     }
   }
   Ok(())
 }
 
-/// A man page entry: the label and the paragraphs of its description, with
-/// Markdown code spans unwrapped.
+/// Turns `documented` into a man page entry.
 fn documented_entry(documented: &Documented) -> (&'static str, Vec<String>) {
   let paragraphs = documented
     .paragraphs()
     .map(|paragraph| paragraph.replace('`', ""))
+    .chain(documented.since.map(Since::sentence))
     .collect();
   (documented.name, paragraphs)
+}
+
+/// Render the ENVIRONMENT section, placing nh's own variables
+/// before those of other tools, each section sorted alphabetically by name.
+fn render_environment(buffer: &mut Vec<u8>) -> Result<(), String> {
+  let (mut own, mut external): (Vec<_>, Vec<_>) = EnvVars::DOCUMENTED
+    .iter()
+    .partition(|var| var.name.starts_with("NH_"));
+  // Sort `_` before letters, so `NIX_*` precedes `NIXOS_*`.
+  let key = |var: &&Documented| var.name.replace('_', " ");
+  own.sort_by_cached_key(key);
+  external.sort_by_cached_key(key);
+
+  let render = || -> std::io::Result<()> {
+    writeln!(buffer, ".Sh ENVIRONMENT")?;
+    writeln!(buffer, "nh reads the following environment variables:")?;
+    render_list(own.into_iter().map(documented_entry), buffer)?;
+    writeln!(buffer, ".Ss \"Externally defined variables\"")?;
+    writeln!(
+      buffer,
+      "nh also reads or forwards the following variables, defined by other \
+       tools:"
+    )?;
+    render_list(external.into_iter().map(documented_entry), buffer)
+  };
+  render().map_err(|e| format!("Failed to write ENVIRONMENT section: {e}"))
 }
 
 fn render_indented_section(
@@ -139,14 +181,22 @@ fn render_indented_section(
 ) -> Result<(), String> {
   let render = || -> std::io::Result<()> {
     writeln!(buffer, ".Sh \"{title}\"")?;
-    writeln!(buffer, ".Bl -tag -width Ds")?;
-    for (label, paragraphs) in entries {
-      writeln!(buffer, ".It Sy \"{label}\"")?;
-      writeln!(buffer, "{}", paragraphs.join("\n.Pp\n"))?;
-    }
-    writeln!(buffer, ".El")
+    render_list(entries, buffer)
   };
   render().map_err(|e| format!("Failed to write {title} section: {e}"))
+}
+
+/// Render `entries` as a tagged list, separating paragraphs with `.Pp`.
+fn render_list(
+  entries: impl IntoIterator<Item = (&'static str, Vec<String>)>,
+  buffer: &mut Vec<u8>,
+) -> std::io::Result<()> {
+  writeln!(buffer, ".Bl -tag -width Ds")?;
+  for (label, paragraphs) in entries {
+    writeln!(buffer, ".It Sy \"{label}\"")?;
+    writeln!(buffer, "{}", paragraphs.join("\n.Pp\n"))?;
+  }
+  writeln!(buffer, ".El")
 }
 
 fn render_examples(
