@@ -16,6 +16,11 @@ functionality, under the "Removed" section.
 
 ## Unreleased
 
+### Added
+
+- `nh os build` now accepts `--no-link`, building and diff'ing without affecting
+  `./result` ([#899](https://github.com/nix-community/nh/issues/899)).
+
 ## 4.5.1
 
 ### Fixed

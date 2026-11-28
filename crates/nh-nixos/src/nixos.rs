@@ -106,6 +106,13 @@ pub struct OsDryActivateOptions {
   pub no_systemd_run: bool,
 }
 
+/// Options for building a NixOS configuration.
+#[derive(Debug)]
+pub struct OsBuildOptions {
+  pub rebuild: OsRebuildOptions,
+  pub no_link: bool,
+}
+
 /// Options for building a NixOS VM image.
 #[derive(Debug)]
 pub struct OsBuildVmOptions {
@@ -161,7 +168,7 @@ pub enum OsCommand {
   /// Build and preview activation without applying it
   DryActivate(OsDryActivateOptions),
   /// Build the new configuration
-  Build(OsRebuildOptions),
+  Build(OsBuildOptions),
   /// Load system in a repl
   Repl(OsReplOptions),
   /// List available generations from profile path
@@ -210,14 +217,15 @@ impl OsCommand {
         activate.rebuild_and_activate(&DryActivate, None, elevation)
       },
       Self::Build(args) => {
-        if args.common.ask {
+        if args.rebuild.common.ask {
           warn!("`--ask` has no effect for `nh os build`");
         }
-
-        if args.common.dry {
-          args.dry_build()
+        if args.rebuild.common.dry {
+          args.rebuild.dry_build()
         } else {
-          args.build_only(&Build, None, &elevation)
+          args
+            .rebuild
+            .build_only(&Build, None, &elevation, args.no_link)
         }
       },
       Self::BuildVm(args) => args.build_vm(&elevation),
@@ -429,7 +437,12 @@ impl OsBuildVmOptions {
       });
     }
 
-    rebuild.build_only(&OsRebuildVariant::BuildVm, Some(&[attr]), elevation)?;
+    rebuild.build_only(
+      &OsRebuildVariant::BuildVm,
+      Some(&[attr]),
+      elevation,
+      false,
+    )?;
 
     // If --run flag is set, execute the VM
     if self.run {
@@ -454,7 +467,7 @@ impl OsRebuildActivateOptions {
       self.rebuild.setup_build_context(&elevation)?;
 
     let (out_path, _tempdir_guard) =
-      self.rebuild.determine_output_path(variant)?;
+      self.rebuild.determine_output_path(variant, false)?;
 
     let toplevel = self
       .rebuild
@@ -759,17 +772,19 @@ impl OsRebuildOptions {
   fn determine_output_path(
     &self,
     variant: &OsRebuildVariant,
+    no_link: bool,
   ) -> Result<(PathBuf, Option<tempfile::TempDir>)> {
     use OsRebuildVariant::{Build, BuildIso, BuildVm};
     if let Some(p) = self.common.out_link.clone() {
       Ok((p, None))
     } else {
-      let (path, guard) = if matches!(variant, BuildVm | BuildIso | Build) {
-        (PathBuf::from("result"), None)
-      } else {
-        let dir = tempfile::Builder::new().prefix("nh-os").tempdir()?;
-        (dir.as_ref().join("result"), Some(dir))
-      };
+      let (path, guard) =
+        if matches!(variant, BuildVm | BuildIso | Build) && !no_link {
+          (PathBuf::from("result"), None)
+        } else {
+          let dir = tempfile::Builder::new().prefix("nh-os").tempdir()?;
+          (dir.as_ref().join("result"), Some(dir))
+        };
       Ok((path, guard))
     }
   }
@@ -906,12 +921,14 @@ impl OsRebuildOptions {
     variant: &OsRebuildVariant,
     final_attrs: Option<&[&str]>,
     elevation: &ElevationStrategy,
+    no_link: bool,
   ) -> Result<()> {
     use OsRebuildVariant::{Build, BuildIso, BuildVm};
 
     let (_, target_hostname) = self.setup_build_context(elevation)?;
 
-    let (out_path, _tempdir_guard) = self.determine_output_path(variant)?;
+    let (out_path, _tempdir_guard) =
+      self.determine_output_path(variant, no_link)?;
 
     let toplevel = if matches!(variant, BuildVm)
       && !self.no_specialisation
@@ -1209,7 +1226,12 @@ impl OsBuildImageOptions {
       .image_variant
       .as_deref()
       .map_or_else(|| vec!["isoImage"], |variant| vec!["images", variant]);
-    rebuild.build_only(&OsRebuildVariant::BuildIso, Some(&attrs), elevation)?;
+    rebuild.build_only(
+      &OsRebuildVariant::BuildIso,
+      Some(&attrs),
+      elevation,
+      false,
+    )?;
 
     Ok(())
   }

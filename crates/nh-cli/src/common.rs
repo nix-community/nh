@@ -27,7 +27,7 @@ pub struct CommonRebuildArgs {
   pub no_nom: bool,
 
   /// Path to save the result link, defaults to using a temporary directory
-  #[pound(long, short)]
+  #[pound(long, short, group = "link")]
   pub out_link: Option<PathBuf>,
 
   /// Whether to display a package diff
