@@ -475,31 +475,7 @@ impl OsRebuildActivateOptions {
       _ => "Building NixOS configuration",
     };
 
-    // Initialize SSH control early if we have remote hosts - guard will keep
-    // connections alive for both build and activation
-    let _ssh_guard = if self.rebuild.build_host.is_some()
-      || self.rebuild.target_host.is_some()
-    {
-      let guard = nh_remote::init_ssh_control();
-
-      // Pre-establish ControlMaster connections so that delegated SSH
-      // invocations (e.g. `nix copy --to ssh-ng://...`) reuse the already-
-      // authenticated socket rather than opening a fresh connection where
-      // SSH option ordering may differ.
-      if let Some(build_host) = &self.rebuild.build_host {
-        nh_remote::open_ssh_control_master(build_host)
-          .context("Failed to establish SSH connection to build host")?;
-      }
-
-      if let Some(target_host) = &self.rebuild.target_host {
-        nh_remote::open_ssh_control_master(target_host)
-          .context("Failed to establish SSH connection to target host")?;
-      }
-
-      Some(guard)
-    } else {
-      None
-    };
+    let _ssh_guards = self.rebuild.open_ssh_control_masters()?;
 
     // Now that the ControlMaster is up, probe the remote uid for elevation.
     let elevate = if self.rebuild.target_host.is_some() {
@@ -732,6 +708,28 @@ impl OsRebuildOptions {
     Ok((elevate, target_hostname))
   }
 
+  /// Open the SSH connections to the build and target hosts before any
+  /// spinner can hide their prompts. Delegated SSH invocations (e.g.
+  /// `nix copy --to ssh-ng://...`) reuse them, and the guards close them on
+  /// drop.
+  fn open_ssh_control_masters(
+    &self,
+  ) -> Result<[Option<nh_remote::SshControlGuard>; 2]> {
+    let build = self
+      .build_host
+      .as_ref()
+      .map(nh_remote::open_ssh_control_master)
+      .transpose()
+      .context("Failed to establish SSH connection to build host")?;
+    let target = self
+      .target_host
+      .as_ref()
+      .map(nh_remote::open_ssh_control_master)
+      .transpose()
+      .context("Failed to establish SSH connection to target host")?;
+    Ok([build, target])
+  }
+
   /// Probe the remote uid to decide whether activation needs elevation.
   ///
   /// This must be called after [`nh_remote::open_ssh_control_master`]
@@ -958,6 +956,7 @@ impl OsRebuildOptions {
       _ => "Building NixOS configuration",
     };
 
+    let _ssh_guards = self.open_ssh_control_masters()?;
     let store_path = self.execute_build(toplevel, &out_path, message)?;
 
     let target_profile = if matches!(variant, BuildVm) {

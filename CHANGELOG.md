@@ -31,6 +31,9 @@ functionality, under the "Removed" section.
   ([#885](https://github.com/nix-community/nh/issues/885)).
 - `nh os {boot,switch}` now show the output of the bootloader step in
   activation, and `nh os rollback` shows the output of activation.
+- nh now opens SSH connections to remote hosts before building and keeps them
+  open until it exits, so authentication prompts are no longer hidden behind
+  spinners.
 
 ## 4.5.0
 
