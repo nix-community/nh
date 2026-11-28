@@ -20,10 +20,32 @@ pub const NH_REV: Option<&str> = option_env!("NH_REV");
 #[derive(Debug, Clone, Copy)]
 pub struct Documented {
   /// The value itself, e.g. an environment variable name or a path.
-  pub name: &'static str,
+  pub name:  &'static str,
   /// Documentation, one source line per line. Empty lines separate
   /// paragraphs.
-  pub doc:  &'static str,
+  pub doc:   &'static str,
+  /// The release that introduced it, if tracked.
+  pub since: Option<Since>,
+}
+
+/// The release that introduced a documented value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Since {
+  /// A released version, e.g. `4.5.0`.
+  Version(&'static str),
+  /// Not released yet. Replaced with the new version when releasing.
+  NextRelease,
+}
+
+impl Since {
+  /// A sentence stating when the value was added, e.g. `Added in nh 4.5.0.`
+  #[must_use]
+  pub fn sentence(self) -> String {
+    match self {
+      Self::Version(version) => format!("Added in nh {version}."),
+      Self::NextRelease => "Added in the next release of nh.".to_owned(),
+    }
+  }
 }
 
 impl Documented {

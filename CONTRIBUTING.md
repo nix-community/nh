@@ -171,6 +171,10 @@ document that keeps track of changes made to NH. Most changes should target the
 "Unreleased" section, and this section will be renamed to the next tag before a
 tagged release.
 
+New environment variables are declared in `crates/nh-static/src/env_vars.rs`.
+Mark them with `#[since(next)]`; the release commit then replaces it with the
+new version, and tagging fails while any `#[since(next)]` remains.
+
 There exists a PR template that helps clarify what we are looking for in a PR.
 Please fill it out completely.
 
